@@ -1,21 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { connect } from 'mongoose';
-import User from '@/models/User';
 import bcrypt from 'bcrypt';
+import dbConnect from '@/lib/db';
+import User from '@/models/User';
 import jwt from 'jsonwebtoken';
 
 export async function POST(request: NextRequest) {
   try {
-    const mongoUri = process.env.MONGODB_URI;
     const jwtSecret = process.env.JWT_SECRET;
     
-    if (!mongoUri) {
-      return NextResponse.json(
-        { error: 'MongoDB URI not configured' },
-        { status: 500 }
-      );
-    }
-
     if (!jwtSecret) {
       return NextResponse.json(
         { error: 'JWT Secret not configured' },
@@ -23,7 +15,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await connect(mongoUri);
+    await dbConnect();
     
     const body = await request.json();
     const { email, password } = body;
@@ -36,8 +28,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Find user by email
-    const user = await User.findOne({ email: email.toLowerCase() });
+    // Find user by email (exclude deleted users)
+    const user = await User.findOne({ 
+      email: email.toLowerCase(),
+      isDeleted: { $ne: true }
+    });
     
     if (!user) {
       return NextResponse.json(
@@ -46,8 +41,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify password
-    const isPasswordValid = await user.comparePassword(password);
+    // Verify password using direct bcrypt comparison
+    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     
     if (!isPasswordValid) {
       return NextResponse.json(
@@ -68,29 +63,24 @@ export async function POST(request: NextRequest) {
       { expiresIn: '7d' }
     );
 
-    // Return user data (without password) and token
-    const userResponse = {
-      _id: user._id,
-      studentId: user.studentId,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      phone: user.phone,
-      class: user.class,
-      faculty: user.faculty,
-      avatarUrl: user.avatarUrl,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt
-    };
-
     return NextResponse.json({
       success: true,
       message: 'Đăng nhập thành công',
-      user: userResponse,
+      user: {
+        _id: user._id,
+        studentId: user.studentId,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        phone: user.phone,
+        class: user.class,
+        faculty: user.faculty,
+        avatarUrl: user.avatarUrl
+      },
       token: token
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Login error:', error);
     
     return NextResponse.json(

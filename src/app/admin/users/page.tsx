@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import AdminNav from '@/components/admin/AdminNav';
 import Footer from '@/components/common/Footer';
@@ -33,6 +35,7 @@ interface Pagination {
 }
 
 export default function UsersPage() {
+  const router = useRouter();
   const { user } = useAuth();
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
@@ -41,6 +44,12 @@ export default function UsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [showExportToast, setShowExportToast] = useState(false);
+  const [showAddUserDropdown, setShowAddUserDropdown] = useState(false);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+  const addUserButtonRef = useRef<HTMLButtonElement>(null);
+  const [roleDropdownPosition, setRoleDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+  const roleButtonRef = useRef<HTMLButtonElement>(null);
+
   
   // Filter states
   const [search, setSearch] = useState('');
@@ -183,6 +192,8 @@ export default function UsersPage() {
     fetchUsers();
   }, [currentPage, search, roleFilter, clubMemberFilter, facultyFilter, sortBy, sortOrder]);
 
+
+
   // Fetch tổng thống kê khi component mount
   useEffect(() => {
     fetchTotalStats();
@@ -192,6 +203,9 @@ export default function UsersPage() {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Element;
+      if (!target.closest('.add-user-dropdown')) {
+        setShowAddUserDropdown(false);
+      }
       if (!target.closest('.role-dropdown')) {
         setRoleDropdownOpen(false);
       }
@@ -354,27 +368,29 @@ export default function UsersPage() {
       <div className={`min-h-screen flex flex-col transition-colors duration-200 ${isDarkMode ? 'bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900' : 'bg-gradient-to-br from-gray-50 via-blue-50 to-indigo-50'}`}>
         <AdminNav />
         
-        <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative">
           {/* Header */}
           <div className="mb-10">
-            <div className="flex items-center space-x-4 mb-4">
-              <div className={`p-3 rounded-2xl ${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} shadow-lg`}>
-                <svg className={`w-8 h-8 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-                </svg>
-              </div>
-              <div>
-                <h1 className={`text-4xl font-bold bg-gradient-to-r ${isDarkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent transition-colors duration-200`}>
-                  Quản lý Users
-                </h1>
-                <p className={`mt-2 text-lg transition-colors duration-200 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                  Quản lý tất cả users trong hệ thống (bao gồm cả thành viên và không thành viên CLB)
-                </p>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center space-x-4">
+                <div className={`p-3 rounded-2xl ${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} shadow-lg`}>
+                  <svg className={`w-8 h-8 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <h1 className={`text-4xl font-bold bg-gradient-to-r ${isDarkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent transition-colors duration-200`}>
+                    Quản lý Users
+                  </h1>
+                  <p className={`mt-2 text-lg transition-colors duration-200 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                    Quản lý tất cả users trong hệ thống (bao gồm cả thành viên và không thành viên CLB)
+                  </p>
+                </div>
               </div>
             </div>
           </div>
 
-                 {/* Stats Cards */}
+          {/* Stats Cards */}
          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-10">
            <div className={`${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} rounded-2xl shadow-xl border ${isDarkMode ? 'border-gray-700/50' : 'border-white/20'} p-6 hover:scale-105 transition-all duration-300`}>
              <div className="flex items-center justify-between">
@@ -442,8 +458,8 @@ export default function UsersPage() {
         </div>
 
                                                                        {/* Filters and Search */}
-           <div className={`${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} rounded-3xl shadow-2xl mb-8 border ${isDarkMode ? 'border-gray-700/50' : 'border-white/20'}`}>
-             <div className="p-8">
+           <div className={`${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} rounded-3xl shadow-2xl mb-8 border ${isDarkMode ? 'border-gray-700/50' : 'border-white/20'}`} style={{ overflow: 'visible' }}>
+             <div className="p-8" style={{ overflow: 'visible' }}>
                <div className="mb-8">
                  <div className="flex items-center space-x-3 mb-3">
                    <div className={`p-2 rounded-xl ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'}`}>
@@ -499,8 +515,22 @@ export default function UsersPage() {
                    </label>
                    <div className="relative role-dropdown">
                      <button
+                       ref={roleButtonRef}
                        type="button"
-                       onClick={() => setRoleDropdownOpen(!roleDropdownOpen)}
+                       onClick={() => {
+                         console.log('Role button clicked, current state:', roleDropdownOpen);
+                         if (roleButtonRef.current) {
+                           const rect = roleButtonRef.current.getBoundingClientRect();
+                           console.log('Button rect:', rect);
+                           setRoleDropdownPosition({
+                             top: rect.bottom + 8,
+                             left: rect.left,
+                             width: rect.width
+                           });
+                         }
+                         setRoleDropdownOpen(!roleDropdownOpen);
+                         console.log('New state will be:', !roleDropdownOpen);
+                       }}
                        className={`w-full px-4 py-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 flex justify-between items-center transition-all duration-200 ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white hover:bg-gray-600' : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'}`}
                      >
                        <span className="flex items-center">
@@ -532,11 +562,12 @@ export default function UsersPage() {
                        </svg>
                      </button>
                      
+                     {/* Inline dropdown for testing */}
                      {roleDropdownOpen && (
-                       <div className={`absolute z-10 w-full mt-2 border rounded-lg shadow-xl ${isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'}`}>
-                         <div className="py-2">
+                       <div className={`absolute z-[99999] w-full mt-2 border rounded-lg shadow-xl ${isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'}`}>
+                         <div className="py-1">
                            {['ADMIN', 'OFFICER', 'STUDENT'].map((role) => (
-                             <label key={role} className={`flex items-center px-4 py-3 cursor-pointer transition-colors duration-150 ${isDarkMode ? 'hover:bg-gray-600' : 'hover:bg-gray-50'}`}>
+                             <label key={role} className={`flex items-center px-2 py-3 cursor-pointer transition-colors duration-150 ${isDarkMode ? 'hover:bg-gray-600' : 'hover:bg-gray-50'}`}>
                                <input
                                  type="checkbox"
                                  checked={roleFilter.includes(role)}
@@ -557,7 +588,7 @@ export default function UsersPage() {
                                    
                                    handleFilterChange();
                                  }}
-                                 className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 mr-3"
+                                 className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 mr-2 w-3 h-3"
                                />
                                <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                                  {role === 'ADMIN' ? 'Admin' : role === 'OFFICER' ? 'Ban Chấp Hành' : 'Sinh Viên'}
@@ -659,25 +690,37 @@ export default function UsersPage() {
                  </div>
                </div>
 
-               {/* Export Button */}
-               <div className="mt-8 flex justify-end">
+               {/* Action Buttons */}
+               <div className="mt-6 flex justify-between items-center relative">
+                 {/* Add User Button */}
+                                   <Link
+                    href="/admin/members/add?from=users"
+                    className="px-6 py-3 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 text-white rounded-xl hover:from-blue-600 hover:via-indigo-600 hover:to-purple-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:ring-offset-2 flex items-center transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 hover:scale-102"
+                  >
+                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                   </svg>
+                   <span className="text-sm font-medium">Thêm Người Dùng</span>
+                 </Link>
+
+                 {/* Export Button */}
                  <button
                    type="button"
                    onClick={handleExportExcel}
                    disabled={exporting}
-                   className="px-8 py-4 bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 text-white rounded-2xl hover:from-emerald-600 hover:via-green-600 hover:to-teal-600 focus:outline-none focus:ring-4 focus:ring-green-500/30 focus:ring-offset-2 flex items-center disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-2xl hover:shadow-3xl transform hover:-translate-y-1 hover:scale-105"
+                   className="px-6 py-3 bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 text-white rounded-xl hover:from-emerald-600 hover:via-green-600 hover:to-teal-600 focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:ring-offset-2 flex items-center disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 hover:scale-102"
                  >
                    {exporting ? (
                      <>
-                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mr-4"></div>
-                       <span className="text-lg font-semibold">Đang xuất...</span>
+                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                       <span className="text-sm font-medium">Đang xuất...</span>
                      </>
                    ) : (
                      <>
-                       <svg className="w-6 h-6 mr-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                       <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                        </svg>
-                       <span className="text-lg font-semibold">Xuất Excel</span>
+                       <span className="text-sm font-medium">Xuất Excel</span>
                      </>
                    )}
                  </button>
@@ -914,45 +957,49 @@ export default function UsersPage() {
         </div>
       </main>
       
-             <Footer isDarkMode={isDarkMode} />
+      <Footer isDarkMode={isDarkMode} />
 
-       {/* Export Toast Notification */}
+      {/* Export Toast Notification */}
        {showExportToast && (
-         <div className={`fixed bottom-6 right-6 z-50 p-6 rounded-2xl shadow-2xl transition-all duration-500 backdrop-blur-sm ${isDarkMode ? 'bg-green-500/90 text-white border border-green-400/50' : 'bg-green-500/90 text-white border border-green-400/50'}`}>
+         <div className={`fixed bottom-4 right-4 z-50 p-3 rounded-lg shadow-lg transition-all duration-300 backdrop-blur-sm ${isDarkMode ? 'bg-green-500/90 text-white border border-green-400/50' : 'bg-green-500/90 text-white border border-green-400/50'}`}>
            <div className="flex items-center">
-             <div className="p-2 rounded-xl bg-white/20 mr-4">
-               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+             <div className="p-1 rounded-md bg-white/20 mr-2">
+               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                </svg>
              </div>
-             <span className="text-lg font-semibold">File Excel đã được chuẩn bị để download</span>
+             <span className="text-sm font-medium">File Excel đã sẵn sàng download</span>
            </div>
          </div>
        )}
 
+
+
        {/* Modals */}
-      <UserDetailModal
-        isOpen={showDetailModal}
-        onClose={closeModals}
-        userId={selectedUserId}
-        isDarkMode={isDarkMode}
-      />
+      <div className="relative z-50">
+        <UserDetailModal
+          isOpen={showDetailModal}
+          onClose={closeModals}
+          userId={selectedUserId}
+          isDarkMode={isDarkMode}
+        />
 
-      <UserEditModal
-        isOpen={showEditModal}
-        onClose={closeModals}
-        userId={selectedUserId}
-        isDarkMode={isDarkMode}
-        onUserUpdated={handleUserUpdated}
-      />
+        <UserEditModal
+          isOpen={showEditModal}
+          onClose={closeModals}
+          userId={selectedUserId}
+          isDarkMode={isDarkMode}
+          onUserUpdated={handleUserUpdated}
+        />
 
-      <UserDeleteModal
-        isOpen={showDeleteModal}
-        onClose={closeModals}
-        userId={selectedUserId}
-        isDarkMode={isDarkMode}
-        onUserDeleted={handleUserDeleted}
-      />
+        <UserDeleteModal
+          isOpen={showDeleteModal}
+          onClose={closeModals}
+          userId={selectedUserId}
+          isDarkMode={isDarkMode}
+          onUserDeleted={handleUserDeleted}
+        />
+      </div>
     </div>
     </ProtectedRoute>
   );

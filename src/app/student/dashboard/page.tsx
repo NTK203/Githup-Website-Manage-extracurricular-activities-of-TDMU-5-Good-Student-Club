@@ -1,6 +1,7 @@
 import ClientOnly from '@/components/common/ClientOnly';
 import StudentNav from '@/components/student/StudentNav';
 import Footer from '@/components/common/Footer';
+import ProtectedRoute from '@/components/common/ProtectedRoute';
 
 export default function StudentDashboard() {
   const studentStats = [
@@ -90,10 +91,11 @@ export default function StudentDashboard() {
 
   return (
     <ClientOnly>
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <StudentNav />
-        
-        <main className="flex-1 max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-4 sm:py-8">
+      <ProtectedRoute requiredRole="STUDENT">
+        <div className="min-h-screen bg-gray-50 flex flex-col">
+          <StudentNav />
+          
+          <main className="flex-1 max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-4 sm:py-8">
           {/* Welcome Section */}
           <div className="mb-6 sm:mb-8">
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
@@ -224,6 +226,7 @@ export default function StudentDashboard() {
 
         <Footer />
       </div>
+      </ProtectedRoute>
     </ClientOnly>
   );
 }

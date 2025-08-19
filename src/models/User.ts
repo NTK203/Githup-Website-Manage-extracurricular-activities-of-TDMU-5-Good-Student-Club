@@ -14,10 +14,12 @@ export interface IUser extends Document {
   phone?: string;
   class?: string;
   faculty?: string;
+  isClubMember?: boolean;
   avatarUrl?: string;
   isDeleted?: boolean;
   deletedAt?: Date;
   deletedBy?: mongoose.Types.ObjectId;
+  deletionReason?: string;
   createdAt: Date;
   updatedAt: Date;
   
@@ -114,6 +116,11 @@ const userSchema = new Schema<IUser>({
       message: 'Khoa/Viện không hợp lệ'
     }
   },
+  isClubMember: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
   avatarUrl: {
     type: String,
     trim: true,
@@ -138,6 +145,11 @@ const userSchema = new Schema<IUser>({
     type: Schema.Types.ObjectId,
     ref: 'User',
     default: null
+  },
+  deletionReason: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Lý do xóa không được quá 500 ký tự']
   },
 
 }, {
@@ -169,19 +181,20 @@ userSchema.statics.hashPassword = async function(password: string): Promise<stri
 };
 
 // Pre-save middleware to hash password if it's modified
-userSchema.pre('save', async function(next) {
-  // Only hash the password if it has been modified (or is new)
-  if (!this.isModified('passwordHash')) return next();
-  
-  try {
-    // Hash the password with cost of 12
-    const saltRounds = 12;
-    this.passwordHash = await bcrypt.hash(this.passwordHash, saltRounds);
-    next();
-  } catch (error) {
-    next(error as Error);
-  }
-});
+// DISABLED: We now hash password in the API before saving
+// userSchema.pre('save', async function(next) {
+//   // Only hash the password if it has been modified (or is new)
+//   if (!this.isModified('passwordHash')) return next();
+//   
+//   try {
+//     // Hash the password with cost of 12
+//     const saltRounds = 12;
+//     this.passwordHash = await bcrypt.hash(this.passwordHash, saltRounds);
+//     next();
+//   } catch (error) {
+//     next(error as Error);
+//   }
+// });
 
 // Virtual for getting user's display name
 userSchema.virtual('displayName').get(function() {
@@ -201,7 +214,7 @@ userSchema.virtual('initials').get(function() {
 // Ensure virtual fields are serialized
 userSchema.set('toJSON', {
   virtuals: true,
-  transform: function(doc, ret) {
+  transform: function(doc, ret: any) {
     if (ret.passwordHash) {
       delete ret.passwordHash; // Don't include password hash in JSON
     }

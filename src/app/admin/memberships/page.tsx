@@ -8,7 +8,7 @@ import Footer from '@/components/common/Footer';
 
 interface Membership {
   _id: string;
-  status: 'PENDING' | 'ACTIVE' | 'REJECTED' | 'REMOVED';
+  status: 'PENDING' | 'ACTIVE' | 'REJECTED' | 'REMOVED' | 'INACTIVE';
   joinedAt: string;
   approvedAt?: string;
   rejectedAt?: string;
@@ -59,6 +59,17 @@ export default function MembershipsPage() {
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Stats states - separate from filtered data
+  const [totalStats, setTotalStats] = useState({
+    totalCount: 0,
+    pendingCount: 0,
+    activeCount: 0,
+    rejectedCount: 0,
+    inactiveCount: 0
+  });
+  
+
   
   // Filter states
   const [search, setSearch] = useState('');
@@ -149,9 +160,42 @@ export default function MembershipsPage() {
     }
   };
 
+  const fetchTotalStats = async () => {
+    try {
+      const response = await fetch('/api/memberships?limit=1000', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          const allMemberships = data.data.memberships;
+          setTotalStats({
+            totalCount: allMemberships.length,
+            pendingCount: allMemberships.filter((m: Membership) => m.status === 'PENDING').length,
+            activeCount: allMemberships.filter((m: Membership) => m.status === 'ACTIVE').length,
+            rejectedCount: allMemberships.filter((m: Membership) => m.status === 'REJECTED').length,
+            inactiveCount: allMemberships.filter((m: Membership) => m.status === 'INACTIVE').length
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching total stats:', err);
+    }
+  };
+
+
+
   useEffect(() => {
     fetchMemberships();
   }, [currentPage, search, statusFilter, facultyFilter, sortBy, sortOrder]);
+
+  // Fetch total stats on component mount
+  useEffect(() => {
+    fetchTotalStats();
+  }, []);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -183,8 +227,11 @@ export default function MembershipsPage() {
         throw new Error(errorData.error || 'Failed to approve membership');
       }
 
-      // Refresh the list
-      await fetchMemberships();
+      // Refresh the list and stats
+      await Promise.all([fetchMemberships(), fetchTotalStats()]);
+      
+      // Show success message
+      setError(null);
       
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -225,7 +272,7 @@ export default function MembershipsPage() {
       setShowRejectModal(false);
       setSelectedMembership(null);
       setRejectionReason('');
-      await fetchMemberships();
+      await Promise.all([fetchMemberships(), fetchTotalStats()]);
       
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -257,6 +304,7 @@ export default function MembershipsPage() {
       case 'ACTIVE': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
       case 'REJECTED': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
       case 'REMOVED': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
+      case 'INACTIVE': return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
       default: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
     }
   };
@@ -305,7 +353,7 @@ export default function MembershipsPage() {
                 <div className="ml-4">
                   <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Tổng đơn đăng ký</p>
                   <p className={`text-2xl font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    {pagination?.totalCount || 0}
+                    {totalStats.totalCount}
                   </p>
                 </div>
               </div>
@@ -321,7 +369,7 @@ export default function MembershipsPage() {
                 <div className="ml-4">
                   <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Chờ duyệt</p>
                   <p className={`text-2xl font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    {memberships.filter(m => m.status === 'PENDING').length}
+                    {totalStats.pendingCount}
                   </p>
                 </div>
               </div>
@@ -337,7 +385,7 @@ export default function MembershipsPage() {
                 <div className="ml-4">
                   <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Đã duyệt</p>
                   <p className={`text-2xl font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    {memberships.filter(m => m.status === 'ACTIVE').length}
+                    {totalStats.activeCount}
                   </p>
                 </div>
               </div>
@@ -353,7 +401,23 @@ export default function MembershipsPage() {
                 <div className="ml-4">
                   <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Đã từ chối</p>
                   <p className={`text-2xl font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    {memberships.filter(m => m.status === 'REJECTED').length}
+                    {totalStats.rejectedCount}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className={`${isDarkMode ? 'bg-gray-800' : 'bg-white'} rounded-lg shadow p-6`}>
+              <div className="flex items-center">
+                <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                  <svg className="w-6 h-6 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728" />
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Không hoạt động</p>
+                  <p className={`text-2xl font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    {totalStats.inactiveCount}
                   </p>
                 </div>
               </div>
@@ -404,6 +468,7 @@ export default function MembershipsPage() {
                       <option value="PENDING">Chờ duyệt</option>
                       <option value="ACTIVE">Đã duyệt</option>
                       <option value="REJECTED">Đã từ chối</option>
+                      <option value="INACTIVE">Không hoạt động</option>
                     </select>
                   </div>
 
@@ -551,6 +616,7 @@ export default function MembershipsPage() {
                                {membership.status === 'ACTIVE' && 'Đã duyệt'}
                                {membership.status === 'REJECTED' && 'Đã từ chối'}
                                {membership.status === 'REMOVED' && 'Đã xóa'}
+                               {membership.status === 'INACTIVE' && 'Không hoạt động'}
                              </span>
                            </td>
                           <td className={`px-6 py-4 text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
@@ -636,7 +702,22 @@ export default function MembershipsPage() {
                                </div>
                              )}
 
-                             {(membership.status === 'REJECTED' || membership.status === 'REMOVED') && (
+                             {membership.status === 'REJECTED' && (
+                               <div className="flex items-center justify-end space-x-2">
+                                 <button
+                                   onClick={() => handleApprove(membership._id)}
+                                   disabled={processingAction}
+                                   className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md transition-colors duration-200 bg-green-600 text-white hover:bg-green-700 dark:bg-green-600 dark:text-white dark:hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                                 >
+                                   <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                   </svg>
+                                   Phê duyệt lại
+                                 </button>
+                               </div>
+                             )}
+
+                             {membership.status === 'REMOVED' && (
                                <span className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>-</span>
                              )}
                            </td>
@@ -890,6 +971,7 @@ export default function MembershipsPage() {
                            {selectedMembership.status === 'ACTIVE' && 'Đã duyệt'}
                            {selectedMembership.status === 'REJECTED' && 'Đã từ chối'}
                            {selectedMembership.status === 'REMOVED' && 'Đã xóa'}
+                           {selectedMembership.status === 'INACTIVE' && 'Không hoạt động'}
                          </span>
                        </div>
                        <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-600">

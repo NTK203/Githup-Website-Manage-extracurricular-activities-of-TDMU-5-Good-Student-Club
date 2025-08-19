@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken } from '@/lib/auth';
 import dbConnect from '@/lib/db';
 import Membership from '@/models/Membership';
-import User from '@/models/User';
 
-export async function POST(
+export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
@@ -34,30 +33,19 @@ export async function POST(
       );
     }
 
-    // Parse request body to get removal reason
-    const body = await request.json();
-    const { removalReason } = body;
-
-    // Validate removal reason
-    if (!removalReason || !removalReason.trim()) {
-      return NextResponse.json(
-        { success: false, error: 'Lý do xóa là bắt buộc' },
-        { status: 400 }
-      );
-    }
-
     await dbConnect();
 
-    // Get user information for the admin/officer who is performing the removal
-    const user = await User.findById(decoded.userId);
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'Không tìm thấy thông tin người dùng' },
-        { status: 404 }
-      );
-    }
+    const membership = await Membership.findById(params.id)
+      .populate({
+        path: 'userId',
+        select: 'studentId name email role phone class faculty avatarUrl'
+      })
+      .populate({
+        path: 'approvedBy',
+        select: 'studentId name'
+      })
+      .lean();
 
-    const membership = await Membership.findById(params.id);
     if (!membership) {
       return NextResponse.json(
         { success: false, error: 'Không tìm thấy thành viên' },
@@ -65,23 +53,13 @@ export async function POST(
       );
     }
 
-    // Use the remove method from the model to properly save removal reason
-    await membership.remove(
-      removalReason.trim(),
-      {
-        _id: decoded.userId,
-        name: user.name,
-        studentId: user.studentId
-      }
-    );
-
     return NextResponse.json({
       success: true,
-      message: 'Đã xóa thành viên khỏi CLB thành công'
+      data: membership
     });
 
   } catch (error) {
-    console.error('Error removing membership:', error);
+    console.error('Error fetching membership details:', error);
     return NextResponse.json(
       { success: false, error: 'Lỗi server' },
       { status: 500 }

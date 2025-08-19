@@ -192,6 +192,14 @@ membershipSchema.methods.approve = function(approvedBy: string | mongoose.Types.
   this.status = 'ACTIVE';
   this.approvedBy = approvedBy;
   this.approvedAt = new Date();
+  
+  // Clear rejection data when approving a previously rejected membership
+  if (this.rejectionReason || this.rejectedAt || this.rejectedBy) {
+    this.rejectionReason = undefined;
+    this.rejectedAt = undefined;
+    this.rejectedBy = undefined;
+  }
+  
   return this.save();
 };
 

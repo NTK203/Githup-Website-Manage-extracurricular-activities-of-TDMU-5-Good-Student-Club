@@ -15,7 +15,7 @@ export async function dbConnect() {
   if (!cached.promise) {
     cached.promise = mongoose.connect(MONGODB_URI, {
       bufferCommands: false,
-      dbName: "db-sv5t", // tên DB của bạn
+      dbName: "db-sv5tot-tdmu", // tên DB của bạn
     });
   }
 
@@ -28,3 +28,5 @@ export async function dbConnect() {
 
   return cached.conn;
 }
+
+export default dbConnect;

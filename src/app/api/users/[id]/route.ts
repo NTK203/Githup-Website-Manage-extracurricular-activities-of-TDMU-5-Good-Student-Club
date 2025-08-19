@@ -45,8 +45,24 @@ export async function GET(
     .sort({ createdAt: -1 })
     .select('-motivation -experience -expectations -commitment');
 
+    // Get latest membership status
+    const latestMembership = await Membership.findOne({ 
+      userId: user._id 
+    }).sort({ createdAt: -1 });
+
+    console.log('Latest membership for user:', {
+      userId: user._id,
+      latestMembership: latestMembership ? {
+        _id: latestMembership._id,
+        status: latestMembership.status,
+        createdAt: latestMembership.createdAt
+      } : null
+    });
+
     const userData = {
       ...user.toJSON(),
+      isClubMember: !!latestMembership,
+      membershipStatus: latestMembership?.status || null,
       membership: membership ? {
         ...membership.toJSON(),
         approvedBy: membership.approvedBy
@@ -199,7 +215,7 @@ export async function PUT(
   }
 }
 
-// DELETE /api/users/[id] - Delete user (soft delete)
+// DELETE /api/users/[id] - Delete user completely
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -212,6 +228,16 @@ export async function DELETE(
         { error: 'Unauthorized' },
         { status: 401 }
       );
+    }
+
+    // Parse request body to get removal reason (optional for user deletion)
+    let removalReason = '';
+    try {
+      const body = await request.json();
+      removalReason = body.removalReason || '';
+    } catch (error) {
+      // If no body or invalid JSON, continue without removal reason
+      console.log('No removal reason provided for user deletion');
     }
 
     await dbConnect();
@@ -227,19 +253,6 @@ export async function DELETE(
       );
     }
 
-    // Check if user has active membership
-    const activeMembership = await Membership.findOne({
-      userId: user._id,
-      status: 'ACTIVE'
-    });
-
-    if (activeMembership) {
-      return NextResponse.json(
-        { error: 'Cannot delete user with active membership. Please remove membership first.' },
-        { status: 400 }
-      );
-    }
-
     // Check if user is the last admin
     if (user.role === 'ADMIN') {
       const adminCount = await User.countDocuments({ role: 'ADMIN' });
@@ -251,21 +264,42 @@ export async function DELETE(
       }
     }
 
-    // Soft delete - add isDeleted field instead of actually deleting
-    const deletedUser = await User.findByIdAndUpdate(
-      userId,
-      { 
-        isDeleted: true,
-        deletedAt: new Date(),
-        deletedBy: currentUser._id
-      },
-      { new: true }
-    ).select('-passwordHash');
+    // Check if trying to delete yourself
+    if (user._id.toString() === currentUser.userId) {
+      return NextResponse.json(
+        { error: 'Cannot delete your own account' },
+        { status: 400 }
+      );
+    }
+
+    // Delete all membership records for this user
+    const membershipDeleteResult = await Membership.deleteMany({ userId: user._id });
+    console.log(`Deleted ${membershipDeleteResult.deletedCount} membership records for user ${userId}`);
+
+    // Delete the user completely
+    const deletedUser = await User.findByIdAndDelete(userId);
+    if (!deletedUser) {
+      return NextResponse.json(
+        { error: 'Failed to delete user' },
+        { status: 500 }
+      );
+    }
+
+    console.log(`Completely deleted user: ${userId} (${deletedUser.name})`);
 
     return NextResponse.json({
       success: true,
-      message: 'User deleted successfully',
-      data: deletedUser
+      message: 'User and all related data deleted successfully',
+      data: {
+        deletedUser: {
+          _id: deletedUser._id,
+          name: deletedUser.name,
+          studentId: deletedUser.studentId,
+          email: deletedUser.email,
+          role: deletedUser.role
+        },
+        deletedMemberships: membershipDeleteResult.deletedCount
+      }
     });
 
   } catch (error) {

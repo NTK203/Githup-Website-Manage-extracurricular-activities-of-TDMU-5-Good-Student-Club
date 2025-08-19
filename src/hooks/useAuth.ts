@@ -13,6 +13,7 @@ interface User {
   class?: string;
   faculty?: string;
   avatarUrl?: string;
+  isClubMember?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -119,7 +120,7 @@ export function useAuth() {
     fetch('/api/auth/logout', { method: 'POST' }).catch(console.error);
     
     // Redirect to login page
-    router.push('/login');
+    router.push('/auth/login');
   };
 
   const updateUser = (userData: Partial<User>) => {

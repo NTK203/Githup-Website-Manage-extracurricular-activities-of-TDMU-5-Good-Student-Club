@@ -65,6 +65,7 @@ export default function StudentNav() {
   // Check membership status and notifications
   useEffect(() => {
     if (user) {
+      // Always check membership status for all students
       checkMembershipStatus();
       loadNotifications();
     }
@@ -73,6 +74,8 @@ export default function StudentNav() {
   const checkMembershipStatus = async () => {
     try {
       setLoading(true);
+      console.log('Checking membership status for user:', user?._id);
+      
       const response = await fetch(`/api/memberships/check?userId=${user?._id}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -81,11 +84,18 @@ export default function StudentNav() {
 
       if (response.ok) {
         const data = await response.json();
+        console.log('Membership check response:', data);
+        
         if (data.success && data.data.hasMembership) {
+          console.log('Setting membership status to:', data.data.membership.status);
           setMembershipStatus(data.data.membership.status);
         } else {
+          console.log('No membership found, setting status to null');
           setMembershipStatus(null);
         }
+      } else {
+        console.error('API response not ok:', response.status);
+        setMembershipStatus(null);
       }
     } catch (err) {
       console.error('Error checking membership status:', err);
@@ -151,7 +161,15 @@ export default function StudentNav() {
       { name: 'Điểm tích lũy', href: '/student/points', icon: '⭐' },
     ];
 
-    // Add membership-related items based on status
+    // For non-club members (no membership or status is null), show different menu
+    if (!membershipStatus) {
+      return [
+        ...baseItems,
+        { name: 'Đăng ký tham gia CLB', href: '/student/register', icon: '📝' }
+      ];
+    }
+
+    // Add membership-related items based on status for club members
     if (membershipStatus === 'ACTIVE') {
       return [
         ...baseItems,
@@ -183,6 +201,30 @@ export default function StudentNav() {
   const menuItems = getMenuItems();
 
   const getMembershipBadge = () => {
+    // If membership status is not loaded yet, show loading or default
+    if (loading) {
+      return (
+        <div className="hidden md:flex items-center bg-gray-400 px-3 py-1.5 rounded-full shadow-sm">
+          <span className="text-white text-xs font-medium flex items-center">
+            <span className="mr-1">⏳</span>
+            Đang tải...
+          </span>
+        </div>
+      );
+    }
+
+    // For non-club members (no membership or status is null), show guest badge
+    if (!membershipStatus) {
+      return (
+        <div className="hidden md:flex items-center bg-orange-500 px-3 py-1.5 rounded-full shadow-sm">
+          <span className="text-white text-xs font-medium flex items-center">
+            <span className="mr-1">👤</span>
+            Khách
+          </span>
+        </div>
+      );
+    }
+
     switch (membershipStatus) {
       case 'ACTIVE':
         return (

@@ -3,6 +3,7 @@ import { dbConnect } from '@/lib/db';
 import User from '@/models/User';
 import Membership from '@/models/Membership';
 import { getUserFromRequest } from '@/lib/auth';
+import bcrypt from 'bcrypt';
 
 export async function GET(request: NextRequest) {
   try {
@@ -138,6 +139,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate role for club members (only STUDENT, OFFICER, ADMIN allowed)
+    if (!['STUDENT', 'OFFICER', 'ADMIN'].includes(role)) {
+      return NextResponse.json(
+        { error: 'Invalid role for members API', details: 'Vai trò không hợp lệ cho API này' },
+        { status: 400 }
+      );
+    }
+
     // Validate studentId format
     if (!studentId.startsWith('admin') && !/^\d{13}$/.test(studentId)) {
       return NextResponse.json(
@@ -166,17 +175,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Hash password before saving
+    const saltRounds = 12;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
     // Create new user
     const newUser = new User({
       studentId,
       name,
       email,
-      passwordHash: password, // Will be hashed by pre-save middleware
+      passwordHash: hashedPassword,
       role,
       phone: phone || undefined,
       class: className || undefined,
       faculty: faculty || undefined,
-      isClubMember: true // Set isClubMember to true for new members
+      isClubMember: true // All users added via members API are club members
     });
 
     await newUser.save();
@@ -184,17 +197,8 @@ export async function POST(request: NextRequest) {
     // Create membership record for the new club member
     const newMembership = new Membership({
       userId: newUser._id,
-      studentId: newUser.studentId,
-      name: newUser.name,
-      email: newUser.email,
-      phone: newUser.phone || '',
-      class: newUser.class || '',
-      faculty: newUser.faculty || '',
       status: 'ACTIVE', // Directly active since admin is adding them
-      approvedAt: new Date(),
-      approvedBy: user.userId, // The admin who added the member
-      createdAt: new Date(),
-      updatedAt: new Date()
+      approvedBy: user.userId // The admin who added the member
     });
 
     await newMembership.save();
@@ -218,9 +222,13 @@ export async function POST(request: NextRequest) {
       updatedAt: newUser.updatedAt
     };
 
+    const message = role === 'EXTERNAL' 
+      ? 'Tài khoản sinh viên đã được tạo thành công (không thuộc câu lạc bộ)'
+      : 'Thành viên đã được thêm thành công và tự động kích hoạt trong câu lạc bộ';
+
     return NextResponse.json({
       success: true,
-      message: 'Thành viên đã được thêm thành công và tự động kích hoạt trong câu lạc bộ',
+      message: message,
       data: userResponse
     });
 

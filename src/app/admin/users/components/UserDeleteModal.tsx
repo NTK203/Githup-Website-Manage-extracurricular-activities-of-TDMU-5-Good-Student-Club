@@ -27,6 +27,7 @@ export default function UserDeleteModal({ isOpen, onClose, userId, isDarkMode, o
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [removalReason, setRemovalReason] = useState('');
 
   useEffect(() => {
     if (isOpen && userId) {
@@ -65,15 +66,21 @@ export default function UserDeleteModal({ isOpen, onClose, userId, isDarkMode, o
   };
 
   const handleDelete = async () => {
+    if (!user) return;
+
     try {
       setDeleting(true);
       setError(null);
 
-      const response = await fetch(`/api/users/${userId}`, {
-        method: 'DELETE',
+      const response = await fetch(`/api/users/${userId}/delete`, {
+        method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          removalReason: removalReason.trim() || 'Không có lý do cụ thể'
+        })
       });
 
       if (!response.ok) {
@@ -85,6 +92,7 @@ export default function UserDeleteModal({ isOpen, onClose, userId, isDarkMode, o
       if (data.success) {
         onUserDeleted();
         onClose();
+        setRemovalReason(''); // Reset reason after successful deletion
       } else {
         throw new Error(data.error || 'Failed to delete user');
       }
@@ -112,10 +120,10 @@ export default function UserDeleteModal({ isOpen, onClose, userId, isDarkMode, o
             </div>
             <div>
               <h3 className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                Xóa User
+                Xóa User Hoàn Toàn
               </h3>
               <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                Xác nhận xóa user
+                Xác nhận xóa user và tất cả dữ liệu liên quan
               </p>
             </div>
           </div>
@@ -157,7 +165,7 @@ export default function UserDeleteModal({ isOpen, onClose, userId, isDarkMode, o
                   Bạn có chắc chắn muốn xóa user này?
                 </h4>
                 <p className={`mt-2 text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                  Hành động này không thể hoàn tác. User sẽ bị xóa khỏi hệ thống.
+                  Hành động này sẽ xóa hoàn toàn user và tất cả dữ liệu liên quan khỏi hệ thống.
                 </p>
               </div>
 
@@ -200,22 +208,45 @@ export default function UserDeleteModal({ isOpen, onClose, userId, isDarkMode, o
                 </div>
               </div>
 
+              {/* Removal Reason Input */}
+              <div className={`${isDarkMode ? 'bg-gray-700/50' : 'bg-gray-50'} rounded-lg p-4 border ${isDarkMode ? 'border-gray-600' : 'border-gray-200'}`}>
+                <label className={`block text-sm font-semibold mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Lý do xóa user (tùy chọn)
+                </label>
+                <textarea
+                  value={removalReason}
+                  onChange={(e) => setRemovalReason(e.target.value)}
+                  placeholder="Nhập lý do xóa user (không bắt buộc)..."
+                  rows={3}
+                  className={`w-full px-3 py-2 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 ${
+                    isDarkMode
+                      ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400'
+                      : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
+                  }`}
+                  required
+                />
+                {removalReason.trim() && (
+                  <p className="mt-1 text-sm text-gray-600">Lý do xóa sẽ được lưu lại để theo dõi</p>
+                )}
+              </div>
+
               {/* Additional Information */}
-              <div className={`${isDarkMode ? 'bg-yellow-500/10 border-yellow-500/20' : 'bg-yellow-50 border-yellow-200'} border rounded-lg p-4`}>
+              <div className={`${isDarkMode ? 'bg-red-500/10 border-red-500/20' : 'bg-red-50 border-red-200'} border rounded-lg p-4`}>
                 <div className="flex">
                   <div className="flex-shrink-0">
-                    <svg className={`h-5 w-5 ${isDarkMode ? 'text-yellow-400' : 'text-yellow-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className={`h-5 w-5 ${isDarkMode ? 'text-red-400' : 'text-red-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                     </svg>
                   </div>
                   <div className="ml-3">
-                    <h4 className={`text-sm font-medium ${isDarkMode ? 'text-yellow-300' : 'text-yellow-800'}`}>
+                    <h4 className={`text-sm font-medium ${isDarkMode ? 'text-red-300' : 'text-red-800'}`}>
                       Lưu ý quan trọng
                     </h4>
-                    <div className={`mt-2 text-sm ${isDarkMode ? 'text-yellow-200' : 'text-yellow-700'}`}>
+                    <div className={`mt-2 text-sm ${isDarkMode ? 'text-red-200' : 'text-red-700'}`}>
                       <ul className="list-disc list-inside space-y-1">
-                        <li>User sẽ bị xóa khỏi hệ thống</li>
-                        <li>Tất cả dữ liệu liên quan sẽ bị mất</li>
+                        <li>User sẽ bị xóa hoàn toàn khỏi hệ thống</li>
+                        <li>Tất cả membership records sẽ bị xóa</li>
+                        <li>Không thể khôi phục dữ liệu sau khi xóa</li>
                         {user.role === 'ADMIN' && (
                           <li className="font-semibold">Đây là ADMIN - hãy cẩn thận!</li>
                         )}
@@ -231,7 +262,10 @@ export default function UserDeleteModal({ isOpen, onClose, userId, isDarkMode, o
         {/* Footer */}
         <div className="flex justify-end space-x-3 mt-6 pt-6 border-t border-gray-200 dark:border-gray-600 p-6">
           <button
-            onClick={onClose}
+            onClick={() => {
+              onClose();
+              setRemovalReason(''); // Reset reason when closing
+            }}
             disabled={deleting}
             className={`px-6 py-2 rounded-lg font-medium transition-colors duration-200 ${
               isDarkMode 
@@ -246,7 +280,7 @@ export default function UserDeleteModal({ isOpen, onClose, userId, isDarkMode, o
             disabled={deleting || loading}
             className="px-6 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
           >
-            {deleting ? 'Đang xóa...' : 'Xóa User'}
+            {deleting ? 'Đang xóa...' : 'Xóa Hoàn Toàn'}
           </button>
         </div>
       </div>

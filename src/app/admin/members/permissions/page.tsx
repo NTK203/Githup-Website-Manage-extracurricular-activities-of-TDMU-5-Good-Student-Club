@@ -10,7 +10,7 @@ import Image from 'next/image';
 
 interface ClubMember {
   _id: string;
-  status: 'PENDING' | 'ACTIVE' | 'REJECTED' | 'REMOVED';
+  status: 'PENDING' | 'ACTIVE' | 'REJECTED' | 'REMOVED' | 'INACTIVE';
   joinedAt: string;
   approvedAt?: string;
   rejectedAt?: string;
@@ -60,6 +60,14 @@ export default function MemberPermissionsPage() {
   const [showPermissions, setShowPermissions] = useState(false);
   const [roleFilter, setRoleFilter] = useState('ALL');
   
+  // Stats states - separate from filtered data
+  const [totalStats, setTotalStats] = useState({
+    total: 0,
+    admins: 0,
+    officers: 0,
+    students: 0
+  });
+  
   // Remove member modal states
   const [showRemoveModal, setShowRemoveModal] = useState(false);
   const [selectedMemberForRemoval, setSelectedMemberForRemoval] = useState<ClubMember | null>(null);
@@ -86,6 +94,11 @@ export default function MemberPermissionsPage() {
   useEffect(() => {
     loadMembers();
   }, [roleFilter]);
+
+  // Load total stats on component mount
+  useEffect(() => {
+    loadTotalStats();
+  }, []);
 
   const loadMembers = async () => {
     setLoading(true);
@@ -146,12 +159,91 @@ export default function MemberPermissionsPage() {
         index === self.findIndex(m => m.userId?._id === member.userId?._id)
       );
 
-      setMembers(uniqueMembers);
+      // Filter out rejected memberships
+      const filteredMembers = uniqueMembers.filter(member => {
+        // Keep admin users (they don't have status field)
+        if (!member.status) {
+          return true;
+        }
+        // Filter out REJECTED status
+        return member.status !== 'REJECTED';
+      });
+
+      setMembers(filteredMembers);
     } catch (error) {
       console.error('Error loading members:', error);
       setMessage({ type: 'error', text: 'Không thể tải danh sách thành viên' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadTotalStats = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      // Load all admin users from users table
+      const usersResponse = await fetch('/api/users/all', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      let adminUsers: any[] = [];
+      if (usersResponse.ok) {
+        const usersData = await usersResponse.json();
+        if (usersData.success) {
+          adminUsers = usersData.data.users;
+        }
+      }
+
+      // Load all memberships data
+      const membershipsResponse = await fetch('/api/memberships?limit=1000', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      let allMemberships: any[] = [];
+      if (membershipsResponse.ok) {
+        const membershipsData = await membershipsResponse.json();
+        if (membershipsData.success) {
+          allMemberships = membershipsData.data.memberships;
+        }
+      }
+
+      // Combine all data for stats calculation
+      const allMembers = [...adminUsers, ...allMemberships];
+      
+      // Remove duplicates (if a user exists in both tables, prefer the membership data)
+      const uniqueMembers = allMembers.filter((member, index, self) => 
+        index === self.findIndex(m => m.userId?._id === member.userId?._id)
+      );
+
+      // Filter out rejected memberships for stats calculation
+      const filteredMembers = uniqueMembers.filter(member => {
+        // Keep admin users (they don't have status field)
+        if (!member.status) {
+          return true;
+        }
+        // Filter out REJECTED status
+        return member.status !== 'REJECTED';
+      });
+
+      // Calculate stats
+      const total = filteredMembers.length;
+      const admins = filteredMembers.filter(m => m.userId?.role === 'ADMIN').length;
+      const officers = filteredMembers.filter(m => m.userId?.role === 'OFFICER').length;
+      const students = filteredMembers.filter(m => m.userId?.role === 'STUDENT').length;
+
+      setTotalStats({ total, admins, officers, students });
+    } catch (error) {
+      console.error('Error loading total stats:', error);
     }
   };
 
@@ -190,6 +282,8 @@ export default function MemberPermissionsPage() {
               }
             : member
         ));
+        // Refresh total stats
+        await loadTotalStats();
       } else {
         setMessage({ type: 'error', text: data.error || 'Cập nhật vai trò thất bại' });
       }
@@ -240,7 +334,7 @@ export default function MemberPermissionsPage() {
       console.log('Sending remove request with body:', requestBody);
       
       const response = await fetch(`/api/memberships/${selectedMemberForRemoval._id}/remove`, {
-        method: 'PATCH',
+        method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -255,6 +349,9 @@ export default function MemberPermissionsPage() {
         
         // Update local state - remove the member from the list
         setMembers(prev => prev.filter(member => member._id !== selectedMemberForRemoval._id));
+        
+        // Refresh total stats
+        await loadTotalStats();
         
         // Close modal
         setShowRemoveModal(false);
@@ -294,14 +391,7 @@ export default function MemberPermissionsPage() {
       .slice(0, 2);
   };
 
-  const getRoleStats = () => {
-    const total = members.length;
-    const admins = members.filter(m => m.userId?.role === 'ADMIN').length;
-    const officers = members.filter(m => m.userId?.role === 'OFFICER').length;
-    const students = members.filter(m => m.userId?.role === 'STUDENT').length;
 
-    return { total, admins, officers, students };
-  };
 
   const permissions: Permission[] = [
     {
@@ -336,7 +426,7 @@ export default function MemberPermissionsPage() {
     }
   ];
 
-  const stats = getRoleStats();
+
 
   return (
     <ProtectedRoute requiredRole="ADMIN">
@@ -365,10 +455,10 @@ export default function MemberPermissionsPage() {
                        : 'bg-white border-gray-300 text-gray-900'
                    }`}
                  >
-                   <option value="ALL">Tất cả vai trò</option>
+                   <option value="ALL">Tất Cả Vai Trò</option>
                    <option value="STUDENT">Thành Viên CLB</option>
                                                    <option value="OFFICER">Ban Chấp Hành</option>
-                   <option value="ADMIN">Quản trị viên</option>
+                   <option value="ADMIN">Quản Trị Hệ Thống</option>
                  </select>
                  <button
                    onClick={() => setShowPermissions(!showPermissions)}
@@ -416,7 +506,7 @@ export default function MemberPermissionsPage() {
                 </div>
                 <div className="ml-4">
                   <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Tổng thành viên</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.total}</p>
+                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.total}</p>
                 </div>
               </div>
             </div>
@@ -426,8 +516,8 @@ export default function MemberPermissionsPage() {
                   <span className="text-red-600 text-xl">👑</span>
                 </div>
                 <div className="ml-4">
-                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Admin</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.admins}</p>
+                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Quản Trị Hệ Thống</p>
+                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.admins}</p>
                 </div>
               </div>
             </div>
@@ -438,7 +528,7 @@ export default function MemberPermissionsPage() {
                 </div>
                                  <div className="ml-4">
                    <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Ban Chấp Hành</p>
-                   <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.officers}</p>
+                   <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.officers}</p>
                  </div>
               </div>
             </div>
@@ -449,7 +539,7 @@ export default function MemberPermissionsPage() {
                 </div>
                 <div className="ml-4">
                   <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Thành Viên CLB</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.students}</p>
+                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.students}</p>
                 </div>
               </div>
             </div>
@@ -616,15 +706,17 @@ export default function MemberPermissionsPage() {
                              )}
                              {member.status !== 'ACTIVE' && (
                                <span className={`px-3 py-1 text-sm rounded-lg ${
-                                 member.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
-                                 member.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
-                                 member.status === 'REMOVED' ? 'bg-gray-100 text-gray-800' :
-                                 'bg-gray-100 text-gray-800'
+                                                                member.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
+                               member.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
+                               member.status === 'REMOVED' ? 'bg-gray-100 text-gray-800' :
+                               member.status === 'INACTIVE' ? 'bg-gray-100 text-gray-800' :
+                               'bg-gray-100 text-gray-800'
                                }`}>
-                                 {member.status === 'PENDING' ? 'Chờ duyệt' :
-                                  member.status === 'REJECTED' ? 'Đã từ chối' :
-                                  member.status === 'REMOVED' ? 'Đã xóa' :
-                                  'Không xác định'}
+                                                              {member.status === 'PENDING' ? 'Chờ duyệt' :
+                              member.status === 'REJECTED' ? 'Đã từ chối' :
+                              member.status === 'REMOVED' ? 'Đã xóa' :
+                              member.status === 'INACTIVE' ? 'Không hoạt động' :
+                              'Không xác định'}
                                </span>
                              )}
                            </div>

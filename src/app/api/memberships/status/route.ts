@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
       .sort({ createdAt: -1 })
       .populate('approvedBy', 'name studentId')
       .populate('removedBy', 'name studentId')
-      .lean();
+      .lean() as any;
 
     if (!membership) {
       return NextResponse.json(
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
         success: true, 
         data: { 
           membership: {
-            _id: membership._id,
+            _id: membership._id, 
             status: membership.status,
             joinedAt: membership.joinedAt,
             approvedAt: membership.approvedAt,

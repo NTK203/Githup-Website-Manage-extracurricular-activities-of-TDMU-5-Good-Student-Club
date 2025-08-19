@@ -1,12 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import AdminNav from '@/components/admin/AdminNav';
 import Footer from '@/components/common/Footer';
 import ProtectedRoute from '@/components/common/ProtectedRoute';
 import Image from 'next/image';
+import MemberDetailModal from './components/MemberDetailModal';
+import MemberEditModal from './components/MemberEditModal';
+import MemberDeleteModal from './components/MemberDeleteModal';
 
 interface ClubMember {
   _id: string;
@@ -45,6 +48,10 @@ export default function MembersPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
+  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
+  const [roleDropdownPosition, setRoleDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+  const roleButtonRef = useRef<HTMLButtonElement>(null);
   const [facultyFilter, setFacultyFilter] = useState<string>('ALL');
   const [sortBy, setSortBy] = useState<string>('joinedAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -57,6 +64,15 @@ export default function MembersPage() {
     pending: 0,
     rejected: 0
   });
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [showExportToast, setShowExportToast] = useState(false);
+
+  // Modal states
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
 
   // Danh sách khoa/viện
   const facultyOptions = [
@@ -92,7 +108,7 @@ export default function MembersPage() {
   // Load members data
   useEffect(() => {
     loadMembers();
-  }, [searchTerm, roleFilter, facultyFilter, sortBy, sortOrder, currentPage]);
+  }, [searchTerm, roleFilter, selectedRoles, facultyFilter, sortBy, sortOrder, currentPage]);
 
   const loadMembers = async () => {
     setLoading(true);
@@ -100,7 +116,14 @@ export default function MembersPage() {
       // Build query parameters
       const params = new URLSearchParams();
       if (searchTerm) params.append('search', searchTerm);
-      if (roleFilter !== 'ALL') params.append('role', roleFilter);
+      
+      // Handle role filtering - use selectedRoles if available, otherwise use roleFilter
+      if (selectedRoles.length > 0) {
+        selectedRoles.forEach(role => params.append('role', role));
+      } else if (roleFilter !== 'ALL') {
+        params.append('role', roleFilter);
+      }
+      
       if (facultyFilter !== 'ALL') params.append('faculty', facultyFilter);
       params.append('status', 'ACTIVE'); // Only load active members
       params.append('sortBy', sortBy);
@@ -147,11 +170,13 @@ export default function MembersPage() {
   }, []);
 
   const loadStats = async () => {
+    setStatsLoading(true);
     try {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      const response = await fetch('/api/memberships/stats', {
+      // Fetch all active memberships to calculate stats
+      const response = await fetch('/api/memberships?status=ACTIVE&limit=1000', {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -161,11 +186,19 @@ export default function MembersPage() {
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
-          setStats(data.data);
+          const allMemberships = data.data.memberships;
+          setStats({
+            total: allMemberships.length,
+            active: allMemberships.length,
+            pending: 0, // This page only shows active members
+            rejected: 0
+          });
         }
       }
     } catch (error) {
       console.error('Error loading stats:', error);
+    } finally {
+      setStatsLoading(false);
     }
   };
 
@@ -202,6 +235,131 @@ export default function MembersPage() {
       day: 'numeric'
     });
   };
+
+  // Modal handlers
+  const openDetailModal = (memberId: string) => {
+    console.log('Opening detail modal for member:', memberId);
+    setSelectedMemberId(memberId);
+    setShowDetailModal(true);
+  };
+
+  const openEditModal = (memberId: string) => {
+    console.log('Opening edit modal for member:', memberId);
+    setSelectedMemberId(memberId);
+    setShowEditModal(true);
+  };
+
+  const openDeleteModal = (memberId: string) => {
+    console.log('Opening delete modal for member:', memberId);
+    setSelectedMemberId(memberId);
+    setShowDeleteModal(true);
+  };
+
+  const closeModals = () => {
+    console.log('Closing all modals');
+    setShowDetailModal(false);
+    setShowEditModal(false);
+    setShowDeleteModal(false);
+    setSelectedMemberId(null);
+  };
+
+  const handleMemberUpdated = () => {
+    loadMembers();
+    loadStats();
+  };
+
+  const handleMemberDeleted = () => {
+    loadMembers();
+    loadStats();
+  };
+
+  const handleExportExcel = async () => {
+    try {
+      setExporting(true);
+      
+      // Tạo parameters cho API export (bao gồm cả filter hiện tại)
+      const params = new URLSearchParams({
+        ...(searchTerm && { search: searchTerm }),
+        ...(facultyFilter !== 'ALL' && { faculty: facultyFilter })
+      });
+
+      // Thêm role filter nếu có chọn vai trò
+      if (selectedRoles.length > 0) {
+        selectedRoles.forEach(role => {
+          params.append('role', role);
+        });
+      }
+
+      const response = await fetch(`/api/members/export?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to export members');
+      }
+
+      // Tạo blob từ response
+      const blob = await response.blob();
+      
+      // Tạo URL cho blob
+      const url = window.URL.createObjectURL(blob);
+      
+      // Tạo link để download
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `members_export_${new Date().toISOString().split('T')[0]}.xlsx`;
+      link.style.display = 'none';
+      
+      // Thêm vào DOM và trigger download
+      document.body.appendChild(link);
+      link.click();
+      
+      // Cleanup sau khi download
+      setTimeout(() => {
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      }, 100);
+      
+      // Hiển thị toast thông báo
+      setShowExportToast(true);
+      setTimeout(() => {
+        setShowExportToast(false);
+      }, 3000);
+
+    } catch (err: any) {
+      console.error('Error exporting members:', err);
+      alert('Có lỗi khi xuất file: ' + err.message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Debug modal states
+  useEffect(() => {
+    console.log('Modal states:', {
+      showDetailModal,
+      showEditModal,
+      showDeleteModal,
+      selectedMemberId
+    });
+  }, [showDetailModal, showEditModal, showDeleteModal, selectedMemberId]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest('.role-dropdown')) {
+        setRoleDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   return (
     <ProtectedRoute requiredRole="ADMIN">
@@ -248,7 +406,11 @@ export default function MembersPage() {
                 </div>
                 <div className="ml-4">
                   <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Tổng thành viên</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.active}</p>
+                  {statsLoading ? (
+                    <div className="animate-pulse bg-gray-300 h-8 w-16 rounded"></div>
+                  ) : (
+                    <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.total}</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -259,119 +421,213 @@ export default function MembersPage() {
                 </div>
                 <div className="ml-4">
                   <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Đã duyệt</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.active}</p>
+                  {statsLoading ? (
+                    <div className="animate-pulse bg-gray-300 h-8 w-16 rounded"></div>
+                  ) : (
+                    <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.active}</p>
+                  )}
                 </div>
               </div>
             </div>
           </div>
 
           {/* Filters and Search */}
-          <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 mb-6 shadow-sm`}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-              {/* Search */}
-              <div>
-                <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                  Tìm kiếm
-                </label>
-                <input
-                  type="text"
-                  placeholder="Tên, MSSV, email..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
-                    isDarkMode 
-                      ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' 
-                      : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
-                  }`}
-                />
-              </div>
+          <div className={`${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} rounded-3xl shadow-2xl mb-8 border ${isDarkMode ? 'border-gray-700/50' : 'border-white/20'}`} style={{ overflow: 'visible' }}>
+            <div className="p-8" style={{ overflow: 'visible' }}>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                {/* Search */}
+                <div className="flex flex-col h-full">
+                  <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    <span className="flex items-center">
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                      Tìm kiếm
+                    </span>
+                  </label>
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      placeholder="Tên, MSSV, email..."
+                      className={`w-full h-12 pl-10 pr-4 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400' : 'border-gray-300 bg-white text-gray-900 placeholder-gray-500'}`}
+                    />
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <svg className={`w-5 h-5 ${isDarkMode ? 'text-gray-400' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
 
-              {/* Role Filter */}
-              <div>
-                <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                  Vai trò
-                </label>
-                <select
-                  value={roleFilter}
-                  onChange={(e) => setRoleFilter(e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
-                    isDarkMode 
-                      ? 'bg-gray-700 border-gray-600 text-white' 
-                      : 'bg-white border-gray-300 text-gray-900'
-                  }`}
-                >
-                  <option value="ALL">Tất cả</option>
-                  <option value="ADMIN">Admin</option>
-                  <option value="OFFICER">Ban Chấp Hành</option>
-                  <option value="STUDENT">Thành Viên CLB</option>
-                </select>
-              </div>
+                {/* Role Filter */}
+                <div className="flex flex-col h-full">
+                  <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    <span className="flex items-center">
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                      Vai trò
+                    </span>
+                  </label>
+                  <div className="relative role-dropdown flex-1">
+                    <button
+                      ref={roleButtonRef}
+                      type="button"
+                      onClick={() => {
+                        if (roleButtonRef.current) {
+                          const rect = roleButtonRef.current.getBoundingClientRect();
+                          setRoleDropdownPosition({
+                            top: rect.bottom + 8,
+                            left: rect.left,
+                            width: rect.width
+                          });
+                        }
+                        setRoleDropdownOpen(!roleDropdownOpen);
+                      }}
+                      className={`w-full h-12 px-4 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 flex justify-between items-center transition-all duration-200 ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white hover:bg-gray-600' : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'}`}
+                    >
+                      <span className="flex items-center">
+                        {selectedRoles.length === 0 ? (
+                          <>
+                            <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Tất cả vai trò
+                          </>
+                        ) : selectedRoles.length === 1 ? (
+                          <>
+                            <svg className="w-4 h-4 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            {selectedRoles[0] === 'ADMIN' ? 'Admin' : selectedRoles[0] === 'OFFICER' ? 'Ban Chấp Hành' : 'Thành Viên CLB'}
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            {selectedRoles.length} vai trò đã chọn
+                          </>
+                        )}
+                      </span>
+                      <svg className={`w-5 h-5 transition-transform duration-200 ${roleDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    
+                    {/* Inline dropdown for testing */}
+                    {roleDropdownOpen && (
+                      <div className={`absolute z-[99999] w-full mt-2 border rounded-lg shadow-xl ${isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'}`}>
+                        <div className="py-1">
+                          {['ADMIN', 'OFFICER', 'STUDENT'].map((role) => (
+                            <label key={role} className={`flex items-center px-2 py-3 cursor-pointer transition-colors duration-150 ${isDarkMode ? 'hover:bg-gray-600' : 'hover:bg-gray-50'}`}>
+                              <input
+                                type="checkbox"
+                                checked={selectedRoles.includes(role)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedRoles(prev => [...prev, role]);
+                                  } else {
+                                    setSelectedRoles(prev => prev.filter(r => r !== role));
+                                  }
+                                }}
+                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 mr-2 w-3 h-3"
+                              />
+                              <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                {role === 'ADMIN' ? 'Admin' : role === 'OFFICER' ? 'Ban Chấp Hành' : 'Thành Viên CLB'}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
-              {/* Faculty Filter */}
-              <div>
-                <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                  Khoa/Viện
-                </label>
-                <select
-                  value={facultyFilter}
-                  onChange={(e) => setFacultyFilter(e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
-                    isDarkMode 
-                      ? 'bg-gray-700 border-gray-600 text-white' 
-                      : 'bg-white border-gray-300 text-gray-900'
-                  }`}
-                >
-                  <option value="ALL">Tất cả khoa/viện</option>
-                  {facultyOptions.map((faculty) => (
-                    <option key={faculty} value={faculty}>
-                      {faculty}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                {/* Faculty Filter */}
+                <div className="flex flex-col h-full">
+                  <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    <span className="flex items-center">
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                      </svg>
+                      Khoa/Viện
+                    </span>
+                  </label>
+                  <select
+                    value={facultyFilter}
+                    onChange={(e) => setFacultyFilter(e.target.value)}
+                    className={`w-full h-12 px-4 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
+                  >
+                    <option value="ALL">Tất cả khoa/viện</option>
+                    {facultyOptions.map((faculty) => (
+                      <option key={faculty} value={faculty}>
+                        {faculty}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              {/* Sort */}
-              <div>
-                <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                  Sắp xếp
-                </label>
-                <select
-                  value={`${sortBy}-${sortOrder}`}
-                  onChange={(e) => {
-                    const [field, order] = e.target.value.split('-');
-                    setSortBy(field);
-                    setSortOrder(order as 'asc' | 'desc');
-                  }}
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
-                    isDarkMode 
-                      ? 'bg-gray-700 border-gray-600 text-white' 
-                      : 'bg-white border-gray-300 text-gray-900'
-                  }`}
-                >
-                  <option value="joinedAt-desc">Tham gia mới nhất</option>
-                  <option value="joinedAt-asc">Tham gia cũ nhất</option>
-                  <option value="name-asc">Tên A-Z</option>
-                  <option value="name-desc">Tên Z-A</option>
-                  <option value="studentId-asc">MSSV A-Z</option>
-                  <option value="studentId-desc">MSSV Z-A</option>
-                </select>
-              </div>
+                {/* Sort */}
+                <div className="flex flex-col h-full">
+                  <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    <span className="flex items-center">
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+                      </svg>
+                      Sắp xếp
+                    </span>
+                  </label>
+                  <select
+                    value={`${sortBy}-${sortOrder}`}
+                    onChange={(e) => {
+                      const [field, order] = e.target.value.split('-');
+                      setSortBy(field);
+                      setSortOrder(order as 'asc' | 'desc');
+                    }}
+                    className={`w-full h-12 px-4 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
+                  >
+                    <option value="joinedAt-desc">Tham gia mới nhất</option>
+                    <option value="joinedAt-asc">Tham gia cũ nhất</option>
+                    <option value="name-asc">Tên A-Z</option>
+                    <option value="name-desc">Tên Z-A</option>
+                    <option value="studentId-asc">MSSV A-Z</option>
+                    <option value="studentId-desc">MSSV Z-A</option>
+                  </select>
+                </div>
 
-              {/* Export */}
-              <div>
-                <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                  Xuất dữ liệu
-                </label>
-                <button
-                  onClick={() => {/* TODO: Implement export */}}
-                  className={`w-full px-3 py-2 border rounded-lg transition-colors ${
-                    isDarkMode 
-                      ? 'bg-gray-700 border-gray-600 text-white hover:bg-gray-600' 
-                      : 'bg-white border-gray-300 text-gray-900 hover:bg-gray-50'
-                  }`}
-                >
-                  📊 Xuất Excel
-                </button>
+                {/* Export */}
+                <div className="flex flex-col h-full">
+                  <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    <span className="flex items-center">
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Xuất dữ liệu
+                    </span>
+                  </label>
+                  <button
+                    onClick={handleExportExcel}
+                    disabled={exporting}
+                    className={`w-full h-12 px-4 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white hover:bg-gray-600' : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    {exporting ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        <span className="text-sm font-medium">Đang xuất...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span className="text-sm font-medium">Xuất Excel</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -485,7 +741,12 @@ export default function MembersPage() {
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                             <div className="flex items-center space-x-2">
                               <button 
-                                onClick={() => router.push(`/admin/members/${member._id}`)}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  console.log('Detail button clicked for member:', member._id);
+                                  openDetailModal(member._id);
+                                }}
                                 className={`p-2 rounded-lg transition-colors duration-200 ${
                                   isDarkMode 
                                     ? 'text-blue-400 hover:bg-blue-900 hover:text-blue-300' 
@@ -496,7 +757,12 @@ export default function MembersPage() {
                                 👁️
                               </button>
                               <button 
-                                onClick={() => router.push(`/admin/members/${member._id}/edit`)}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  console.log('Edit button clicked for member:', member._id);
+                                  openEditModal(member._id);
+                                }}
                                 className={`p-2 rounded-lg transition-colors duration-200 ${
                                   isDarkMode 
                                     ? 'text-green-400 hover:bg-green-900 hover:text-green-300' 
@@ -507,7 +773,12 @@ export default function MembersPage() {
                                 ✏️
                               </button>
                               <button 
-                                onClick={() => {/* TODO: Implement delete */}}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  console.log('Delete button clicked for member:', member._id);
+                                  openDeleteModal(member._id);
+                                }}
                                 className={`p-2 rounded-lg transition-colors duration-200 ${
                                   isDarkMode 
                                     ? 'text-red-400 hover:bg-red-900 hover:text-red-300' 
@@ -593,6 +864,50 @@ export default function MembersPage() {
         </main>
 
         <Footer />
+
+        {/* Export Toast Notification */}
+        {showExportToast && (
+          <div className={`fixed bottom-4 right-4 z-50 p-3 rounded-lg shadow-lg transition-all duration-300 backdrop-blur-sm ${isDarkMode ? 'bg-green-500/90 text-white border border-green-400/50' : 'bg-green-500/90 text-white border border-green-400/50'}`}>
+            <div className="flex items-center">
+              <div className="p-1 rounded-md bg-white/20 mr-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <span className="text-sm font-medium">File Excel đã sẵn sàng download</span>
+            </div>
+          </div>
+        )}
+
+        {/* Modals */}
+        <div className="relative z-50">
+
+
+
+
+          <MemberDetailModal
+            isOpen={showDetailModal}
+            onClose={closeModals}
+            memberId={selectedMemberId}
+            isDarkMode={isDarkMode}
+          />
+
+          <MemberEditModal
+            isOpen={showEditModal}
+            onClose={closeModals}
+            memberId={selectedMemberId}
+            isDarkMode={isDarkMode}
+            onMemberUpdated={handleMemberUpdated}
+          />
+
+          <MemberDeleteModal
+            isOpen={showDeleteModal}
+            onClose={closeModals}
+            memberId={selectedMemberId}
+            isDarkMode={isDarkMode}
+            onMemberDeleted={handleMemberDeleted}
+          />
+        </div>
       </div>
     </ProtectedRoute>
   );

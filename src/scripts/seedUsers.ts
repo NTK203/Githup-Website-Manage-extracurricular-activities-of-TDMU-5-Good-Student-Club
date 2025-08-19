@@ -1,4 +1,4 @@
-import { dbConnect } from '../lib/db';
+import dbConnect from '../lib/db';
 import bcrypt from 'bcrypt';
 import User from '../models/User';
 import { UserRole } from '../models/User';

@@ -13,6 +13,7 @@ interface User {
   faculty?: string;
   avatarUrl?: string;
   isClubMember?: boolean;
+  membershipStatus?: 'PENDING' | 'ACTIVE' | 'REJECTED' | 'REMOVED' | 'INACTIVE';
 }
 
 interface UserEditModalProps {
@@ -74,21 +75,24 @@ export default function UserEditModal({ isOpen, onClose, userId, isDarkMode, onU
       }
 
       const data = await response.json();
-      if (data.success) {
-        setUser(data.data);
-        setFormData({
-          name: data.data.name || '',
-          email: data.data.email || '',
-          studentId: data.data.studentId || '',
-          phone: data.data.phone || '',
-          class: data.data.class || '',
-          faculty: data.data.faculty || '',
-          role: data.data.role || 'STUDENT',
-          avatarUrl: data.data.avatarUrl || ''
-        });
-      } else {
-        throw new Error(data.error || 'Failed to fetch user details');
-      }
+             if (data.success) {
+         console.log('User data received:', data.data);
+         console.log('isClubMember:', data.data.isClubMember);
+         console.log('membershipStatus:', data.data.membershipStatus);
+         setUser(data.data);
+         setFormData({
+           name: data.data.name || '',
+           email: data.data.email || '',
+           studentId: data.data.studentId || '',
+           phone: data.data.phone || '',
+           class: data.data.class || '',
+           faculty: data.data.faculty || '',
+           role: data.data.role || 'STUDENT',
+           avatarUrl: data.data.avatarUrl || ''
+         });
+       } else {
+         throw new Error(data.error || 'Failed to fetch user details');
+       }
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
@@ -478,46 +482,102 @@ export default function UserEditModal({ isOpen, onClose, userId, isDarkMode, onU
                  <h4 className={`text-lg font-semibold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                    Quản lý vai trò
                  </h4>
-                                   <div className={`mb-4 p-3 rounded-lg ${isDarkMode ? 'bg-blue-900/20 border-blue-500/20' : 'bg-blue-50 border-blue-200'} border`}>
-                    <p className={`text-sm ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`}>
-                      <strong>Thông tin vai trò:</strong>
-                    </p>
-                                         <ul className={`text-sm mt-2 space-y-1 ${isDarkMode ? 'text-blue-200' : 'text-blue-600'}`}>
-                       <li>• <strong>Admin:</strong> Quản trị viên hệ thống - Thành viên CLB</li>
-                       <li>• <strong>Ban Chấp Hành:</strong> Thành viên ban chấp hành CLB - Thành viên CLB</li>
-                       <li>• <strong>Sinh Viên:</strong> Có thể là thành viên CLB hoặc chưa tham gia</li>
-                     </ul>
-                    <p className={`text-xs mt-2 ${isDarkMode ? 'text-blue-200' : 'text-blue-600'}`}>
-                      💡 <strong>Gợi ý:</strong> Xét duyệt hồ sơ thành viên mới tại mục "Xét Duyệt Thành Viên"
-                    </p>
-                  </div>
-                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                   {(['STUDENT', 'OFFICER', 'ADMIN'] as const).map((role) => (
-                     <button
-                       key={role}
-                       type="button"
-                       onClick={() => handleRoleChange(role)}
-                       disabled={saving || formData.role === role}
-                       className={`px-4 py-2 rounded-lg font-medium transition-colors duration-200 ${
-                         formData.role === role
-                           ? 'bg-blue-600 text-white'
-                           : isDarkMode
-                             ? 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-                             : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                       } disabled:opacity-50 disabled:cursor-not-allowed`}
-                     >
-                       {role === 'ADMIN' ? 'Admin' : role === 'OFFICER' ? 'Ban Chấp Hành' : 'Sinh Viên'}
-                     </button>
-                   ))}
-                 </div>
-                                 <p className={`text-sm mt-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                   Vai trò hiện tại: <span className="font-semibold">
-                     {formData.role === 'ADMIN' ? 'Admin (Thành viên CLB)' : 
-                      formData.role === 'OFFICER' ? 'Ban Chấp Hành (Thành viên CLB)' : 
-                      user?.isClubMember ? 'Sinh Viên (Thành viên CLB)' : 'Sinh Viên (Chưa tham gia CLB)'}
-                   </span>
-                 </p>
                  
+                 {/* Thông tin vai trò hiện tại */}
+                 <div className={`mb-4 p-3 rounded-lg ${isDarkMode ? 'bg-blue-900/20 border-blue-500/20' : 'bg-blue-50 border-blue-200'} border`}>
+                   <p className={`text-sm ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`}>
+                     <strong>Thông tin vai trò:</strong>
+                   </p>
+                   <ul className={`text-sm mt-2 space-y-1 ${isDarkMode ? 'text-blue-200' : 'text-blue-600'}`}>
+                     <li>• <strong>Admin:</strong> Quản trị viên hệ thống - Thành viên CLB</li>
+                     <li>• <strong>Ban Chấp Hành:</strong> Thành viên ban chấp hành CLB - Thành viên CLB</li>
+                     <li>• <strong>Sinh Viên:</strong> Có thể là thành viên CLB hoặc chưa tham gia</li>
+                   </ul>
+                 </div>
+
+                 {/* Hiển thị vai trò hiện tại */}
+                 <div className={`mb-4 p-3 rounded-lg ${isDarkMode ? 'bg-gray-600/50 border-gray-500/20' : 'bg-gray-100 border-gray-200'} border`}>
+                   <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                           Vai trò hiện tại: <span className="font-semibold">
+                        {formData.role === 'ADMIN' ? 'Admin (Thành viên CLB)' : 
+                         formData.role === 'OFFICER' ? 'Ban Chấp Hành (Thành viên CLB)' : 
+                         user?.isClubMember 
+                           ? user?.membershipStatus === 'ACTIVE'
+                             ? 'Sinh Viên (Thành viên CLB đã duyệt)'
+                             : user?.membershipStatus === 'PENDING'
+                             ? 'Sinh Viên (Đã đăng ký CLB - chờ duyệt)'
+                             : user?.membershipStatus === 'REJECTED'
+                             ? 'Sinh Viên (Đã bị từ chối CLB)'
+                             : 'Sinh Viên (Thành viên CLB)'
+                           : 'Sinh Viên (Chưa tham gia CLB)'}
+                      </span>
+                   </p>
+                 </div>
+
+                                   {/* Kiểm tra quyền thay đổi vai trò */}
+                  {(() => {
+                    const canChangeRole = (user?.isClubMember && user?.membershipStatus === 'ACTIVE') || formData.role === 'ADMIN';
+                    console.log('Role change check:', {
+                      isClubMember: user?.isClubMember,
+                      membershipStatus: user?.membershipStatus,
+                      currentRole: formData.role,
+                      canChangeRole
+                    });
+                    return canChangeRole;
+                  })() ? (
+                   <>
+                     {/* Nút thay đổi vai trò - chỉ hiển thị cho thành viên CLB */}
+                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                       {(['STUDENT', 'OFFICER', 'ADMIN'] as const).map((role) => (
+                         <button
+                           key={role}
+                           type="button"
+                           onClick={() => handleRoleChange(role)}
+                           disabled={saving || formData.role === role}
+                           className={`px-4 py-2 rounded-lg font-medium transition-colors duration-200 ${
+                             formData.role === role
+                               ? 'bg-blue-600 text-white'
+                               : isDarkMode
+                                 ? 'bg-gray-600 text-gray-300 hover:bg-gray-500'
+                                 : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                           } disabled:opacity-50 disabled:cursor-not-allowed`}
+                         >
+                           {role === 'ADMIN' ? 'Admin' : role === 'OFFICER' ? 'Ban Chấp Hành' : 'Sinh Viên'}
+                         </button>
+                       ))}
+                     </div>
+                     <p className={`text-xs mt-2 ${isDarkMode ? 'text-blue-200' : 'text-blue-600'}`}>
+                                               ✅ <strong>Có thể thay đổi vai trò:</strong> User này là thành viên CLB đã được duyệt
+                     </p>
+                   </>
+                 ) : (
+                   <>
+                     {/* Thông báo không thể thay đổi vai trò */}
+                     <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-yellow-900/20 border-yellow-500/20' : 'bg-yellow-50 border-yellow-200'} border`}>
+                       <div className="flex items-center">
+                         <svg className={`w-5 h-5 mr-2 ${isDarkMode ? 'text-yellow-400' : 'text-yellow-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                         </svg>
+                         <p className={`text-sm font-medium ${isDarkMode ? 'text-yellow-300' : 'text-yellow-700'}`}>
+                           Không thể thay đổi vai trò
+                         </p>
+                       </div>
+                                               <p className={`text-xs mt-1 ${isDarkMode ? 'text-yellow-200' : 'text-yellow-600'}`}>
+                          {!user?.isClubMember 
+                            ? 'User này chưa tham gia CLB. Để có thể thay đổi vai trò, user cần đăng ký và được duyệt thành viên CLB trước.'
+                            : user?.membershipStatus === 'PENDING'
+                            ? 'User này đã đăng ký CLB nhưng chưa được duyệt. Để có thể thay đổi vai trò, cần duyệt hồ sơ thành viên trước.'
+                            : user?.membershipStatus === 'REJECTED'
+                            ? 'User này đã bị từ chối tham gia CLB. Để có thể thay đổi vai trò, cần phê duyệt lại hồ sơ thành viên.'
+                            : 'User này không phải thành viên CLB đã được duyệt. Để có thể thay đổi vai trò, cần duyệt hồ sơ thành viên trước.'
+                          }
+                        </p>
+                       <p className={`text-xs mt-2 ${isDarkMode ? 'text-blue-200' : 'text-blue-600'}`}>
+                         💡 <strong>Gợi ý:</strong> Xét duyệt hồ sơ thành viên mới tại mục "Quản lý Đăng ký Thành viên CLB"
+                       </p>
+                     </div>
+                   </>
+                 )}
               </div>
             </form>
           ) : null}

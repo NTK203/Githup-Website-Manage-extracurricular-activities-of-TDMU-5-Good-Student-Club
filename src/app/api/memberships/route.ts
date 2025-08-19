@@ -59,6 +59,12 @@ export async function GET(request: NextRequest) {
 
     // Use aggregation to join with user data and apply search
     const pipeline: any[] = [
+      // Filter out removed memberships
+      {
+        $match: {
+          status: { $ne: 'REMOVED' }
+        }
+      },
       {
         $lookup: {
           from: 'users',
@@ -362,12 +368,23 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    // Check if membership is in PENDING status
-    if (membership.status !== 'PENDING') {
-      return NextResponse.json(
-        { error: 'Can only approve/reject pending memberships' },
-        { status: 400 }
-      );
+    // Check if membership is in valid status for action
+    if (action === 'approve') {
+      // Can approve PENDING or REJECTED memberships
+      if (membership.status !== 'PENDING' && membership.status !== 'REJECTED') {
+        return NextResponse.json(
+          { error: 'Can only approve pending or rejected memberships' },
+          { status: 400 }
+        );
+      }
+    } else if (action === 'reject') {
+      // Can only reject PENDING memberships
+      if (membership.status !== 'PENDING') {
+        return NextResponse.json(
+          { error: 'Can only reject pending memberships' },
+          { status: 400 }
+        );
+      }
     }
 
     // Update membership based on action

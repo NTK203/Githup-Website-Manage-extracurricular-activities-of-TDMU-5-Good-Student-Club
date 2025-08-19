@@ -1,8 +1,4 @@
 import ClientOnly from '@/components/common/ClientOnly';
-import TestResults from '@/components/common/TestResults';
-import UserTest from '@/components/common/UserTest';
-import AvatarUploadTest from '@/components/common/AvatarUploadTest';
-import DatabaseTest from '@/components/common/DatabaseTest';
 
 export default function Home() {
   return (
@@ -39,22 +35,13 @@ export default function Home() {
         </div>
         
         <div className="max-w-6xl mx-auto px-3 sm:px-4">
-          <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 mb-6 sm:mb-8">
-            <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Kiểm tra kết nối hệ thống</h2>
-            <TestResults />
+          <div className="bg-white rounded-lg shadow-md p-4 sm:p-6">
+            <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Chào mừng đến với hệ thống</h2>
+            <p className="text-gray-600">
+              Hệ thống quản lý hoạt động ngoại khóa của CLB Sinh viên 5 Tốt TDMU. 
+              Vui lòng đăng nhập để truy cập các chức năng quản lý.
+            </p>
           </div>
-          
-          <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 mb-6 sm:mb-8">
-            <UserTest />
-          </div>
-          
-                      <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 mb-6 sm:mb-8">
-              <AvatarUploadTest />
-            </div>
-            
-            <div className="bg-white rounded-lg shadow-md p-4 sm:p-6">
-              <DatabaseTest />
-            </div>
         </div>
       </div>
     </ClientOnly>
