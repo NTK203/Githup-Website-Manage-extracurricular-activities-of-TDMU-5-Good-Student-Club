@@ -59,13 +59,15 @@ export default function MemberPermissionsPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showPermissions, setShowPermissions] = useState(false);
   const [roleFilter, setRoleFilter] = useState('ALL');
+  const [showRemovedMembers, setShowRemovedMembers] = useState(false);
   
   // Stats states - separate from filtered data
   const [totalStats, setTotalStats] = useState({
     total: 0,
     admins: 0,
     officers: 0,
-    students: 0
+    students: 0,
+    removed: 0
   });
   
   // Remove member modal states
@@ -93,7 +95,7 @@ export default function MemberPermissionsPage() {
   // Load members data
   useEffect(() => {
     loadMembers();
-  }, [roleFilter]);
+  }, [roleFilter, showRemovedMembers]);
 
   // Load total stats on component mount
   useEffect(() => {
@@ -113,10 +115,15 @@ export default function MemberPermissionsPage() {
       if (roleFilter !== 'ALL') {
         params.append('role', roleFilter);
       }
+      
+      // Add status filter for removed members
+      if (showRemovedMembers) {
+        params.append('status', 'REMOVED');
+      }
 
-      // Load admin users from users table (only if roleFilter is ALL or ADMIN)
+      // Load admin users from users table (only if roleFilter is ALL or ADMIN and not showing removed members)
       let adminUsers: any[] = [];
-      if (roleFilter === 'ALL' || roleFilter === 'ADMIN') {
+      if ((roleFilter === 'ALL' || roleFilter === 'ADMIN') && !showRemovedMembers) {
         const usersResponse = await fetch(`/api/users/all?${params}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -159,17 +166,7 @@ export default function MemberPermissionsPage() {
         index === self.findIndex(m => m.userId?._id === member.userId?._id)
       );
 
-      // Filter out rejected memberships
-      const filteredMembers = uniqueMembers.filter(member => {
-        // Keep admin users (they don't have status field)
-        if (!member.status) {
-          return true;
-        }
-        // Filter out REJECTED status
-        return member.status !== 'REJECTED';
-      });
-
-      setMembers(filteredMembers);
+      setMembers(uniqueMembers);
     } catch (error) {
       console.error('Error loading members:', error);
       setMessage({ type: 'error', text: 'Không thể tải danh sách thành viên' });
@@ -201,7 +198,7 @@ export default function MemberPermissionsPage() {
         }
       }
 
-      // Load all memberships data
+      // Load all memberships data (excluding REMOVED for active members)
       const membershipsResponse = await fetch('/api/memberships?limit=1000', {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -214,6 +211,22 @@ export default function MemberPermissionsPage() {
         const membershipsData = await membershipsResponse.json();
         if (membershipsData.success) {
           allMemberships = membershipsData.data.memberships;
+        }
+      }
+
+      // Load REMOVED memberships separately for stats
+      const removedMembershipsResponse = await fetch('/api/memberships?limit=1000&status=REMOVED', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      let removedMemberships: any[] = [];
+      if (removedMembershipsResponse.ok) {
+        const removedData = await removedMembershipsResponse.json();
+        if (removedData.success) {
+          removedMemberships = removedData.data.memberships;
         }
       }
 
@@ -240,8 +253,14 @@ export default function MemberPermissionsPage() {
       const admins = filteredMembers.filter(m => m.userId?.role === 'ADMIN').length;
       const officers = filteredMembers.filter(m => m.userId?.role === 'OFFICER').length;
       const students = filteredMembers.filter(m => m.userId?.role === 'STUDENT').length;
+      
+      // Count removed members from separate API call
+      const removed = removedMemberships.length;
+      
+      console.log('Removed memberships:', removedMemberships);
+      console.log('Removed count:', removed);
 
-      setTotalStats({ total, admins, officers, students });
+      setTotalStats({ total, admins, officers, students, removed });
     } catch (error) {
       console.error('Error loading total stats:', error);
     }
@@ -438,12 +457,15 @@ export default function MemberPermissionsPage() {
           <div className="mb-6 sm:mb-8">
             <div className="flex items-center justify-between">
               <div>
-                                 <h1 className={`text-2xl sm:text-3xl font-bold mb-2 transition-colors duration-200 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                   Quản lý phân quyền thành viên
-                 </h1>
-                 <p className={`text-sm sm:text-base transition-colors duration-200 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                   Quản lý vai trò và quyền hạn của tất cả thành viên trong câu lạc bộ
-                 </p>
+                                                 <h1 className={`text-2xl sm:text-3xl font-bold mb-2 transition-colors duration-200 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  {showRemovedMembers ? 'Thành viên đã bị xóa' : 'Quản lý phân quyền thành viên'}
+                </h1>
+                <p className={`text-sm sm:text-base transition-colors duration-200 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                  {showRemovedMembers 
+                    ? 'Danh sách các thành viên đã bị xóa khỏi câu lạc bộ'
+                    : 'Quản lý vai trò và quyền hạn của tất cả thành viên trong câu lạc bộ'
+                  }
+                </p>
               </div>
                              <div className="flex items-center space-x-4">
                  <select
@@ -460,28 +482,39 @@ export default function MemberPermissionsPage() {
                                                    <option value="OFFICER">Ban Chấp Hành</option>
                    <option value="ADMIN">Quản Trị Hệ Thống</option>
                  </select>
-                 <button
-                   onClick={() => setShowPermissions(!showPermissions)}
-                   className={`px-4 py-2 border rounded-lg transition-colors duration-200 flex items-center space-x-2 ${
-                     isDarkMode 
-                       ? 'border-gray-600 text-gray-300 hover:bg-gray-700' 
-                       : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                   }`}
-                 >
-                   <span>🔐</span>
-                   <span>{showPermissions ? 'Ẩn' : 'Xem'} quyền hạn</span>
-                 </button>
-                 <button
-                   onClick={() => router.push('/admin/members')}
-                   className={`px-4 py-2 border rounded-lg transition-colors duration-200 flex items-center space-x-2 ${
-                     isDarkMode 
-                       ? 'border-gray-600 text-gray-300 hover:bg-gray-700' 
-                       : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                   }`}
-                 >
-                   <span>←</span>
-                   <span>Quay lại</span>
-                 </button>
+                                 <button
+                  onClick={() => setShowPermissions(!showPermissions)}
+                  className={`px-4 py-2 border rounded-lg transition-colors duration-200 flex items-center space-x-2 min-w-[150px] justify-center whitespace-nowrap ${
+                    isDarkMode 
+                      ? 'border-gray-600 text-gray-300 hover:bg-gray-700' 
+                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <span>🔐</span>
+                  <span>{showPermissions ? 'Ẩn' : 'Xem'} quyền hạn</span>
+                </button>
+                <button
+                  onClick={() => setShowRemovedMembers(!showRemovedMembers)}
+                  className={`px-4 py-2 rounded-lg transition-colors duration-200 flex items-center space-x-2 min-w-[200px] justify-center whitespace-nowrap ${
+                    showRemovedMembers
+                      ? 'bg-orange-600 text-white hover:bg-orange-700'
+                      : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                  }`}
+                >
+                  <span>🚫</span>
+                  <span>{showRemovedMembers ? 'Ẩn' : 'Xem'} thành viên đã xóa</span>
+                </button>
+                                 <button
+                  onClick={() => router.push('/admin/members')}
+                  className={`px-4 py-2 border rounded-lg transition-colors duration-200 flex items-center space-x-2 min-w-[120px] justify-center ${
+                    isDarkMode 
+                      ? 'border-gray-600 text-gray-300 hover:bg-gray-700' 
+                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <span>←</span>
+                  <span>Quay lại</span>
+                </button>
                </div>
             </div>
           </div>
@@ -498,7 +531,7 @@ export default function MemberPermissionsPage() {
           )}
 
           {/* Stats Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
                 <div className="p-2 bg-blue-100 rounded-lg">
@@ -540,6 +573,17 @@ export default function MemberPermissionsPage() {
                 <div className="ml-4">
                   <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Thành Viên CLB</p>
                   <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.students}</p>
+                </div>
+              </div>
+            </div>
+            <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
+              <div className="flex items-center">
+                <div className="p-2 bg-orange-100 rounded-lg">
+                  <span className="text-orange-600 text-xl">🚫</span>
+                </div>
+                <div className="ml-4">
+                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Đã bị xóa</p>
+                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.removed}</p>
                 </div>
               </div>
             </div>
@@ -601,15 +645,15 @@ export default function MemberPermissionsPage() {
                       <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
                         Thông tin
                       </th>
-                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
-                        Vai trò hiện tại
-                      </th>
-                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
-                        Thay đổi vai trò
-                      </th>
-                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
-                        Trạng thái & Hành động
-                      </th>
+                                              <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
+                          Vai trò hiện tại
+                        </th>
+                        <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
+                          {showRemovedMembers ? 'Vai trò' : 'Thay đổi vai trò'}
+                        </th>
+                        <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
+                          {showRemovedMembers ? 'Thông tin xóa' : 'Trạng thái & Hành động'}
+                        </th>
                     </tr>
                   </thead>
                   <tbody className={`${isDarkMode ? 'bg-gray-800 divide-gray-700' : 'bg-white divide-gray-200'}`}>
@@ -659,67 +703,94 @@ export default function MemberPermissionsPage() {
                            {getRoleBadge(member.userId?.role || 'STUDENT')}
                          </td>
                          <td className="px-6 py-4 whitespace-nowrap">
-                           <div className="flex items-center space-x-2">
-                             <select
-                               value={member.userId?.role || 'STUDENT'}
-                               onChange={(e) => updateMemberRole(member.userId?._id || '', e.target.value)}
-                               disabled={updatingRole === member.userId?._id}
-                               className={`px-3 py-1 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
-                                 isDarkMode 
-                                   ? 'bg-gray-700 border-gray-600 text-white' 
-                                   : 'bg-white border-gray-300 text-gray-900'
-                               } ${updatingRole === member.userId?._id ? 'opacity-50 cursor-not-allowed' : ''}`}
-                             >
-                               <option value="STUDENT">Thành Viên CLB</option>
-                               <option value="OFFICER">Ban Chấp Hành</option>
-                               <option value="ADMIN">Quản trị viên</option>
-                             </select>
-                             {updatingRole === member.userId?._id && (
-                               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                             )}
-                           </div>
+                           {showRemovedMembers ? (
+                             // Show role info for removed members (read-only)
+                             <div>
+                               {getRoleBadge(member.userId?.role || 'STUDENT')}
+                             </div>
+                           ) : (
+                             // Show role selector for active members
+                             <div className="flex items-center space-x-2">
+                               <select
+                                 value={member.userId?.role || 'STUDENT'}
+                                 onChange={(e) => updateMemberRole(member.userId?._id || '', e.target.value)}
+                                 disabled={updatingRole === member.userId?._id}
+                                 className={`px-3 py-1 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+                                   isDarkMode 
+                                     ? 'bg-gray-700 border-gray-600 text-white' 
+                                     : 'bg-white border-gray-300 text-gray-900'
+                                 } ${updatingRole === member.userId?._id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                               >
+                                 <option value="STUDENT">Thành Viên CLB</option>
+                                 <option value="OFFICER">Ban Chấp Hành</option>
+                                 <option value="ADMIN">Quản trị viên</option>
+                               </select>
+                               {updatingRole === member.userId?._id && (
+                                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                               )}
+                             </div>
+                           )}
                          </td>
                          <td className="px-6 py-4 whitespace-nowrap">
-                           <div className="flex items-center space-x-2">
-                             {member.status === 'ACTIVE' && member.userId?.role !== 'ADMIN' && (
-                               <button
-                                 onClick={() => openRemoveModal(member)}
-                                 disabled={removingMember === member._id}
-                                 className={`px-3 py-1 text-sm border rounded-lg transition-colors duration-200 ${
-                                   isDarkMode 
-                                     ? 'border-red-600 text-red-400 hover:bg-red-900 hover:text-red-300' 
-                                     : 'border-red-300 text-red-600 hover:bg-red-50'
-                                 }`}
-                                 title="Xóa khỏi câu lạc bộ"
-                               >
-                                 {removingMember === member._id ? (
-                                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600"></div>
-                                 ) : (
-                                   '🗑️ Xóa'
+                           {showRemovedMembers ? (
+                             // Show removal information for removed members
+                             <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-900'}`}>
+                               <div className="mb-2">
+                                 <span className={`px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-800`}>
+                                   Đã xóa
+                                 </span>
+                               </div>
+                               <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                 <div>Xóa lúc: {new Date(member.removedAt || '').toLocaleString('vi-VN')}</div>
+                                 <div>Lý do: {member.removalReason || 'Không có'}</div>
+                                 {member.removedBy && (
+                                   <div>Xóa bởi: {member.removedBy.name || 'Không xác định'}</div>
                                  )}
-                               </button>
-                             )}
-                             {member.status === 'ACTIVE' && member.userId?.role === 'ADMIN' && (
-                               <span className="px-3 py-1 text-sm rounded-lg bg-green-100 text-green-800">
-                                 Tài khoản hệ thống
-                               </span>
-                             )}
-                             {member.status !== 'ACTIVE' && (
-                               <span className={`px-3 py-1 text-sm rounded-lg ${
-                                                                member.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
-                               member.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
-                               member.status === 'REMOVED' ? 'bg-gray-100 text-gray-800' :
-                               member.status === 'INACTIVE' ? 'bg-gray-100 text-gray-800' :
-                               'bg-gray-100 text-gray-800'
-                               }`}>
-                                                              {member.status === 'PENDING' ? 'Chờ duyệt' :
-                              member.status === 'REJECTED' ? 'Đã từ chối' :
-                              member.status === 'REMOVED' ? 'Đã xóa' :
-                              member.status === 'INACTIVE' ? 'Không hoạt động' :
-                              'Không xác định'}
-                               </span>
-                             )}
-                           </div>
+                               </div>
+                             </div>
+                           ) : (
+                             // Show normal status and actions for active members
+                             <div className="flex items-center space-x-2">
+                               {member.status === 'ACTIVE' && member.userId?.role !== 'ADMIN' && (
+                                 <button
+                                   onClick={() => openRemoveModal(member)}
+                                   disabled={removingMember === member._id}
+                                   className={`px-3 py-1 text-sm border rounded-lg transition-colors duration-200 ${
+                                     isDarkMode 
+                                       ? 'border-red-600 text-red-400 hover:bg-red-900 hover:text-red-300' 
+                                       : 'border-red-300 text-red-600 hover:bg-red-50'
+                                   }`}
+                                   title="Xóa khỏi câu lạc bộ"
+                                 >
+                                   {removingMember === member._id ? (
+                                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600"></div>
+                                   ) : (
+                                     '🗑️ Xóa'
+                                   )}
+                                 </button>
+                               )}
+                               {member.status === 'ACTIVE' && member.userId?.role === 'ADMIN' && (
+                                 <span className="px-3 py-1 text-sm rounded-lg bg-green-100 text-green-800">
+                                   Tài khoản hệ thống
+                                 </span>
+                               )}
+                               {member.status !== 'ACTIVE' && (
+                                 <span className={`px-3 py-1 text-sm rounded-lg ${
+                                                                  member.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
+                                 member.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
+                                 member.status === 'REMOVED' ? 'bg-gray-100 text-gray-800' :
+                                 member.status === 'INACTIVE' ? 'bg-gray-100 text-gray-800' :
+                                 'bg-gray-100 text-gray-800'
+                                 }`}>
+                                                                  {member.status === 'PENDING' ? 'Chờ duyệt' :
+                                 member.status === 'REJECTED' ? 'Đã từ chối' :
+                                 member.status === 'REMOVED' ? 'Đã xóa' :
+                                 member.status === 'INACTIVE' ? 'Không hoạt động' :
+                                 'Không xác định'}
+                                 </span>
+                               )}
+                             </div>
+                           )}
                          </td>
                       </tr>
                     ))}

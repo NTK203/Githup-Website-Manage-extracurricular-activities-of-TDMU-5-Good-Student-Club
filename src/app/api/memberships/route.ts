@@ -59,12 +59,6 @@ export async function GET(request: NextRequest) {
 
     // Use aggregation to join with user data and apply search
     const pipeline: any[] = [
-      // Filter out removed memberships
-      {
-        $match: {
-          status: { $ne: 'REMOVED' }
-        }
-      },
       {
         $lookup: {
           from: 'users',
@@ -78,6 +72,20 @@ export async function GET(request: NextRequest) {
       }
     ];
 
+    // Add status filter to include/exclude removed memberships
+    if (status && status !== 'ALL') {
+      pipeline.push({
+        $match: { status }
+      });
+    } else {
+      // Default: exclude REMOVED memberships unless specifically requested
+      pipeline.push({
+        $match: {
+          status: { $ne: 'REMOVED' }
+        }
+      });
+    }
+
     // Add search filter if provided
     if (search) {
       pipeline.push({
@@ -88,13 +96,6 @@ export async function GET(request: NextRequest) {
             { 'user.email': { $regex: search, $options: 'i' } }
           ]
         }
-      });
-    }
-
-    // Add status filter
-    if (status && status !== 'ALL') {
-      pipeline.push({
-        $match: { status }
       });
     }
 
@@ -151,6 +152,20 @@ export async function GET(request: NextRequest) {
         }
       },
       {
+        $lookup: {
+          from: 'users',
+          localField: 'removedBy._id',
+          foreignField: '_id',
+          as: 'remover'
+        }
+      },
+      {
+        $unwind: {
+          path: '$remover',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
         $project: {
           _id: 1,
           status: 1,
@@ -184,12 +199,23 @@ export async function GET(request: NextRequest) {
             _id: '$rejecter._id',
             name: '$rejecter.name',
             studentId: '$rejecter.studentId'
-          }
+          },
+          removedBy: {
+            _id: '$remover._id',
+            name: '$remover.name',
+            studentId: '$remover.studentId'
+          },
+          removedAt: 1,
+          removalReason: 1
         }
       }
     );
 
     const memberships = await Membership.aggregate(pipeline);
+    
+    console.log('API - Status filter:', status);
+    console.log('API - Memberships count:', memberships.length);
+    console.log('API - First membership:', memberships[0]);
 
     return NextResponse.json({
       success: true,

@@ -24,7 +24,7 @@ interface ClubMember {
     faculty?: string;
     avatarUrl?: string;
   };
-  status: 'ACTIVE' | 'PENDING' | 'REJECTED';
+  status: 'ACTIVE' | 'PENDING' | 'REJECTED' | 'REMOVED';
   joinedAt: string;
   approvedAt?: string;
   approvedBy?: {
@@ -32,6 +32,13 @@ interface ClubMember {
     name: string;
     studentId: string;
   };
+  removedAt?: string;
+  removedBy?: {
+    _id: string;
+    name: string;
+    studentId: string;
+  };
+  removalReason?: string;
   motivation?: string;
   experience?: string;
   expectations?: string;
@@ -62,11 +69,13 @@ export default function MembersPage() {
     total: 0,
     active: 0,
     pending: 0,
-    rejected: 0
+    rejected: 0,
+    removed: 0
   });
   const [statsLoading, setStatsLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [showExportToast, setShowExportToast] = useState(false);
+  const [showRemovedMembers, setShowRemovedMembers] = useState(false);
 
   // Modal states
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -108,7 +117,7 @@ export default function MembersPage() {
   // Load members data
   useEffect(() => {
     loadMembers();
-  }, [searchTerm, roleFilter, selectedRoles, facultyFilter, sortBy, sortOrder, currentPage]);
+  }, [searchTerm, roleFilter, selectedRoles, facultyFilter, sortBy, sortOrder, currentPage, showRemovedMembers]);
 
   const loadMembers = async () => {
     setLoading(true);
@@ -125,7 +134,12 @@ export default function MembersPage() {
       }
       
       if (facultyFilter !== 'ALL') params.append('faculty', facultyFilter);
-      params.append('status', 'ACTIVE'); // Only load active members
+      // Set status based on showRemovedMembers state
+      if (showRemovedMembers) {
+        params.append('status', 'REMOVED');
+      } else {
+        params.append('status', 'ACTIVE'); // Only load active members
+      }
       params.append('sortBy', sortBy);
       params.append('sortOrder', sortOrder);
       params.append('page', currentPage.toString());
@@ -176,25 +190,45 @@ export default function MembersPage() {
       if (!token) return;
 
       // Fetch all active memberships to calculate stats
-      const response = await fetch('/api/memberships?status=ACTIVE&limit=1000', {
+      const activeResponse = await fetch('/api/memberships?status=ACTIVE&limit=1000', {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          const allMemberships = data.data.memberships;
-          setStats({
-            total: allMemberships.length,
-            active: allMemberships.length,
-            pending: 0, // This page only shows active members
-            rejected: 0
-          });
+      // Fetch removed memberships for stats
+      const removedResponse = await fetch('/api/memberships?status=REMOVED&limit=1000', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      let activeMemberships: any[] = [];
+      let removedMemberships: any[] = [];
+
+      if (activeResponse.ok) {
+        const activeData = await activeResponse.json();
+        if (activeData.success) {
+          activeMemberships = activeData.data.memberships;
         }
       }
+
+      if (removedResponse.ok) {
+        const removedData = await removedResponse.json();
+        if (removedData.success) {
+          removedMemberships = removedData.data.memberships;
+        }
+      }
+
+      setStats({
+        total: activeMemberships.length,
+        active: activeMemberships.length,
+        pending: 0, // This page only shows active members
+        rejected: 0,
+        removed: removedMemberships.length
+      });
     } catch (error) {
       console.error('Error loading stats:', error);
     } finally {
@@ -372,33 +406,47 @@ export default function MembersPage() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h1 className={`text-2xl sm:text-3xl font-bold mb-2 transition-colors duration-200 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                  Thành viên CLB Sinh viên 5 Tốt
+                  {showRemovedMembers ? 'Thành viên đã bị xóa' : 'Thành viên CLB Sinh viên 5 Tốt'}
                 </h1>
                 <p className={`text-sm sm:text-base transition-colors duration-200 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                  Danh sách các thành viên đã được duyệt và tham gia câu lạc bộ
+                  {showRemovedMembers 
+                    ? 'Danh sách các thành viên đã bị xóa khỏi câu lạc bộ'
+                    : 'Danh sách các thành viên đã được duyệt và tham gia câu lạc bộ'
+                  }
                 </p>
               </div>
               <div className="mt-4 sm:mt-0 flex space-x-3">
                 <button 
                   onClick={() => router.push('/admin/memberships')}
-                  className={`px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors duration-200 flex items-center space-x-2`}
+                  className={`px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors duration-200 flex items-center space-x-2 min-w-[140px] justify-center`}
                 >
                   <span>📝</span>
                   <span>Xét duyệt đơn</span>
                 </button>
                 <button 
                   onClick={() => router.push('/admin/members/add')}
-                  className={`px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 flex items-center space-x-2`}
+                  className={`px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 flex items-center space-x-2 min-w-[160px] justify-center`}
                 >
                   <span>➕</span>
                   <span>Thêm thành viên</span>
+                </button>
+                <button 
+                  onClick={() => setShowRemovedMembers(!showRemovedMembers)}
+                  className={`px-4 py-2 rounded-lg transition-colors duration-200 flex items-center space-x-2 min-w-[200px] justify-center whitespace-nowrap ${
+                    showRemovedMembers
+                      ? 'bg-orange-600 text-white hover:bg-orange-700'
+                      : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                  }`}
+                >
+                  <span>🚫</span>
+                  <span>{showRemovedMembers ? 'Ẩn' : 'Xem'} thành viên đã xóa</span>
                 </button>
               </div>
             </div>
           </div>
 
           {/* Stats Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
                 <div className="p-2 bg-blue-100 rounded-lg">
@@ -425,6 +473,21 @@ export default function MembersPage() {
                     <div className="animate-pulse bg-gray-300 h-8 w-16 rounded"></div>
                   ) : (
                     <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.active}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
+              <div className="flex items-center">
+                <div className="p-2 bg-orange-100 rounded-lg">
+                  <span className="text-orange-600 text-xl">🚫</span>
+                </div>
+                <div className="ml-4">
+                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Đã bị xóa</p>
+                  {statsLoading ? (
+                    <div className="animate-pulse bg-gray-300 h-8 w-16 rounded"></div>
+                  ) : (
+                    <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.removed}</p>
                   )}
                 </div>
               </div>
@@ -655,10 +718,10 @@ export default function MembersPage() {
                           Vai trò & Ngày tham gia
                         </th>
                         <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
-                          Người duyệt
+                          {showRemovedMembers ? 'Người xóa' : 'Người duyệt'}
                         </th>
                         <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
-                          Thao tác
+                          {showRemovedMembers ? 'Thông tin xóa' : 'Thao tác'}
                         </th>
                       </tr>
                     </thead>
@@ -719,76 +782,114 @@ export default function MembersPage() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-900'}`}>
-                              {member.approvedBy ? (
-                                <>
-                                  <div className="font-medium">{member.approvedBy.name}</div>
-                                  <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                    {member.approvedBy.studentId}
-                                  </div>
-                                  {member.approvedAt && (
-                                    <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                      {formatDate(member.approvedAt)}
-                                    </div>
-                                  )}
-                                </>
+                              {showRemovedMembers ? (
+                                // Show removal information for removed members
+                                member.removedBy ? (
+                                  <>
+                                    <div className="font-medium">{member.removedBy.name}</div>
+                                    {member.removedAt && (
+                                      <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                        {formatDate(member.removedAt)}
+                                      </div>
+                                    )}
+                                  </>
+                                ) : (
+                                  <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                    Không có thông tin
+                                  </span>
+                                )
                               ) : (
-                                <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                  Không có thông tin
-                                </span>
+                                // Show approval information for active members
+                                member.approvedBy ? (
+                                  <>
+                                    <div className="font-medium">{member.approvedBy.name}</div>
+                                    <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                      {member.approvedBy.studentId}
+                                    </div>
+                                    {member.approvedAt && (
+                                      <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                        {formatDate(member.approvedAt)}
+                                      </div>
+                                    )}
+                                  </>
+                                ) : (
+                                  <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                    Không có thông tin
+                                  </span>
+                                )
                               )}
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <div className="flex items-center space-x-2">
-                              <button 
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  console.log('Detail button clicked for member:', member._id);
-                                  openDetailModal(member._id);
-                                }}
-                                className={`p-2 rounded-lg transition-colors duration-200 ${
-                                  isDarkMode 
-                                    ? 'text-blue-400 hover:bg-blue-900 hover:text-blue-300' 
-                                    : 'text-blue-600 hover:bg-blue-50 hover:text-blue-700'
-                                }`} 
-                                title="Xem chi tiết"
-                              >
-                                👁️
-                              </button>
-                              <button 
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  console.log('Edit button clicked for member:', member._id);
-                                  openEditModal(member._id);
-                                }}
-                                className={`p-2 rounded-lg transition-colors duration-200 ${
-                                  isDarkMode 
-                                    ? 'text-green-400 hover:bg-green-900 hover:text-green-300' 
-                                    : 'text-green-600 hover:bg-green-50 hover:text-green-700'
-                                }`} 
-                                title="Chỉnh sửa"
-                              >
-                                ✏️
-                              </button>
-                              <button 
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  console.log('Delete button clicked for member:', member._id);
-                                  openDeleteModal(member._id);
-                                }}
-                                className={`p-2 rounded-lg transition-colors duration-200 ${
-                                  isDarkMode 
-                                    ? 'text-red-400 hover:bg-red-900 hover:text-red-300' 
-                                    : 'text-red-600 hover:bg-red-50 hover:text-red-700'
-                                }`} 
-                                title="Xóa khỏi CLB"
-                              >
-                                🗑️
-                              </button>
-                            </div>
+                            {showRemovedMembers ? (
+                              // Show removal information for removed members
+                              <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-900'}`}>
+                                <div className="mb-2">
+                                  <span className={`px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-800`}>
+                                    Đã xóa
+                                  </span>
+                                </div>
+                                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  <div>Xóa lúc: {member.removedAt ? formatDate(member.removedAt) : 'Không có'}</div>
+                                  <div>Lý do: {member.removalReason || 'Không có'}</div>
+                                  {member.removedBy && (
+                                    <div>Người xóa: {member.removedBy.name}</div>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              // Show action buttons for active members
+                              <div className="flex items-center space-x-2">
+                                <button 
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    console.log('Detail button clicked for member:', member._id);
+                                    openDetailModal(member._id);
+                                  }}
+                                  className={`p-2 rounded-lg transition-colors duration-200 ${
+                                    isDarkMode 
+                                      ? 'text-blue-400 hover:bg-blue-900 hover:text-blue-300' 
+                                      : 'text-blue-600 hover:bg-blue-50 hover:text-blue-700'
+                                  }`} 
+                                  title="Xem chi tiết"
+                                >
+                                  👁️
+                                </button>
+                                <button 
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    console.log('Edit button clicked for member:', member._id);
+                                    openEditModal(member._id);
+                                  }}
+                                  className={`p-2 rounded-lg transition-colors duration-200 ${
+                                    isDarkMode 
+                                      ? 'text-green-400 hover:bg-green-900 hover:text-green-300' 
+                                      : 'text-green-600 hover:bg-green-50 hover:text-green-700'
+                                  }`} 
+                                  title="Chỉnh sửa"
+                                >
+                                  ✏️
+                                </button>
+                                <button 
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    console.log('Delete button clicked for member:', member._id);
+                                    openDeleteModal(member._id);
+                                  }}
+                                  className={`p-2 rounded-lg transition-colors duration-200 ${
+                                    isDarkMode 
+                                      ? 'text-red-400 hover:bg-red-900 hover:text-red-300' 
+                                      : 'text-red-600 hover:bg-red-50 hover:text-red-700'
+                                  }`} 
+                                  title="Xóa khỏi CLB"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -799,12 +900,15 @@ export default function MembersPage() {
                 {/* Empty State */}
                 {members.length === 0 && !loading && (
                   <div className="p-8 text-center">
-                    <div className="text-6xl mb-4">👥</div>
+                    <div className="text-6xl mb-4">{showRemovedMembers ? '🚫' : '👥'}</div>
                     <h3 className={`text-lg font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-900'}`}>
-                      Chưa có thành viên nào
+                      {showRemovedMembers ? 'Chưa có thành viên nào bị xóa' : 'Chưa có thành viên nào'}
                     </h3>
                     <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                      Hiện tại chưa có thành viên nào được duyệt tham gia CLB
+                      {showRemovedMembers 
+                        ? 'Hiện tại chưa có thành viên nào bị xóa khỏi CLB'
+                        : 'Hiện tại chưa có thành viên nào được duyệt tham gia CLB'
+                      }
                     </p>
                   </div>
                 )}

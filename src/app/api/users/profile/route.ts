@@ -15,21 +15,29 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, email, phone, avatarUrl } = body;
+    console.log('Received profile update data:', body);
+    const { name, email, phone, avatarUrl, faculty, class: className, position, department } = body;
 
     // Connect to database
     await dbConnect();
 
     // Update user profile
+    const updateData = {
+      name,
+      email,
+      phone,
+      avatarUrl,
+      faculty,
+      class: className,
+      position,
+      department,
+      updatedAt: new Date()
+    };
+    console.log('Updating user with data:', updateData);
+    
     const updatedUser = await User.findByIdAndUpdate(
       user.userId,
-      {
-        name,
-        email,
-        phone,
-        avatarUrl,
-        updatedAt: new Date()
-      },
+      updateData,
       { new: true, runValidators: true }
     );
 
@@ -50,6 +58,8 @@ export async function PUT(request: NextRequest) {
       phone: updatedUser.phone,
       class: updatedUser.class,
       faculty: updatedUser.faculty,
+      position: updatedUser.position,
+      department: updatedUser.department,
       avatarUrl: updatedUser.avatarUrl,
       createdAt: updatedUser.createdAt,
       updatedAt: updatedUser.updatedAt

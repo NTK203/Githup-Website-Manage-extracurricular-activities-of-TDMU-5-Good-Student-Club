@@ -14,6 +14,8 @@ export interface IUser extends Document {
   phone?: string;
   class?: string;
   faculty?: string;
+  position?: string;
+  department?: string;
   isClubMember?: boolean;
   avatarUrl?: string;
   isDeleted?: boolean;
@@ -115,6 +117,16 @@ const userSchema = new Schema<IUser>({
       ],
       message: 'Khoa/Viện không hợp lệ'
     }
+  },
+  position: {
+    type: String,
+    trim: true,
+    maxlength: [50, 'Chức vụ không được quá 50 ký tự']
+  },
+  department: {
+    type: String,
+    trim: true,
+    maxlength: [100, 'Tên phòng ban không được quá 100 ký tự']
   },
   isClubMember: {
     type: Boolean,

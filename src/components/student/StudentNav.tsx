@@ -475,12 +475,12 @@ export default function StudentNav() {
                     <img
                       src={user.avatarUrl}
                       alt="Avatar"
-                      className="w-8 h-8 rounded-full object-cover ring-2 ring-transparent group-hover:ring-blue-500 transition-all duration-200"
+                      className="w-8 h-8 rounded-full object-cover ring-2 ring-green-500 group-hover:ring-green-600 transition-all duration-200"
                     />
                   ) : (
-                    <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
+                    <div className="w-8 h-8 bg-gradient-to-r from-green-500 to-green-600 rounded-full flex items-center justify-center ring-2 ring-green-500 group-hover:ring-green-600 transition-all duration-200">
                       <span className="text-white text-sm font-bold">
-                        {user?.name?.charAt(0) || 'S'}
+                        {user?.name?.split(' ').pop()?.charAt(0) || 'S'}
                       </span>
                     </div>
                   )}
@@ -509,13 +509,13 @@ export default function StudentNav() {
                            <img
                              src={user.avatarUrl}
                              alt="Avatar"
-                             className="w-12 h-12 rounded-full object-cover ring-2 ring-blue-500/20"
+                             className="w-12 h-12 rounded-full object-cover ring-2 ring-green-500"
                            />
                            <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full border-2 border-white"></div>
                          </div>
                        ) : (
                          <div className="relative">
-                           <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center ring-2 ring-blue-500/20">
+                           <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-green-600 rounded-full flex items-center justify-center ring-2 ring-green-500">
                              <span className="text-white text-lg font-bold">
                                {user?.name?.charAt(0) || 'S'}
                              </span>
