@@ -141,6 +141,11 @@ export default function MultiTimeLocationPicker({
   const activeTimeSlotRef = useRef<keyof typeof timeSlotConfig>(activeTimeSlots[0] || 'morning');
   const isClearingRef = useRef(false); // Track when user is manually clearing
   const prevInitialLocationsRef = useRef<LocationData[]>(initialLocations); // Track previous initialLocations to prevent unnecessary updates
+  const latestOnLocationsChangeRef = useRef(onLocationsChange);
+
+  useEffect(() => {
+    latestOnLocationsChangeRef.current = onLocationsChange;
+  }, [onLocationsChange]);
 
   // Default center (TDMU coordinates)
   const defaultCenter: [number, number] = [10.7325, 106.6992];
@@ -242,7 +247,7 @@ export default function MultiTimeLocationPicker({
   // Update parent component when locations change
   useEffect(() => {
     console.log('🔄 Locations changed, updating parent:', locations);
-    onLocationsChange(locations);
+    latestOnLocationsChangeRef.current(locations);
     
     // Don't auto-update search query if user is manually clearing
     if (isClearingRef.current) {
@@ -263,7 +268,7 @@ export default function MultiTimeLocationPicker({
         console.log('📍 Updated search query with current location:', currentLocation.location.address);
       }
     }
-  }, [locations, onLocationsChange, isUserTyping]);
+  }, [locations, isUserTyping]);
 
 
 

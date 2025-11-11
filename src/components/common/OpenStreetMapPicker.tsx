@@ -52,6 +52,7 @@ interface OpenStreetMapPickerProps {
   isDarkMode?: boolean;
   activeTimeSlots?: TimeSlot[];
   isReadOnly?: boolean;
+  enforceActiveTimeSlots?: boolean;
 }
 
 export default function OpenStreetMapPicker({
@@ -59,7 +60,8 @@ export default function OpenStreetMapPicker({
   initialLocation,
   isDarkMode = false,
   activeTimeSlots = [],
-  isReadOnly = false
+  isReadOnly = false,
+  enforceActiveTimeSlots = true
 }: OpenStreetMapPickerProps) {
   const [tempLocation, setTempLocation] = useState<LocationData | null>(null);
   const [showLocationConfirm, setShowLocationConfirm] = useState(false);
@@ -164,6 +166,9 @@ export default function OpenStreetMapPicker({
   // Effect to monitor activeTimeSlots changes and clear location if no active slots
   // Skip this check if isReadOnly (for viewing existing locations)
   useEffect(() => {
+    if (!enforceActiveTimeSlots) {
+      return;
+    }
     // Nếu là read-only mode, không cần kiểm tra activeTimeSlots
     if (isReadOnly && initialLocation) {
       return;
@@ -190,7 +195,7 @@ export default function OpenStreetMapPicker({
         radius: 200
       });
     }
-  }, [activeTimeSlots, selectedLocation, onLocationChange, isReadOnly, initialLocation]);
+  }, [activeTimeSlots, selectedLocation, onLocationChange, isReadOnly, initialLocation, enforceActiveTimeSlots]);
 
   // Helper function to safely format coordinates
   const formatCoordinates = (lat: any, lng: any): string => {
@@ -256,7 +261,7 @@ export default function OpenStreetMapPicker({
     const { lat, lng } = e.latlng;
     
     // Skip time slot check if read-only mode
-    if (!isReadOnly) {
+    if (!isReadOnly && enforceActiveTimeSlots) {
       // Check if any time slots are active - IMPROVED CHECK for TimeSlot[]
       const hasActiveTimeSlots = activeTimeSlots && 
                                 activeTimeSlots.length > 0 && 
@@ -269,8 +274,10 @@ export default function OpenStreetMapPicker({
         console.log('⚠️ activeTimeSlots:', activeTimeSlots);
         console.log('⚠️ activeTimeSlots.length:', activeTimeSlots?.length);
         console.log('⚠️ activeTimeSlots.some(slot => slot.isActive):', activeTimeSlots?.some(slot => slot.isActive));
-        setShowTimeSlotWarning(true);
-        setTimeout(() => setShowTimeSlotWarning(false), 5000); // Hide warning after 5 seconds
+        if (!showTimeSlotWarning) {
+          setShowTimeSlotWarning(true);
+          setTimeout(() => setShowTimeSlotWarning(false), 5000); // Hide warning after 5 seconds
+        }
         return;
       }
     }
@@ -346,15 +353,17 @@ export default function OpenStreetMapPicker({
     console.log('🔍 DEBUG: activeTimeSlots.some(slot => slot.isActive) =', activeTimeSlots?.some(slot => slot.isActive));
     
     // Double-check that we have active time slots before confirming (skip if read-only)
-    if (!isReadOnly) {
+    if (!isReadOnly && enforceActiveTimeSlots) {
       const hasActiveTimeSlots = activeTimeSlots && 
                                 activeTimeSlots.length > 0 && 
                                 activeTimeSlots.some(slot => slot.isActive);
       
       if (!hasActiveTimeSlots) {
         console.log('⚠️ No active time slots - CANNOT CONFIRM LOCATION');
-        setShowTimeSlotWarning(true);
-        setTimeout(() => setShowTimeSlotWarning(false), 5000);
+        if (!showTimeSlotWarning) {
+          setShowTimeSlotWarning(true);
+          setTimeout(() => setShowTimeSlotWarning(false), 5000);
+        }
         return;
       }
     }
@@ -479,7 +488,7 @@ export default function OpenStreetMapPicker({
     console.log('🔍 DEBUG: activeTimeSlots.some(slot => slot.isActive) =', activeTimeSlots?.some(slot => slot.isActive));
     
     // Skip time slot check if read-only mode
-    if (!isReadOnly) {
+    if (!isReadOnly && enforceActiveTimeSlots) {
       // Check if any time slots are active - IMPROVED CHECK for TimeSlot[]
       const hasActiveTimeSlots = activeTimeSlots && 
                                 activeTimeSlots.length > 0 && 
@@ -492,8 +501,10 @@ export default function OpenStreetMapPicker({
         console.log('⚠️ activeTimeSlots:', activeTimeSlots);
         console.log('⚠️ activeTimeSlots.length:', activeTimeSlots?.length);
         console.log('⚠️ activeTimeSlots.some(slot => slot.isActive):', activeTimeSlots?.some(slot => slot.isActive));
-        setShowTimeSlotWarning(true);
-        setTimeout(() => setShowTimeSlotWarning(false), 5000); // Hide warning after 5 seconds
+        if (!showTimeSlotWarning) {
+          setShowTimeSlotWarning(true);
+          setTimeout(() => setShowTimeSlotWarning(false), 5000); // Hide warning after 5 seconds
+        }
         return;
       }
     }
