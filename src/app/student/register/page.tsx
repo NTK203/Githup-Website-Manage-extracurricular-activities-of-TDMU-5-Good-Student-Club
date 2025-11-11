@@ -11,6 +11,7 @@ interface RegistrationForm {
   experience: string;
   expectations: string;
   commitment: string;
+  reapplicationReason?: string;
 }
 
 export default function StudentRegisterPage() {
@@ -19,7 +20,8 @@ export default function StudentRegisterPage() {
     motivation: '',
     experience: '',
     expectations: '',
-    commitment: ''
+    commitment: '',
+    reapplicationReason: ''
   });
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -103,8 +105,8 @@ export default function StudentRegisterPage() {
       return;
     }
 
-    // Check if already has a membership
-    if (existingMembership) {
+    // Check if already has an active or pending membership
+    if (existingMembership && (existingMembership.status === 'ACTIVE' || existingMembership.status === 'PENDING')) {
       setError('Bạn đã có đơn đăng ký trong hệ thống');
       return;
     }
@@ -113,6 +115,12 @@ export default function StudentRegisterPage() {
     if (!formData.motivation.trim() || !formData.experience.trim() || 
         !formData.expectations.trim() || !formData.commitment.trim()) {
       setError('Vui lòng điền đầy đủ thông tin');
+      return;
+    }
+
+    // Validate reapplication reason if user has REMOVED status
+    if (removalInfo && !formData.reapplicationReason?.trim()) {
+      setError('Vui lòng điền lý do đăng ký lại');
       return;
     }
 
@@ -131,7 +139,8 @@ export default function StudentRegisterPage() {
           motivation: formData.motivation,
           experience: formData.experience,
           expectations: formData.expectations,
-          commitment: formData.commitment
+          commitment: formData.commitment,
+          reapplicationReason: formData.reapplicationReason
         })
       });
 
@@ -143,7 +152,8 @@ export default function StudentRegisterPage() {
           motivation: '',
           experience: '',
           expectations: '',
-          commitment: ''
+          commitment: '',
+          reapplicationReason: ''
         });
         // Clear removal info and refresh membership status
         setRemovalInfo(null);
@@ -189,7 +199,7 @@ export default function StudentRegisterPage() {
     }
   };
 
-  if (!user || user.role !== 'STUDENT') {
+  if (!user) {
     return (
       <ProtectedRoute requiredRole="STUDENT">
         <div>Loading...</div>
@@ -199,7 +209,7 @@ export default function StudentRegisterPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <StudentNav />
+              <StudentNav key="student-nav" />
       <main className="flex-1 py-8">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
@@ -373,13 +383,29 @@ export default function StudentRegisterPage() {
                       </p>
                     </div>
                   )}
+                  
+                  {existingMembership.status === 'REMOVED' && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                      <p className="text-sm text-red-800">
+                        🚫 <strong>Bạn đã bị xóa khỏi CLB.</strong> Bạn có thể đăng ký lại sau khi khắc phục các vấn đề được nêu.
+                      </p>
+                      <div className="mt-3">
+                        <button
+                          onClick={() => setRemovalInfo(existingMembership)}
+                          className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors duration-200"
+                        >
+                          🔍 Xem chi tiết lý do xóa
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           )}
 
           {/* Registration Form */}
-          <div className={`bg-white shadow-lg rounded-lg overflow-hidden border border-gray-200 ${!checkingStatus && existingMembership && !removalInfo ? 'opacity-50 pointer-events-none' : ''}`}>
+          <div className={`bg-white shadow-lg rounded-lg overflow-hidden border border-gray-200 ${!checkingStatus && existingMembership && !removalInfo && (existingMembership.status === 'ACTIVE' || existingMembership.status === 'PENDING') ? 'opacity-50 pointer-events-none' : ''}`}>
             <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-blue-50">
               <h2 className="text-xl font-semibold text-gray-900">
                 📝 Thông tin đăng ký
@@ -497,6 +523,29 @@ export default function StudentRegisterPage() {
                     required
                   />
                 </div>
+
+                {/* Reapplication Reason - Only show if user has REMOVED status */}
+                {removalInfo && (
+                  <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
+                    <label htmlFor="reapplicationReason" className="block text-sm font-semibold text-orange-900 mb-3 flex items-center">
+                      <span className="mr-2">🔄</span>
+                      Lý do đăng ký lại *
+                    </label>
+                    <textarea
+                      id="reapplicationReason"
+                      name="reapplicationReason"
+                      value={formData.reapplicationReason}
+                      onChange={handleInputChange}
+                      rows={3}
+                      placeholder="Vui lòng giải thích lý do bạn muốn đăng ký lại và cách bạn đã khắc phục các vấn đề trước đó..."
+                      className="w-full px-4 py-3 border border-orange-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 placeholder-gray-500 resize-none"
+                      required
+                    />
+                    <p className="text-xs text-orange-700 mt-2">
+                      💡 <strong>Lưu ý:</strong> Bạn phải chờ ít nhất 1 ngày sau khi bị xóa mới được đăng ký lại.
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Submit Button */}

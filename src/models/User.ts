@@ -2,7 +2,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 import bcrypt from 'bcrypt';
 
 // Define the User role type
-export type UserRole = 'STUDENT' | 'OFFICER' | 'ADMIN';
+export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'STUDENT';
 
 // Define the User interface
 export interface IUser extends Document {
@@ -18,10 +18,6 @@ export interface IUser extends Document {
   department?: string;
   isClubMember?: boolean;
   avatarUrl?: string;
-  isDeleted?: boolean;
-  deletedAt?: Date;
-  deletedBy?: mongoose.Types.ObjectId;
-  deletionReason?: string;
   createdAt: Date;
   updatedAt: Date;
   
@@ -39,10 +35,10 @@ const userSchema = new Schema<IUser>({
     validate: {
       validator: function(v: string) {
         // Allow admin IDs or valid student IDs
-        if (v.startsWith('admin')) return true;
+        if (v.startsWith('admin') || v.startsWith('superadmin')) return true;
         return /^\d{13}$/.test(v); // 13 digits for student IDs
       },
-      message: 'Mã số sinh viên phải có 13 chữ số hoặc bắt đầu bằng "admin"'
+      message: 'Mã số sinh viên phải có 13 chữ số hoặc bắt đầu bằng "admin" hoặc "superadmin"'
     }
   },
   name: {
@@ -61,10 +57,10 @@ const userSchema = new Schema<IUser>({
     validate: {
       validator: function(v: string) {
         // Allow admin emails or valid student emails
-        if (v === 'admin@tdmu.edu.vn' || v === 'admin.clb@tdmu.edu.vn') return true;
+        if (v === 'admin@tdmu.edu.vn' || v === 'admin.clb@tdmu.edu.vn' || v === 'superadmin@tdmu.edu.vn') return true;
         return /^[0-9]{13}@student\.tdmu\.edu\.vn$/.test(v);
       },
-      message: 'Email phải có định dạng: mã số sinh viên 13 chữ số@student.tdmu.edu.vn hoặc admin@tdmu.edu.vn hoặc admin.clb@tdmu.edu.vn'
+      message: 'Email phải có định dạng: mã số sinh viên 13 chữ số@student.tdmu.edu.vn hoặc admin@tdmu.edu.vn hoặc admin.clb@tdmu.edu.vn hoặc superadmin@tdmu.edu.vn'
     }
   },
   passwordHash: {
@@ -75,11 +71,11 @@ const userSchema = new Schema<IUser>({
   role: {
     type: String,
     enum: {
-      values: ['STUDENT', 'OFFICER', 'ADMIN'],
-      message: 'Vai trò phải là STUDENT, OFFICER hoặc ADMIN'
+      values: ['SUPER_ADMIN', 'ADMIN', 'CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER', 'CLUB_STUDENT', 'STUDENT'],
+      message: 'Vai trò phải là SUPER_ADMIN, ADMIN, CLUB_LEADER, CLUB_DEPUTY, CLUB_MEMBER, CLUB_STUDENT hoặc STUDENT'
     },
     required: [true, 'Vai trò là bắt buộc'],
-    default: 'STUDENT'
+    default: 'STUDENT' as UserRole
   },
   phone: {
     type: String,
@@ -144,25 +140,7 @@ const userSchema = new Schema<IUser>({
       message: 'URL ảnh đại diện phải là một URL hợp lệ'
     }
   },
-  isDeleted: {
-    type: Boolean,
-    default: false,
-    index: true
-  },
-  deletedAt: {
-    type: Date,
-    default: null
-  },
-  deletedBy: {
-    type: Schema.Types.ObjectId,
-    ref: 'User',
-    default: null
-  },
-  deletionReason: {
-    type: String,
-    trim: true,
-    maxlength: [500, 'Lý do xóa không được quá 500 ký tự']
-  },
+  // Removed soft delete fields since we're doing hard delete now
 
 }, {
   timestamps: true, // Automatically add createdAt and updatedAt
@@ -175,7 +153,7 @@ userSchema.index({ email: 1 });
 userSchema.index({ role: 1 });
 userSchema.index({ faculty: 1 });
 userSchema.index({ class: 1 });
-userSchema.index({ isDeleted: 1 });
+// Removed isDeleted index since we're doing hard delete now
 
 // Instance method to compare password
 userSchema.methods.comparePassword = async function(candidatePassword: string): Promise<boolean> {

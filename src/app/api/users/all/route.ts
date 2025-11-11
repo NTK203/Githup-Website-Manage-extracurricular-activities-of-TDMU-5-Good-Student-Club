@@ -25,9 +25,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    if (decoded.role !== 'ADMIN') {
+    if (decoded.role !== 'SUPER_ADMIN' && decoded.role !== 'ADMIN') {
       return NextResponse.json(
-        { success: false, error: 'Forbidden - Only admins can access this endpoint' },
+        { success: false, error: 'Forbidden - Only super admins can access this endpoint' },
         { status: 403 }
       );
     }
@@ -36,14 +36,21 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const roleFilter = searchParams.get('role');
 
-    // Build query - only get ADMIN users from users table
-    let query: any = { role: 'ADMIN' };
-    if (roleFilter && roleFilter !== 'ALL' && roleFilter !== 'ADMIN') {
+    // Build query - get SUPER_ADMIN and ADMIN users from users table
+    let query: any = { 
+      role: { $in: ['SUPER_ADMIN', 'ADMIN'] } 
+    };
+    if (roleFilter && roleFilter !== 'ALL' && roleFilter !== 'SUPER_ADMIN' && roleFilter !== 'ADMIN') {
       // If filtering for non-admin roles, return empty array
       return NextResponse.json({
         success: true,
         data: { users: [] }
       });
+    }
+    if (roleFilter === 'SUPER_ADMIN') {
+      query.role = 'SUPER_ADMIN';
+    } else if (roleFilter === 'ADMIN') {
+      query.role = 'ADMIN';
     }
 
     const users = await User.find(query)

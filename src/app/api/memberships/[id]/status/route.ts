@@ -13,7 +13,8 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     
-    if (user.role !== 'ADMIN') {
+    // Allow SUPER_ADMIN, CLUB_LEADER, CLUB_DEPUTY, and CLUB_MEMBER to update status
+    if (!['SUPER_ADMIN', 'CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER'].includes(user.role)) {
       return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
     }
 
@@ -57,14 +58,20 @@ export async function PATCH(
     membership.status = status;
     
     if (status === 'ACTIVE') {
-      membership.approvedAt = new Date();
+      // Only set approvedAt if not already set (to preserve first approval time)
+      if (!membership.approvedAt) {
+        membership.approvedAt = new Date();
+      }
       membership.approvedBy = user.userId;
       // Clear rejection data
       membership.rejectedAt = null;
       membership.rejectedBy = null;
       membership.rejectionReason = null;
     } else if (status === 'REJECTED') {
-      membership.rejectedAt = new Date();
+      // Only set rejectedAt if not already set
+      if (!membership.rejectedAt) {
+        membership.rejectedAt = new Date();
+      }
       membership.rejectedBy = user.userId;
       membership.rejectionReason = rejectionReason;
       // Clear approval data
@@ -89,6 +96,39 @@ export async function PATCH(
     console.log('About to save membership with status:', membership.status);
     await membership.save();
     console.log('Membership saved successfully');
+
+    // Send notification to user
+    try {
+      const Notification = (await import('@/models/Notification')).default;
+      if (status === 'ACTIVE') {
+        await Notification.createForUsers(
+          [membership.userId],
+          {
+            title: 'Đơn đăng ký được duyệt',
+            message: `Chúc mừng! Bạn đã được chấp nhận vào CLB Sinh viên 5 Tốt TDMU.`,
+            type: 'success',
+            relatedType: 'membership',
+            relatedId: membership._id,
+            createdBy: user.userId
+          }
+        );
+      } else if (status === 'REJECTED') {
+        await Notification.createForUsers(
+          [membership.userId],
+          {
+            title: 'Đơn đăng ký không được duyệt',
+            message: `Rất tiếc, đơn đăng ký của bạn không được duyệt. Lý do: ${rejectionReason || 'Không có lý do cụ thể'}`,
+            type: 'error',
+            relatedType: 'membership',
+            relatedId: membership._id,
+            createdBy: user.userId
+          }
+        );
+      }
+    } catch (notificationError) {
+      console.error('Error sending notification:', notificationError);
+      // Don't fail the request if notification fails
+    }
 
     return NextResponse.json({
       success: true,

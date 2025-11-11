@@ -24,7 +24,7 @@ interface ClubMember {
     studentId: string;
     name: string;
     email: string;
-    role: 'STUDENT' | 'OFFICER' | 'ADMIN';
+    role: 'SUPER_ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'ADMIN' | 'OFFICER' | 'STUDENT';
     phone?: string;
     class?: string;
     faculty?: string;
@@ -52,6 +52,8 @@ export default function MemberPermissionsPage() {
   const router = useRouter();
   const { user } = useAuth();
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isDesktop, setIsDesktop] = useState(false);
   const [members, setMembers] = useState<ClubMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingRole, setUpdatingRole] = useState<string | null>(null);
@@ -65,7 +67,9 @@ export default function MemberPermissionsPage() {
   const [totalStats, setTotalStats] = useState({
     total: 0,
     admins: 0,
-    officers: 0,
+    leaders: 0,
+    deputies: 0,
+    members: 0,
     students: 0,
     removed: 0
   });
@@ -75,11 +79,27 @@ export default function MemberPermissionsPage() {
   const [selectedMemberForRemoval, setSelectedMemberForRemoval] = useState<ClubMember | null>(null);
   const [removalReason, setRemovalReason] = useState('');
 
-  // Load theme from localStorage on component mount
+  // Check if desktop
+  useEffect(() => {
+    const checkDesktop = () => {
+      setIsDesktop(window.innerWidth >= 1024);
+    };
+    
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
+
+  // Load theme and sidebar state from localStorage on component mount
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'dark') {
       setIsDarkMode(true);
+    }
+
+    const savedSidebarState = localStorage.getItem('sidebarOpen');
+    if (savedSidebarState !== null) {
+      setIsSidebarOpen(savedSidebarState === 'true');
     }
 
     // Listen for theme changes from AdminNav
@@ -89,7 +109,39 @@ export default function MemberPermissionsPage() {
     };
 
     window.addEventListener('themeChange', handleThemeChange);
-    return () => window.removeEventListener('themeChange', handleThemeChange);
+    
+    // Listen for sidebar state changes via custom event
+    const handleSidebarChange = (event: Event) => {
+      const customEvent = event as CustomEvent<{ isOpen: boolean }>;
+      if (customEvent.detail) {
+        setIsSidebarOpen(customEvent.detail.isOpen);
+      }
+    };
+
+    window.addEventListener('sidebarStateChange', handleSidebarChange);
+    
+    // Also check localStorage periodically as fallback
+    const checkSidebarState = () => {
+      const currentSidebarState = localStorage.getItem('sidebarOpen');
+      if (currentSidebarState !== null) {
+        const newState = currentSidebarState === 'true';
+        setIsSidebarOpen(prev => {
+          if (prev !== newState) {
+            return newState;
+          }
+          return prev;
+        });
+      }
+    };
+    
+    checkSidebarState();
+    const intervalId = setInterval(checkSidebarState, 100);
+
+    return () => {
+      window.removeEventListener('themeChange', handleThemeChange);
+      window.removeEventListener('sidebarStateChange', handleSidebarChange);
+      clearInterval(intervalId);
+    };
   }, []);
 
   // Load members data
@@ -123,7 +175,7 @@ export default function MemberPermissionsPage() {
 
       // Load admin users from users table (only if roleFilter is ALL or ADMIN and not showing removed members)
       let adminUsers: any[] = [];
-      if ((roleFilter === 'ALL' || roleFilter === 'ADMIN') && !showRemovedMembers) {
+      if ((roleFilter === 'ALL' || roleFilter === 'SUPER_ADMIN' || roleFilter === 'ADMIN') && !showRemovedMembers) {
         const usersResponse = await fetch(`/api/users/all?${params}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -250,9 +302,11 @@ export default function MemberPermissionsPage() {
 
       // Calculate stats
       const total = filteredMembers.length;
-      const admins = filteredMembers.filter(m => m.userId?.role === 'ADMIN').length;
-      const officers = filteredMembers.filter(m => m.userId?.role === 'OFFICER').length;
-      const students = filteredMembers.filter(m => m.userId?.role === 'STUDENT').length;
+      const admins = filteredMembers.filter(m => m.userId?.role === 'SUPER_ADMIN' || m.userId?.role === 'ADMIN').length;
+      const leaders = filteredMembers.filter(m => m.userId?.role === 'CLUB_LEADER').length;
+      const deputies = filteredMembers.filter(m => m.userId?.role === 'CLUB_DEPUTY').length;
+      const members = filteredMembers.filter(m => m.userId?.role === 'CLUB_MEMBER').length;
+      const students = filteredMembers.filter(m => m.userId?.role === 'CLUB_STUDENT' || m.userId?.role === 'STUDENT').length;
       
       // Count removed members from separate API call
       const removed = removedMemberships.length;
@@ -260,7 +314,7 @@ export default function MemberPermissionsPage() {
       console.log('Removed memberships:', removedMemberships);
       console.log('Removed count:', removed);
 
-      setTotalStats({ total, admins, officers, students, removed });
+      setTotalStats({ total, admins, leaders, deputies, members, students, removed });
     } catch (error) {
       console.error('Error loading total stats:', error);
     }
@@ -296,7 +350,7 @@ export default function MemberPermissionsPage() {
                 ...member, 
                 userId: { 
                   ...member.userId!, 
-                  role: newRole as 'STUDENT' | 'OFFICER' | 'ADMIN' 
+                  role: newRole as 'SUPER_ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'ADMIN' | 'OFFICER' | 'STUDENT' 
                 }
               }
             : member
@@ -389,11 +443,28 @@ export default function MemberPermissionsPage() {
 
      const getRoleBadge = (role: string) => {
      const roleConfig = {
-       ADMIN: { color: 'bg-red-100 text-red-800', text: 'ADMIN' },
+       // Vai trò mới
+       SUPER_ADMIN: { color: 'bg-purple-100 text-purple-800', text: 'Quản Trị Hệ Thống' },
+       CLUB_LEADER: { color: 'bg-red-100 text-red-800', text: 'Chủ Nhiệm CLB' },
+       CLUB_DEPUTY: { color: 'bg-orange-100 text-orange-800', text: 'Phó Chủ Nhiệm' },
+       CLUB_MEMBER: { color: 'bg-blue-100 text-blue-800', text: 'Ủy Viên BCH' },
+       CLUB_STUDENT: { color: 'bg-gray-100 text-gray-800', text: 'Thành Viên CLB' },
+       // Vai trò cũ (để tương thích ngược)
+       ADMIN: { color: 'bg-purple-100 text-purple-800', text: 'Quản Trị Hệ Thống' },
        OFFICER: { color: 'bg-blue-100 text-blue-800', text: 'Ban Chấp Hành' },
        STUDENT: { color: 'bg-gray-100 text-gray-800', text: 'Thành Viên CLB' }
      };
      const config = roleConfig[role as keyof typeof roleConfig];
+     
+     // Fallback nếu không tìm thấy config
+     if (!config) {
+       return (
+         <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">
+           {role || 'Không xác định'}
+         </span>
+       );
+     }
+     
      return (
        <span className={`px-2 py-1 text-xs font-medium rounded-full ${config.color}`}>
          {config.text}
@@ -416,43 +487,55 @@ export default function MemberPermissionsPage() {
     {
       name: 'Quản lý thành viên',
       description: 'Thêm, sửa, xóa thành viên trong câu lạc bộ',
-      roles: ['ADMIN']
+      roles: ['SUPER_ADMIN', 'CLUB_LEADER']
     },
     {
       name: 'Quản lý hoạt động',
       description: 'Tạo, chỉnh sửa, xóa các hoạt động của câu lạc bộ',
-      roles: ['ADMIN', 'OFFICER']
+      roles: ['SUPER_ADMIN', 'CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER']
     },
     {
       name: 'Xem báo cáo',
       description: 'Xem các báo cáo và thống kê của câu lạc bộ',
-      roles: ['ADMIN', 'OFFICER']
+      roles: ['SUPER_ADMIN', 'CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER']
     },
     {
       name: 'Quản lý tiêu chí',
       description: 'Thiết lập và quản lý các tiêu chí đánh giá',
-      roles: ['ADMIN']
+      roles: ['SUPER_ADMIN', 'CLUB_LEADER']
     },
     {
       name: 'Đăng ký hoạt động',
       description: 'Đăng ký tham gia các hoạt động của câu lạc bộ',
-      roles: ['STUDENT', 'OFFICER', 'ADMIN']
+      roles: ['CLUB_STUDENT', 'CLUB_MEMBER', 'CLUB_DEPUTY', 'CLUB_LEADER', 'SUPER_ADMIN']
     },
     {
       name: 'Xem thông tin cá nhân',
       description: 'Xem và cập nhật thông tin cá nhân',
-      roles: ['STUDENT', 'OFFICER', 'ADMIN']
+      roles: ['CLUB_STUDENT', 'CLUB_MEMBER', 'CLUB_DEPUTY', 'CLUB_LEADER', 'SUPER_ADMIN']
     }
   ];
 
 
 
   return (
-    <ProtectedRoute requiredRole="ADMIN">
-      <div className={`min-h-screen flex flex-col transition-colors duration-200 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
+    <ProtectedRoute requiredRole="CLUB_LEADER">
+      <div 
+        className={`min-h-screen flex flex-col transition-colors duration-200 overflow-x-hidden ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}
+        style={{
+          '--sidebar-width': isSidebarOpen ? '288px' : '80px'
+        } as React.CSSProperties}
+      >
         <AdminNav />
         
-        <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <main 
+          className="flex-1 transition-all duration-300 px-4 sm:px-6 lg:px-8 py-6 sm:py-8 overflow-x-hidden min-w-0"
+          style={{
+            marginLeft: isDesktop ? (isSidebarOpen ? '288px' : '80px') : '0',
+            width: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%',
+            maxWidth: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%'
+          }}
+        >
           {/* Header */}
           <div className="mb-6 sm:mb-8">
             <div className="flex items-center justify-between">
@@ -478,9 +561,11 @@ export default function MemberPermissionsPage() {
                    }`}
                  >
                    <option value="ALL">Tất Cả Vai Trò</option>
-                   <option value="STUDENT">Thành Viên CLB</option>
-                                                   <option value="OFFICER">Ban Chấp Hành</option>
-                   <option value="ADMIN">Quản Trị Hệ Thống</option>
+                   <option value="CLUB_STUDENT">Thành Viên CLB</option>
+                   <option value="CLUB_MEMBER">Ủy Viên BCH</option>
+                   <option value="CLUB_DEPUTY">Phó Chủ Nhiệm</option>
+                   <option value="CLUB_LEADER">Chủ Nhiệm CLB</option>
+                   <option value="SUPER_ADMIN">Quản Trị Hệ Thống</option>
                  </select>
                                  <button
                   onClick={() => setShowPermissions(!showPermissions)}
@@ -531,7 +616,7 @@ export default function MemberPermissionsPage() {
           )}
 
           {/* Stats Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
                 <div className="p-2 bg-blue-100 rounded-lg">
@@ -545,8 +630,8 @@ export default function MemberPermissionsPage() {
             </div>
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
-                <div className="p-2 bg-red-100 rounded-lg">
-                  <span className="text-red-600 text-xl">👑</span>
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <span className="text-purple-600 text-xl">⚡</span>
                 </div>
                 <div className="ml-4">
                   <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Quản Trị Hệ Thống</p>
@@ -556,13 +641,35 @@ export default function MemberPermissionsPage() {
             </div>
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <span className="text-blue-600 text-xl">👨‍💼</span>
+                <div className="p-2 bg-red-100 rounded-lg">
+                  <span className="text-red-600 text-xl">👑</span>
                 </div>
-                                 <div className="ml-4">
-                   <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Ban Chấp Hành</p>
-                   <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.officers}</p>
-                 </div>
+                <div className="ml-4">
+                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Chủ Nhiệm CLB</p>
+                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.leaders}</p>
+                </div>
+              </div>
+            </div>
+            <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
+              <div className="flex items-center">
+                <div className="p-2 bg-orange-100 rounded-lg">
+                  <span className="text-orange-600 text-xl">👨‍💼</span>
+                </div>
+                <div className="ml-4">
+                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Phó Chủ Nhiệm</p>
+                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.deputies}</p>
+                </div>
+              </div>
+            </div>
+            <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
+              <div className="flex items-center">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <span className="text-blue-600 text-xl">👥</span>
+                </div>
+                <div className="ml-4">
+                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Ủy Viên BCH</p>
+                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.members}</p>
+                </div>
               </div>
             </div>
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
@@ -610,12 +717,16 @@ export default function MemberPermissionsPage() {
                       <div className="flex flex-wrap gap-2">
                                                  {permission.roles.map((role) => (
                            <span key={role} className={`px-2 py-1 text-xs font-medium rounded-full ${
-                             role === 'ADMIN' ? 'bg-red-100 text-red-800' :
-                             role === 'OFFICER' ? 'bg-blue-100 text-blue-800' :
+                             role === 'SUPER_ADMIN' ? 'bg-purple-100 text-purple-800' :
+                             role === 'CLUB_LEADER' ? 'bg-red-100 text-red-800' :
+                             role === 'CLUB_DEPUTY' ? 'bg-orange-100 text-orange-800' :
+                             role === 'CLUB_MEMBER' ? 'bg-blue-100 text-blue-800' :
                              'bg-gray-100 text-gray-800'
                            }`}>
-                             {role === 'ADMIN' ? 'ADMIN' :
-                              role === 'OFFICER' ? 'Ban Chấp Hành' :
+                             {role === 'SUPER_ADMIN' ? 'Quản Trị Hệ Thống' :
+                              role === 'CLUB_LEADER' ? 'Chủ Nhiệm CLB' :
+                              role === 'CLUB_DEPUTY' ? 'Phó Chủ Nhiệm' :
+                              role === 'CLUB_MEMBER' ? 'Ủy Viên BCH' :
                               'Thành Viên CLB'}
                            </span>
                          ))}
@@ -712,7 +823,7 @@ export default function MemberPermissionsPage() {
                              // Show role selector for active members
                              <div className="flex items-center space-x-2">
                                <select
-                                 value={member.userId?.role || 'STUDENT'}
+                                 value={member.userId?.role || 'CLUB_STUDENT'}
                                  onChange={(e) => updateMemberRole(member.userId?._id || '', e.target.value)}
                                  disabled={updatingRole === member.userId?._id}
                                  className={`px-3 py-1 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
@@ -721,9 +832,11 @@ export default function MemberPermissionsPage() {
                                      : 'bg-white border-gray-300 text-gray-900'
                                  } ${updatingRole === member.userId?._id ? 'opacity-50 cursor-not-allowed' : ''}`}
                                >
-                                 <option value="STUDENT">Thành Viên CLB</option>
-                                 <option value="OFFICER">Ban Chấp Hành</option>
-                                 <option value="ADMIN">Quản trị viên</option>
+                                 <option value="CLUB_STUDENT">Thành Viên CLB</option>
+                                 <option value="CLUB_MEMBER">Ủy Viên BCH</option>
+                                 <option value="CLUB_DEPUTY">Phó Chủ Nhiệm</option>
+                                 <option value="CLUB_LEADER">Chủ Nhiệm CLB</option>
+                                 <option value="SUPER_ADMIN">Quản Trị Hệ Thống</option>
                                </select>
                                {updatingRole === member.userId?._id && (
                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
@@ -751,7 +864,7 @@ export default function MemberPermissionsPage() {
                            ) : (
                              // Show normal status and actions for active members
                              <div className="flex items-center space-x-2">
-                               {member.status === 'ACTIVE' && member.userId?.role !== 'ADMIN' && (
+                               {member.status === 'ACTIVE' && member.userId?.role !== 'SUPER_ADMIN' && (
                                  <button
                                    onClick={() => openRemoveModal(member)}
                                    disabled={removingMember === member._id}
@@ -769,7 +882,7 @@ export default function MemberPermissionsPage() {
                                    )}
                                  </button>
                                )}
-                               {member.status === 'ACTIVE' && member.userId?.role === 'ADMIN' && (
+                               {member.status === 'ACTIVE' && member.userId?.role === 'SUPER_ADMIN' && (
                                  <span className="px-3 py-1 text-sm rounded-lg bg-green-100 text-green-800">
                                    Tài khoản hệ thống
                                  </span>

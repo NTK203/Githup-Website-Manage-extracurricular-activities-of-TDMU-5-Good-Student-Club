@@ -78,7 +78,7 @@ export default function AdminSettings() {
   };
 
   return (
-    <ProtectedRoute requiredRole="ADMIN">
+    <ProtectedRoute requiredRole="CLUB_LEADER">
       <div className={`min-h-screen flex flex-col transition-colors duration-200 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
         <AdminNav />
         

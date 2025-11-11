@@ -3,14 +3,15 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import OfficerNav from '@/components/officer/OfficerNav';
+import ProtectedRoute from '@/components/common/ProtectedRoute';
 
 interface ProfileForm {
   name: string;
   email: string;
   phone: string;
   avatarUrl: string;
-  position: string;
-  department: string;
+  class: string;
+  faculty: string;
 }
 
 export default function OfficerProfile() {
@@ -20,14 +21,15 @@ export default function OfficerProfile() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [customFaculty, setCustomFaculty] = useState('');
 
   const [formData, setFormData] = useState<ProfileForm>({
     name: '',
     email: '',
     phone: '',
     avatarUrl: '',
-    position: '',
-    department: ''
+    class: '',
+    faculty: ''
   });
 
   // Load theme from localStorage on component mount
@@ -47,9 +49,25 @@ export default function OfficerProfile() {
         email: user.email || '',
         phone: user.phone || '',
         avatarUrl: user.avatarUrl || '',
-        position: user.position || '',
-        department: user.department || ''
+        class: user.class || '',
+        faculty: user.faculty || ''
       });
+      
+      // Set custom faculty if user has a custom faculty value
+      if (user.faculty && ![
+        'Trường Kinh Tế Tài Chính',
+        'Trường Luật Và Quản Lí Phát Triển',
+        'Viện Kỹ Thuật Công Nghệ',
+        'Viện Đào Tạo Ngoại Ngữ',
+        'Viện Đào Tạo CNTT Chuyển Đổi Số',
+        'Viện Đào Tạo Kiến Trúc Xây Dựng Và Giao Thông',
+        'Khoa Sư Phạm',
+        'Khoa Kiến Thức Chung',
+        'Khoa Công Nghiệp Văn Hóa Thể Thao Và Du Lịch',
+        'Ban Quản Lý Đào Tạo Sau Đại Học'
+      ].includes(user.faculty)) {
+        setCustomFaculty(user.faculty);
+      }
     }
   }, [user]);
 
@@ -91,8 +109,8 @@ export default function OfficerProfile() {
           email: data.user.email || '',
           phone: data.user.phone || '',
           avatarUrl: data.user.avatarUrl || '',
-          position: data.user.position || '',
-          department: data.user.department || ''
+          class: data.user.class || '',
+          faculty: data.user.faculty || ''
         });
         
         setMessage({ type: 'success', text: 'Cập nhật thông tin thành công!' });
@@ -153,30 +171,37 @@ export default function OfficerProfile() {
     }
   };
 
-  const positionOptions = [
-    'Quản trị viên',
-    'Trưởng phòng',
-    'Phó phòng',
-    'Nhân viên',
-    'Cố vấn',
-    'Giám sát'
-  ];
+  const getRoleDisplayName = (role: string | undefined) => {
+    if (!role) return 'Không xác định';
+    
+    switch (role) {
+      case 'SUPER_ADMIN': return 'Quản Trị Hệ Thống';
+      case 'CLUB_LEADER': return 'Chủ Nhiệm CLB';
+      case 'CLUB_DEPUTY': return 'Phó Chủ Nhiệm';
+      case 'CLUB_MEMBER': return 'Ủy Viên BCH';
+      case 'CLUB_STUDENT': return 'Thành Viên CLB';
+      case 'STUDENT': return 'Sinh Viên';
+      default: return role;
+    }
+  };
 
-  const departmentOptions = [
-    'Phòng Công tác Sinh viên',
-    'Phòng Đào tạo',
-    'Phòng Quản lý Khoa học',
-    'Phòng Hợp tác Quốc tế',
-    'Phòng Tài chính - Kế toán',
-    'Phòng Tổ chức - Hành chính',
-    'Phòng Công nghệ Thông tin',
-    'Phòng Y tế',
-    'Phòng Bảo vệ',
-    'Phòng Khác'
-  ];
+  const getRoleBadgeColor = (role: string | undefined) => {
+    if (!role) return 'bg-gray-100 text-gray-800';
+    
+    switch (role) {
+      case 'SUPER_ADMIN': return 'bg-purple-100 text-purple-800';
+      case 'CLUB_LEADER': return 'bg-red-100 text-red-800';
+      case 'CLUB_DEPUTY': return 'bg-orange-100 text-orange-800';
+      case 'CLUB_MEMBER': return 'bg-blue-100 text-blue-800';
+      case 'CLUB_STUDENT': return 'bg-green-100 text-green-800';
+      case 'STUDENT': return 'bg-gray-100 text-gray-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
 
   return (
-    <div className={`min-h-screen ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+    <ProtectedRoute requiredRole="CLUB_MEMBER">
+      <div className={`min-h-screen ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
       <OfficerNav />
       
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -188,7 +213,7 @@ export default function OfficerProfile() {
                 Hồ sơ cá nhân
               </h1>
               <p className={`mt-2 text-lg ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                Quản lý thông tin cá nhân của quản trị viên
+                Quản lý thông tin cá nhân của {getRoleDisplayName(user?.role)}
               </p>
             </div>
             <div className="flex items-center space-x-3">
@@ -207,17 +232,35 @@ export default function OfficerProfile() {
                   <button
                     onClick={() => {
                       setIsEditing(false);
-                      // Reset form data to original user data
-                      if (user) {
-                        setFormData({
-                          name: user.name || '',
-                          email: user.email || '',
-                          phone: user.phone || '',
-                          avatarUrl: user.avatarUrl || '',
-                          position: user.position || '',
-                          department: user.department || ''
-                        });
-                      }
+                                             // Reset form data to original user data
+                       if (user) {
+                         setFormData({
+                           name: user.name || '',
+                           email: user.email || '',
+                           phone: user.phone || '',
+                           avatarUrl: user.avatarUrl || '',
+                           class: user.class || '',
+                           faculty: user.faculty || ''
+                         });
+                         
+                         // Reset custom faculty
+                         if (user.faculty && ![
+                           'Trường Kinh Tế Tài Chính',
+                           'Trường Luật Và Quản Lí Phát Triển',
+                           'Viện Kỹ Thuật Công Nghệ',
+                           'Viện Đào Tạo Ngoại Ngữ',
+                           'Viện Đào Tạo CNTT Chuyển Đổi Số',
+                           'Viện Đào Tạo Kiến Trúc Xây Dựng Và Giao Thông',
+                           'Khoa Sư Phạm',
+                           'Khoa Kiến Thức Chung',
+                           'Khoa Công Nghiệp Văn Hóa Thể Thao Và Du Lịch',
+                           'Ban Quản Lý Đào Tạo Sau Đại Học'
+                         ].includes(user.faculty)) {
+                           setCustomFaculty(user.faculty);
+                         } else {
+                           setCustomFaculty('');
+                         }
+                       }
                     }}
                     className="bg-gray-500 hover:bg-gray-600 text-white px-6 py-2 rounded-lg font-medium transition-colors duration-200"
                   >
@@ -310,15 +353,24 @@ export default function OfficerProfile() {
                   <h2 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                     {formData.name || 'Chưa có tên'}
                   </h2>
-                  <p className={`text-sm mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} break-all`}>
-                    {formData.email}
-                  </p>
-                  <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                    {formData.position || 'Chưa có chức vụ'}
-                  </p>
-                  <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                    {formData.department || 'Chưa có phòng ban'}
-                  </p>
+                                     <p className={`text-sm mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} break-all`}>
+                     {formData.email}
+                   </p>
+                   {formData.class && (
+                     <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                       🏫 {formData.class}
+                     </p>
+                   )}
+                   {formData.faculty && (
+                     <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                       🎓 {formData.faculty}
+                     </p>
+                   )}
+                   <div className="mt-2">
+                     <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getRoleBadgeColor(user?.role)}`}>
+                       {getRoleDisplayName(user?.role)}
+                     </span>
+                   </div>
                 </div>
 
                 {/* Status Badge */}
@@ -388,92 +440,130 @@ export default function OfficerProfile() {
                   />
                 </div>
 
-                {/* Phone */}
-                <div>
-                  <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                    Số điện thoại
-                  </label>
-                  <input
-                    type="tel"
-                    name="phone"
-                    value={formData.phone}
-                    onChange={handleInputChange}
-                    disabled={!isEditing}
-                    className={`w-full px-4 py-3 rounded-lg border transition-colors duration-200 ${
-                      isEditing
-                        ? isDarkMode
-                          ? 'bg-gray-700 border-gray-600 text-white focus:border-green-500 focus:ring-green-500'
-                          : 'bg-white border-gray-300 text-gray-900 focus:border-green-500 focus:ring-green-500'
-                        : isDarkMode
-                        ? 'bg-gray-700 border-gray-600 text-gray-400 cursor-not-allowed'
-                        : 'bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed'
-                    }`}
-                    placeholder="Nhập số điện thoại"
-                  />
-                </div>
+                                 {/* Phone */}
+                 <div>
+                   <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                     Số điện thoại
+                   </label>
+                   <input
+                     type="tel"
+                     name="phone"
+                     value={formData.phone}
+                     onChange={handleInputChange}
+                     disabled={!isEditing}
+                     className={`w-full px-4 py-3 rounded-lg border transition-colors duration-200 ${
+                       isEditing
+                         ? isDarkMode
+                           ? 'bg-gray-700 border-gray-600 text-white focus:border-green-500 focus:ring-green-500'
+                           : 'bg-white border-gray-300 text-gray-900 focus:border-green-500 focus:ring-green-500'
+                         : isDarkMode
+                         ? 'bg-gray-700 border-gray-600 text-gray-400 cursor-not-allowed'
+                         : 'bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed'
+                     }`}
+                     placeholder="Nhập số điện thoại"
+                   />
+                 </div>
 
-                {/* Position */}
-                <div>
-                  <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                    Chức vụ
-                  </label>
-                  <select
-                    name="position"
-                    value={formData.position}
-                    onChange={handleInputChange}
-                    disabled={!isEditing}
-                    className={`w-full px-4 py-3 rounded-lg border transition-colors duration-200 ${
-                      isEditing
-                        ? isDarkMode
-                          ? 'bg-gray-700 border-gray-600 text-white focus:border-green-500 focus:ring-green-500'
-                          : 'bg-white border-gray-300 text-gray-900 focus:border-green-500 focus:ring-green-500'
-                        : isDarkMode
-                        ? 'bg-gray-700 border-gray-600 text-gray-400 cursor-not-allowed'
-                        : 'bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <option value="">Chọn chức vụ</option>
-                    {positionOptions.map((position) => (
-                      <option key={position} value={position}>
-                        {position}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                 {/* Class */}
+                 <div>
+                   <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                     Lớp
+                   </label>
+                   <input
+                     type="text"
+                     name="class"
+                     value={formData.class}
+                     onChange={handleInputChange}
+                     disabled={!isEditing}
+                     className={`w-full px-4 py-3 rounded-lg border transition-colors duration-200 ${
+                       isEditing
+                         ? isDarkMode
+                           ? 'bg-gray-700 border-gray-600 text-white focus:border-green-500 focus:ring-green-500'
+                           : 'bg-white border-gray-300 text-gray-900 focus:border-green-500 focus:ring-green-500'
+                         : isDarkMode
+                         ? 'bg-gray-700 border-gray-600 text-gray-400 cursor-not-allowed'
+                         : 'bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed'
+                     }`}
+                     placeholder="Nhập tên lớp"
+                   />
+                 </div>
 
-                {/* Department */}
-                <div>
-                  <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                    Phòng ban
-                  </label>
-                  <select
-                    name="department"
-                    value={formData.department}
-                    onChange={handleInputChange}
-                    disabled={!isEditing}
-                    className={`w-full px-4 py-3 rounded-lg border transition-colors duration-200 ${
-                      isEditing
-                        ? isDarkMode
-                          ? 'bg-gray-700 border-gray-600 text-white focus:border-green-500 focus:ring-green-500'
-                          : 'bg-white border-gray-300 text-gray-900 focus:border-green-500 focus:ring-green-500'
-                        : isDarkMode
-                        ? 'bg-gray-700 border-gray-600 text-gray-400 cursor-not-allowed'
-                        : 'bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <option value="">Chọn phòng ban</option>
-                    {departmentOptions.map((department) => (
-                      <option key={department} value={department}>
-                        {department}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </form>
+                 {/* Faculty */}
+                 <div>
+                   <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                     Khoa/Viện
+                   </label>
+                   <select
+                     name="faculty"
+                     value={formData.faculty === "Khác" ? "Khác" : formData.faculty}
+                     onChange={(e) => {
+                       const value = e.target.value;
+                       if (value === "Khác") {
+                         setFormData(prev => ({ ...prev, faculty: "Khác" }));
+                       } else {
+                         setFormData(prev => ({ ...prev, faculty: value }));
+                         setCustomFaculty('');
+                       }
+                     }}
+                     disabled={!isEditing}
+                     className={`w-full px-4 py-3 rounded-lg border transition-colors duration-200 ${
+                       isEditing
+                         ? isDarkMode
+                           ? 'bg-gray-700 border-gray-600 text-white focus:border-green-500 focus:ring-green-500'
+                           : 'bg-white border-gray-300 text-gray-900 focus:border-green-500 focus:ring-green-500'
+                         : isDarkMode
+                         ? 'bg-gray-700 border-gray-600 text-gray-400 cursor-not-allowed'
+                         : 'bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed'
+                     }`}
+                   >
+                     <option value="">Chọn khoa/viện</option>
+                     <option value="Trường Kinh Tế Tài Chính">Trường Kinh Tế Tài Chính</option>
+                     <option value="Trường Luật Và Quản Lí Phát Triển">Trường Luật Và Quản Lí Phát Triển</option>
+                     <option value="Viện Kỹ Thuật Công Nghệ">Viện Kỹ Thuật Công Nghệ</option>
+                     <option value="Viện Đào Tạo Ngoại Ngữ">Viện Đào Tạo Ngoại Ngữ</option>
+                     <option value="Viện Đào Tạo CNTT Chuyển Đổi Số">Viện Đào Tạo CNTT Chuyển Đổi Số</option>
+                     <option value="Viện Đào Tạo Kiến Trúc Xây Dựng Và Giao Thông">Viện Đào Tạo Kiến Trúc Xây Dựng Và Giao Thông</option>
+                     <option value="Khoa Sư Phạm">Khoa Sư Phạm</option>
+                     <option value="Khoa Kiến Thức Chung">Khoa Kiến Thức Chung</option>
+                     <option value="Khoa Công Nghiệp Văn Hóa Thể Thao Và Du Lịch">Khoa Công Nghiệp Văn Hóa Thể Thao Và Du Lịch</option>
+                     <option value="Ban Quản Lý Đào Tạo Sau Đại Học">Ban Quản Lý Đào Tạo Sau Đại Học</option>
+                     <option value="Khác">Khác</option>
+                   </select>
+                   
+                   {/* Custom Faculty Input */}
+                   {formData.faculty === "Khác" && isEditing && (
+                     <div className="mt-3">
+                       <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                         Nhập tên khoa/viện khác
+                       </label>
+                       <input
+                         type="text"
+                         name="customFaculty"
+                         value={customFaculty}
+                         onChange={(e) => {
+                           setCustomFaculty(e.target.value);
+                           setFormData(prev => ({
+                             ...prev,
+                             faculty: e.target.value
+                           }));
+                         }}
+                         className={`w-full px-4 py-3 rounded-lg border transition-colors duration-200 ${
+                           isDarkMode
+                             ? 'bg-gray-700 border-gray-600 text-white focus:border-green-500 focus:ring-green-500'
+                             : 'bg-white border-gray-300 text-gray-900 focus:border-green-500 focus:ring-green-500'
+                         }`}
+                         placeholder="Nhập tên khoa/viện tùy chỉnh"
+                       />
+                     </div>
+                   )}
+                 </div>
+
+               </form>
             </div>
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </ProtectedRoute>
   );
 }

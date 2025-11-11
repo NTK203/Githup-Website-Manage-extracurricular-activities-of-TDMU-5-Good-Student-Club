@@ -7,7 +7,7 @@ interface User {
   studentId: string;
   name: string;
   email: string;
-  role: 'STUDENT' | 'OFFICER' | 'ADMIN';
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'STUDENT';
   phone?: string;
   class?: string;
   faculty?: string;
@@ -198,11 +198,15 @@ export default function UserDeleteModal({ isOpen, onClose, userId, isDarkMode, o
                       {user.email}
                     </p>
                     <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full mt-1 ${
-                      user.role === 'ADMIN' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' :
-                      user.role === 'OFFICER' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
-                      'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                      user.role === 'SUPER_ADMIN' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' :
+                user.role === 'ADMIN' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' :
+                user.role === 'CLUB_LEADER' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' :
+                user.role === 'CLUB_DEPUTY' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' :
+                user.role === 'CLUB_MEMBER' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                user.role === 'CLUB_STUDENT' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
                     }`}>
-                      {user.role === 'ADMIN' ? 'Admin' : user.role === 'OFFICER' ? 'Ban Chấp Hành' : 'Sinh Viên'}
+                                              {user.role === 'SUPER_ADMIN' ? 'Quản Trị Hệ Thống' : user.role === 'ADMIN' ? 'Admin' : user.role === 'CLUB_LEADER' ? 'Chủ Nhiệm CLB' : user.role === 'CLUB_DEPUTY' ? 'Phó Chủ Nhiệm' : user.role === 'CLUB_MEMBER' ? 'Ủy Viên BCH' : user.role === 'CLUB_STUDENT' ? 'Thành Viên CLB' : 'Sinh Viên'}
                     </span>
                   </div>
                 </div>

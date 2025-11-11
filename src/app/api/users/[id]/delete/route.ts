@@ -12,7 +12,7 @@ export async function POST(
   try {
     // Verify authentication
     const currentUser = getUserFromRequest(request);
-    if (!currentUser || currentUser.role !== 'ADMIN') {
+    if (!currentUser || (currentUser.role !== 'ADMIN' && currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'CLUB_LEADER')) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -21,13 +21,12 @@ export async function POST(
 
     // Parse request body to get removal reason
     const body = await request.json();
-    const { removalReason } = body;
+    const { removalReason: originalRemovalReason } = body;
 
     // Validate removal reason (optional now)
-    if (!removalReason || !removalReason.trim()) {
-      // Set default reason if not provided
-      removalReason = 'Không có lý do cụ thể';
-    }
+    const removalReason = (!originalRemovalReason || !originalRemovalReason.trim()) 
+      ? 'Không có lý do cụ thể' 
+      : originalRemovalReason;
 
     await dbConnect();
 
@@ -42,12 +41,22 @@ export async function POST(
       );
     }
 
-    // Check if user is the last admin
+    // Check if user is the last admin or super admin
     if (user.role === 'ADMIN') {
       const adminCount = await User.countDocuments({ role: 'ADMIN' });
       if (adminCount <= 1) {
         return NextResponse.json(
           { error: 'Cannot delete the last admin user' },
+          { status: 400 }
+        );
+      }
+    }
+    
+    if (user.role === 'SUPER_ADMIN') {
+      const superAdminCount = await User.countDocuments({ role: 'SUPER_ADMIN' });
+      if (superAdminCount <= 1) {
+        return NextResponse.json(
+          { error: 'Cannot delete the last super admin user' },
           { status: 400 }
         );
       }
@@ -62,7 +71,7 @@ export async function POST(
     }
 
     // Log the deletion for audit purposes
-    console.log(`Admin ${currentUser.userId} is deleting user ${userId} (${user.name}) with reason: ${removalReason}`);
+    console.log(`Admin ${currentUser.userId} is HARD DELETING user ${userId} (${user.name}) with reason: ${removalReason}`);
 
     // Get current admin user details for audit
     const currentAdminUser = await User.findById(currentUser.userId);
@@ -73,37 +82,12 @@ export async function POST(
       );
     }
 
-    // Soft delete all membership records for this user
-    const membershipUpdateResult = await Membership.updateMany(
-      { userId: user._id },
-      { 
-        status: 'REMOVED',
-        removedAt: new Date(),
-        removedBy: { 
-          _id: currentAdminUser._id, 
-          name: currentAdminUser.name, 
-          studentId: currentAdminUser.studentId 
-        },
-        removalReason: removalReason.trim()
-      }
-    );
-    console.log(`Soft deleted ${membershipUpdateResult.modifiedCount} membership records for user ${userId}`);
+    // Hard delete all membership records for this user
+    const membershipDeleteResult = await Membership.deleteMany({ userId: user._id });
+    console.log(`Hard deleted ${membershipDeleteResult.deletedCount} membership records for user ${userId}`);
 
-    // Soft delete the user (mark as deleted instead of completely removing)
-    const deletedUser = await User.findByIdAndUpdate(
-      userId,
-      {
-        isDeleted: true,
-        deletedAt: new Date(),
-        deletedBy: { 
-          _id: currentAdminUser._id, 
-          name: currentAdminUser.name, 
-          studentId: currentAdminUser.studentId 
-        },
-        deletionReason: removalReason.trim()
-      },
-      { new: true }
-    );
+    // Hard delete the user (completely remove from database)
+    const deletedUser = await User.findByIdAndDelete(userId);
     
     if (!deletedUser) {
       return NextResponse.json(
@@ -112,23 +96,20 @@ export async function POST(
       );
     }
 
-    console.log(`Soft deleted user: ${userId} (${deletedUser.name}) with reason: ${removalReason}`);
+    console.log(`Hard deleted user: ${userId} (${deletedUser.name}) with reason: ${removalReason}`);
 
     return NextResponse.json({
       success: true,
-      message: 'User and all related data have been marked as deleted',
+      message: 'User permanently deleted from system',
       data: {
         deletedUser: {
           _id: deletedUser._id,
           name: deletedUser.name,
           studentId: deletedUser.studentId,
           email: deletedUser.email,
-          role: deletedUser.role,
-          deletionReason: removalReason.trim(),
-          deletedAt: deletedUser.deletedAt,
-          deletedBy: deletedUser.deletedBy
+          role: deletedUser.role
         },
-        deletedMemberships: membershipUpdateResult.modifiedCount
+        deletedMemberships: membershipDeleteResult.deletedCount
       }
     });
 

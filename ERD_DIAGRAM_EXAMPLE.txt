@@ -1,0 +1,246 @@
+═══════════════════════════════════════════════════════════════════════════════
+                    ERD DIAGRAM - HỆ THỐNG QUẢN LÝ HOẠT ĐỘNG
+                          CLB Sinh viên 5 Tốt TDMU
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                    USER                                      │
+│                          (Người dùng - Trung tâm)                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ PRIMARY KEY:                                                                │
+│   • _id (ObjectId)                                                          │
+│                                                                             │
+│ UNIQUE:                                                                     │
+│   • studentId (String) - UNIQUE                                             │
+│   • email (String) - UNIQUE                                                 │
+│                                                                             │
+│ ATTRIBUTES:                                                                 │
+│   • name (String) *                                                         │
+│   • passwordHash (String) *                                                 │
+│   • role (Enum) * - SUPER_ADMIN, ADMIN, CLUB_LEADER, CLUB_DEPUTY,          │
+│                     CLUB_MEMBER, CLUB_STUDENT, STUDENT                      │
+│   • phone (String)                                                          │
+│   • class (String)                                                          │
+│   • faculty (String)                                                        │
+│   • position (String)                                                       │
+│   • department (String)                                                     │
+│   • isClubMember (Boolean)                                                  │
+│   • avatarUrl (String)                                                      │
+│   • createdAt (Date) *                                                      │
+│   • updatedAt (Date) *                                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              │
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        │                     │                     │
+        │ 1                   │ 1                   │ 1
+        │                     │                     │
+        ▼                     ▼                     ▼
+┌───────────────┐   ┌───────────────┐   ┌───────────────┐
+│  MEMBERSHIP   │   │   ACTIVITY    │   │ CONTACTREQUEST│
+├───────────────┤   ├───────────────┤   ├───────────────┤
+│ PK _id        │   │ PK _id        │   │ PK _id        │
+│               │   │               │   │               │
+│ FK userId ────┼───┤ FK createdBy ─┼───┤ FK userId ────┼───┐
+│ FK approvedBy ┼───┤ FK updatedBy ─┼───┤ FK resolvedBy ┼───┤
+│ FK rejectedBy ┼───┤ FK responsible┼───┤               │   │
+│ FK restoredBy ┼───┤    Person ────┼───┘               │   │
+│               │   │               │                     │   │
+│ UK (userId,   │   │ ATTRIBUTES:   │   ATTRIBUTES:      │   │
+│     status)   │   │   • name *    │     • userName *   │   │
+│    when       │   │   • description*│   • userEmail *  │   │
+│    status=    │   │   • date *    │     • subject *    │   │
+│    'ACTIVE'   │   │   • location *│     • message *    │   │
+│               │   │   • status *  │     • status *     │   │
+│ ATTRIBUTES:   │   │   • type *    │     • priority *   │   │
+│   • status *  │   │   • visibility*│   • adminNotes   │   │
+│   • joinedAt *│   │   • maxParts  │     • resolvedAt   │   │
+│   • approvedAt│   │   • imageUrl  │                    │   │
+│   • rejectedAt│   │   • overview  │                    │   │
+│   • removedAt │   │   • timeSlots[]│                   │   │
+│   • motivation│   │   • schedule[]│                    │   │
+│   • experience│   │   • participants[]│                │   │
+│   • ...       │   │   • createdAt *│                   │   │
+│               │   │   • updatedAt *│                   │   │
+└───────────────┘   └───────────────┘                    │   │
+                              │                          │   │
+                              │ 1                        │   │
+                              │                          │   │
+                              │ N                        │   │
+                              ▼                          │   │
+                    ┌───────────────┐                    │   │
+                    │  ATTENDANCE   │                    │   │
+                    ├───────────────┤                    │   │
+                    │ PK _id        │                    │   │
+                    │               │                    │   │
+                    │ FK activityId ┼────────────────────┘   │
+                    │ FK userId ────┼────────────────────────┘
+                    │ FK verifiedBy ┼────────────────────────┐
+                    │               │                        │
+                    │ UK (activityId│                        │
+                    │     userId)   │                        │
+                    │               │                        │
+                    │ ATTRIBUTES:   │                        │
+                    │   • studentName*│                      │
+                    │   • studentEmail*│                     │
+                    │   • studentId │                        │
+                    │   • attendances[]│                     │
+                    │     - timeSlot│                        │
+                    │     - checkInType│                     │
+                    │     - checkInTime│                     │
+                    │     - location│                        │
+                    │     - status │                        │
+                    │     - verifiedBy│                      │
+                    │     - ...     │                        │
+                    │   • createdAt *│                       │
+                    │   • updatedAt *│                       │
+                    └───────────────┘                        │
+                                                             │
+                                                             │
+                    ┌────────────────────────────────────────┘
+                    │
+                    └───> USER (verifiedBy, resolvedBy, approvedBy, rejectedBy)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                           CHI TIẾT MỐI QUAN HỆ
+═══════════════════════════════════════════════════════════════════════════════
+
+1. USER ──< MEMBERSHIP (1:N)
+   • Một User có thể có nhiều Membership records (lịch sử)
+   • Một User chỉ có 1 Membership ACTIVE tại một thời điểm
+   • Foreign Keys: userId, approvedBy, rejectedBy, restoredBy
+
+2. USER ──< ACTIVITY (1:N)
+   • Một User có thể tạo nhiều Activities (createdBy)
+   • Một User có thể phụ trách nhiều Activities (responsiblePerson)
+   • Một User có thể cập nhật nhiều Activities (updatedBy)
+   • Một User có thể tham gia nhiều Activities (participants.userId)
+   • Foreign Keys: createdBy, updatedBy, responsiblePerson, participants[].userId
+
+3. ACTIVITY ──< ATTENDANCE (1:N)
+   • Một Activity có thể có nhiều Attendance records
+   • UNIQUE constraint: (activityId, userId) - Mỗi user chỉ có 1 attendance cho mỗi activity
+   • Foreign Key: activityId
+
+4. USER ──< ATTENDANCE (1:N)
+   • Một User có thể có nhiều Attendance records
+   • Một User có thể xác minh nhiều Attendance records (verifiedBy)
+   • Foreign Keys: userId, attendances[].verifiedBy
+
+5. USER ──< CONTACTREQUEST (1:N)
+   • Một User có thể gửi nhiều ContactRequest (userId)
+   • Một User (admin) có thể xử lý nhiều ContactRequest (resolvedBy)
+   • Foreign Keys: userId, resolvedBy
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                           CÁC RÀNG BUỘC QUAN TRỌNG
+═══════════════════════════════════════════════════════════════════════════════
+
+1. USER:
+   • studentId: UNIQUE, 13 chữ số hoặc bắt đầu bằng "admin"/"superadmin"
+   • email: UNIQUE, format: {studentId}@student.tdmu.edu.vn
+
+2. ACTIVITY:
+   • responsiblePerson: Phải có role trong [SUPER_ADMIN, CLUB_LEADER, CLUB_DEPUTY, CLUB_MEMBER]
+   • type='single_day': Phải có date và timeSlots[]
+   • type='multiple_days': Phải có startDate, endDate, và schedule[]
+   • date >= ngày hiện tại
+   • endDate > startDate
+
+3. ATTENDANCE:
+   • UNIQUE (activityId, userId): Mỗi user chỉ có 1 attendance document cho mỗi activity
+   • location.lat: [-90, 90]
+   • location.lng: [-180, 180]
+
+4. MEMBERSHIP:
+   • UNIQUE (userId, status) khi status='ACTIVE': Mỗi user chỉ có 1 membership ACTIVE
+   • Khi status='ACTIVE': Tự động set user.role='CLUB_STUDENT' và user.isClubMember=true
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                           NESTED OBJECTS TRONG ACTIVITY
+═══════════════════════════════════════════════════════════════════════════════
+
+ACTIVITY.participants[] (Array of Participant objects):
+  • userId (ObjectId) → FK to User._id
+  • name (String)
+  • email (String)
+  • role (Enum): Trưởng Nhóm, Phó Trưởng Nhóm, Thành Viên Ban Tổ Chức, 
+                 Người Tham Gia, Người Giám Sát
+  • joinedAt (Date)
+  • approvalStatus (Enum): pending, approved, rejected
+  • approvedBy (ObjectId) → FK to User._id
+  • approvedAt (Date)
+  • rejectedBy (ObjectId) → FK to User._id
+  • rejectedAt (Date)
+  • checkedIn (Boolean)
+  • checkedInAt (Date)
+  • checkInLocation (Object): {lat, lng, address}
+  • checkInPhoto (String)
+
+ACTIVITY.timeSlots[] (Array of TimeSlot objects - for single_day):
+  • id (String)
+  • name (Enum): Buổi Sáng, Buổi Chiều, Buổi Tối
+  • startTime (String): HH:MM
+  • endTime (String): HH:MM
+  • isActive (Boolean)
+  • activities (String)
+  • detailedLocation (String)
+
+ACTIVITY.schedule[] (Array of Schedule objects - for multiple_days):
+  • day (Number)
+  • date (Date)
+  • activities (String)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                           NESTED OBJECTS TRONG ATTENDANCE
+═══════════════════════════════════════════════════════════════════════════════
+
+ATTENDANCE.attendances[] (Array of AttendanceRecord objects):
+  • _id (ObjectId)
+  • timeSlot (Enum): Buổi Sáng, Buổi Chiều, Buổi Tối
+  • checkInType (Enum): start, end
+  • checkInTime (Date)
+  • location (Object): {lat, lng, address}
+  • photoUrl (String)
+  • status (Enum): pending, approved, rejected
+  • verifiedBy (ObjectId) → FK to User._id
+  • verifiedAt (Date)
+  • verificationNote (String)
+  • cancelReason (String)
+  • lateReason (String)
+  • createdAt (Date)
+  • updatedAt (Date)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                           NESTED OBJECTS TRONG MEMBERSHIP
+═══════════════════════════════════════════════════════════════════════════════
+
+MEMBERSHIP.removalHistory[] (Array of RemovalHistory objects):
+  • removedAt (Date)
+  • removedBy (Object): {_id, name, studentId}
+  • removalReason (String)
+  • restoredAt (Date)
+  • restoredBy (ObjectId) → FK to User._id
+  • restorationReason (String)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                                  GHI CHÚ
+═══════════════════════════════════════════════════════════════════════════════
+
+• Ký hiệu * = Bắt buộc (NOT NULL)
+• PK = Primary Key
+• FK = Foreign Key
+• UK = Unique Key
+• Nested objects được lưu dạng embedded documents trong MongoDB
+• Trong ERD truyền thống (SQL), có thể cần normalize nested objects thành bảng riêng
+• Hệ thống sử dụng MongoDB (NoSQL), nhưng ERD vẫn có thể vẽ theo mô hình quan hệ
+
+
+═══════════════════════════════════════════════════════════════════════════════
+

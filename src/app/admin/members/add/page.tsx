@@ -13,7 +13,7 @@ interface FormData {
   email: string;
   password: string;
   confirmPassword: string;
-  role: 'STUDENT' | 'OFFICER' | 'ADMIN';
+  role: 'SUPER_ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'STUDENT';
   phone: string;
   class: string;
   faculty: string;
@@ -39,6 +39,8 @@ export default function AddMemberPage() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isDesktop, setIsDesktop] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -48,7 +50,7 @@ export default function AddMemberPage() {
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'STUDENT' as 'STUDENT' | 'OFFICER' | 'ADMIN',
+    role: 'CLUB_STUDENT' as 'SUPER_ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'STUDENT',
     phone: '',
     class: '',
     faculty: '',
@@ -76,11 +78,27 @@ export default function AddMemberPage() {
     'Khác'
   ];
 
-  // Load theme from localStorage on component mount and pre-fill form data
+  // Check if desktop
+  useEffect(() => {
+    const checkDesktop = () => {
+      setIsDesktop(window.innerWidth >= 1024);
+    };
+    
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
+
+  // Load theme and sidebar state from localStorage on component mount and pre-fill form data
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'dark') {
       setIsDarkMode(true);
+    }
+
+    const savedSidebarState = localStorage.getItem('sidebarOpen');
+    if (savedSidebarState !== null) {
+      setIsSidebarOpen(savedSidebarState === 'true');
     }
 
     // Listen for theme changes from AdminNav
@@ -90,6 +108,33 @@ export default function AddMemberPage() {
     };
 
     window.addEventListener('themeChange', handleThemeChange);
+    
+    // Listen for sidebar state changes via custom event
+    const handleSidebarChange = (event: Event) => {
+      const customEvent = event as CustomEvent<{ isOpen: boolean }>;
+      if (customEvent.detail) {
+        setIsSidebarOpen(customEvent.detail.isOpen);
+      }
+    };
+
+    window.addEventListener('sidebarStateChange', handleSidebarChange);
+    
+    // Also check localStorage periodically as fallback
+    const checkSidebarState = () => {
+      const currentSidebarState = localStorage.getItem('sidebarOpen');
+      if (currentSidebarState !== null) {
+        const newState = currentSidebarState === 'true';
+        setIsSidebarOpen(prev => {
+          if (prev !== newState) {
+            return newState;
+          }
+          return prev;
+        });
+      }
+    };
+    
+    checkSidebarState();
+    const intervalId = setInterval(checkSidebarState, 100);
 
     // Pre-fill form data from URL parameters
     const studentId = searchParams.get('studentId');
@@ -112,7 +157,11 @@ export default function AddMemberPage() {
       }));
     }
 
-    return () => window.removeEventListener('themeChange', handleThemeChange);
+    return () => {
+      window.removeEventListener('themeChange', handleThemeChange);
+      window.removeEventListener('sidebarStateChange', handleSidebarChange);
+      clearInterval(intervalId);
+    };
   }, [searchParams]);
 
   const validateForm = (): boolean => {
@@ -122,7 +171,7 @@ export default function AddMemberPage() {
     if (!formData.studentId.trim()) {
       newErrors.studentId = 'Mã số sinh viên là bắt buộc';
     } else if (!formData.studentId.startsWith('admin') && !/^\d{13}$/.test(formData.studentId)) {
-      newErrors.studentId = 'Mã số sinh viên phải có 13 chữ số hoặc bắt đầu bằng "admin"';
+      newErrors.studentId = 'Mã số sinh viên phải có 13 chữ số ';
     }
 
     // Validate name
@@ -311,7 +360,7 @@ export default function AddMemberPage() {
             email: '',
             password: '',
             confirmPassword: '',
-            role: 'STUDENT',
+            role: 'CLUB_STUDENT',
             phone: '',
             class: '',
             faculty: '',
@@ -347,11 +396,23 @@ export default function AddMemberPage() {
   };
 
   return (
-    <ProtectedRoute requiredRole="ADMIN">
-      <div className={`min-h-screen flex flex-col transition-colors duration-200 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
+    <ProtectedRoute requiredRole="CLUB_MEMBER">
+      <div 
+        className={`min-h-screen flex flex-col transition-colors duration-200 overflow-x-hidden ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}
+        style={{
+          '--sidebar-width': isSidebarOpen ? '288px' : '80px'
+        } as React.CSSProperties}
+      >
         <AdminNav />
         
-        <main className="flex-1 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+        <main 
+          className="flex-1 transition-all duration-300 px-4 sm:px-6 lg:px-8 py-8 sm:py-12 overflow-x-hidden min-w-0"
+          style={{
+            marginLeft: isDesktop ? (isSidebarOpen ? '288px' : '80px') : '0',
+            width: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%',
+            maxWidth: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%'
+          }}
+        >
           {/* Header */}
           <div className="mb-8 sm:mb-12">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
@@ -691,9 +752,12 @@ export default function AddMemberPage() {
                         disabled={isNonClubMember}
                         className={`${getInputClassName('role')} ${isNonClubMember ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
-                        <option value="STUDENT">Thành Viên CLB</option>
-                        <option value="OFFICER">Ban Chấp Hành</option>
-                        <option value="ADMIN">Quản trị viên</option>
+                        <option value="CLUB_STUDENT">Thành Viên CLB</option>
+                        <option value="CLUB_MEMBER">Ủy Viên BCH</option>
+                        <option value="CLUB_DEPUTY">Phó Chủ Nhiệm</option>
+                        <option value="CLUB_LEADER">Chủ Nhiệm CLB</option>
+                        <option value="SUPER_ADMIN">Quản Trị Hệ Thống</option>
+                        <option value="STUDENT">Sinh Viên (Không thuộc CLB)</option>
                       </select>
                       {isNonClubMember && (
                         <p className={`text-xs mt-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>

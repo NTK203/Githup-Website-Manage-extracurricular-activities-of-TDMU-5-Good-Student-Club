@@ -6,7 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  requiredRole?: 'STUDENT' | 'OFFICER' | 'ADMIN';
+  requiredRole?: 'SUPER_ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'STUDENT' | 'OFFICER' | 'ADMIN';
   fallback?: React.ReactNode;
 }
 
@@ -21,25 +21,13 @@ export default function ProtectedRoute({
   useEffect(() => {
     if (!isLoading) {
       if (!isAuthenticated) {
-        router.push('/login');
+        router.push('/auth/login');
         return;
       }
 
       if (requiredRole && !hasRole(requiredRole)) {
-        // Redirect to appropriate dashboard based on user's role
-        switch (user?.role) {
-          case 'ADMIN':
-            router.push('/admin/dashboard');
-            break;
-          case 'OFFICER':
-            router.push('/officer/dashboard');
-            break;
-          case 'STUDENT':
-            router.push('/student/dashboard');
-            break;
-          default:
-            router.push('/');
-        }
+        // Don't redirect immediately, let the component handle the error display
+        console.warn(`User ${user?.role} does not have required role ${requiredRole}`);
         return;
       }
     }

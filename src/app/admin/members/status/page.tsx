@@ -44,8 +44,10 @@ interface ClubMember {
 
 export default function MemberStatusPage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, hasRole } = useAuth();
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isDesktop, setIsDesktop] = useState(false);
   const [members, setMembers] = useState<ClubMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
@@ -54,11 +56,27 @@ export default function MemberStatusPage() {
   const [selectedMembershipId, setSelectedMembershipId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
 
-  // Load theme from localStorage on component mount
+  // Check if desktop
+  useEffect(() => {
+    const checkDesktop = () => {
+      setIsDesktop(window.innerWidth >= 1024);
+    };
+    
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
+
+  // Load theme and sidebar state from localStorage on component mount
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'dark') {
       setIsDarkMode(true);
+    }
+
+    const savedSidebarState = localStorage.getItem('sidebarOpen');
+    if (savedSidebarState !== null) {
+      setIsSidebarOpen(savedSidebarState === 'true');
     }
 
     // Listen for theme changes from AdminNav
@@ -68,7 +86,39 @@ export default function MemberStatusPage() {
     };
 
     window.addEventListener('themeChange', handleThemeChange);
-    return () => window.removeEventListener('themeChange', handleThemeChange);
+    
+    // Listen for sidebar state changes via custom event
+    const handleSidebarChange = (event: Event) => {
+      const customEvent = event as CustomEvent<{ isOpen: boolean }>;
+      if (customEvent.detail) {
+        setIsSidebarOpen(customEvent.detail.isOpen);
+      }
+    };
+
+    window.addEventListener('sidebarStateChange', handleSidebarChange);
+    
+    // Also check localStorage periodically as fallback
+    const checkSidebarState = () => {
+      const currentSidebarState = localStorage.getItem('sidebarOpen');
+      if (currentSidebarState !== null) {
+        const newState = currentSidebarState === 'true';
+        setIsSidebarOpen(prev => {
+          if (prev !== newState) {
+            return newState;
+          }
+          return prev;
+        });
+      }
+    };
+    
+    checkSidebarState();
+    const intervalId = setInterval(checkSidebarState, 100);
+
+    return () => {
+      window.removeEventListener('themeChange', handleThemeChange);
+      window.removeEventListener('sidebarStateChange', handleSidebarChange);
+      clearInterval(intervalId);
+    };
   }, []);
 
   // Load members data
@@ -202,13 +252,34 @@ export default function MemberStatusPage() {
     );
   };
 
-  const getRoleBadge = (role: string) => {
+  const getRoleBadge = (role: string | undefined | null) => {
+    // Handle undefined, null, or empty string
+    if (!role || role.trim() === '') {
+      return (
+        <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">
+          Không xác định
+        </span>
+      );
+    }
+
     const roleConfig = {
-      ADMIN: { color: 'bg-red-100 text-red-800', text: 'ADMIN' },
-      OFFICER: { color: 'bg-blue-100 text-blue-800', text: 'BAN CHẤP HÀNH' },
-      STUDENT: { color: 'bg-gray-100 text-gray-800', text: 'SINH VIÊN' }
+      SUPER_ADMIN: { color: 'bg-purple-100 text-purple-800', text: 'Quản Trị Hệ Thống' },
+      CLUB_LEADER: { color: 'bg-red-100 text-red-800', text: 'Chủ Nhiệm CLB' },
+      CLUB_DEPUTY: { color: 'bg-orange-100 text-orange-800', text: 'Phó Chủ Nhiệm' },
+      CLUB_MEMBER: { color: 'bg-blue-100 text-blue-800', text: 'Ủy Viên BCH' },
+      CLUB_STUDENT: { color: 'bg-green-100 text-green-800', text: 'Thành Viên CLB' },
+      STUDENT: { color: 'bg-gray-100 text-gray-800', text: 'Sinh Viên' }
     };
+    
     const config = roleConfig[role as keyof typeof roleConfig];
+    if (!config) {
+      console.warn(`Unknown role: ${role}`);
+      return (
+        <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">
+          Không xác định
+        </span>
+      );
+    }
     return (
       <span className={`px-2 py-1 text-xs font-medium rounded-full ${config.color}`}>
         {config.text}
@@ -238,12 +309,51 @@ export default function MemberStatusPage() {
 
   const stats = getStatusStats();
 
+  // Check if user has required role
+  if (user && !hasRole('CLUB_MEMBER')) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
+        <div className="text-center">
+          <div className="mb-4">
+            <svg className="mx-auto h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          </div>
+          <h3 className={`text-lg font-medium mb-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+            Quyền truy cập bị từ chối
+          </h3>
+          <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+            Bạn không có quyền truy cập trang này. Vai trò hiện tại: {user.role}
+          </p>
+          <button
+            onClick={() => router.push('/admin/dashboard')}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Quay lại Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <ProtectedRoute requiredRole="ADMIN">
-      <div className={`min-h-screen flex flex-col transition-colors duration-200 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
+    <ProtectedRoute requiredRole="CLUB_MEMBER">
+      <div 
+        className={`min-h-screen flex flex-col transition-colors duration-200 overflow-x-hidden ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}
+        style={{
+          '--sidebar-width': isSidebarOpen ? '288px' : '80px'
+        } as React.CSSProperties}
+      >
         <AdminNav />
         
-        <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <main 
+          className="flex-1 transition-all duration-300 px-4 sm:px-6 lg:px-8 py-6 sm:py-8 overflow-x-hidden min-w-0"
+          style={{
+            marginLeft: isDesktop ? (isSidebarOpen ? '288px' : '80px') : '0',
+            width: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%',
+            maxWidth: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%'
+          }}
+        >
           {/* Header */}
           <div className="mb-6 sm:mb-8">
             <div className="flex items-center justify-between">
@@ -410,7 +520,7 @@ export default function MemberStatusPage() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="space-y-2">
-                            {getRoleBadge(member.userId?.role || 'STUDENT')}
+                            {getRoleBadge(member.userId?.role)}
                             {getStatusBadge(member.status)}
                           </div>
                         </td>

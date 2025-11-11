@@ -25,8 +25,13 @@ export async function GET(
       );
     }
 
-    // Check if user has ADMIN or OFFICER role
-    if (decoded.role !== 'ADMIN' && decoded.role !== 'OFFICER') {
+    // Check if user has appropriate role
+    if (
+      decoded.role !== 'SUPER_ADMIN' &&
+      decoded.role !== 'CLUB_LEADER' &&
+      decoded.role !== 'CLUB_DEPUTY' &&
+      decoded.role !== 'CLUB_MEMBER'
+    ) {
       return NextResponse.json(
         { success: false, error: 'Không có quyền truy cập' },
         { status: 403 }

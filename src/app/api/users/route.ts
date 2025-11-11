@@ -6,17 +6,26 @@ import { getUserFromRequest } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    console.log('🔍 Starting users API request...');
+    
     // Verify authentication
     const user = getUserFromRequest(request);
-    if (!user || user.role !== 'ADMIN') {
+    console.log('👤 User from request:', user ? { userId: user.userId, role: user.role } : 'No user found');
+    
+    if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN' && user.role !== 'CLUB_LEADER')) {
+      console.log('❌ Unauthorized access attempt');
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       );
     }
+    
+    console.log('✅ Authentication successful');
 
     // Connect to database
+    console.log('🔌 Connecting to database...');
     await dbConnect();
+    console.log('✅ Database connected');
 
     // Get query parameters
     const { searchParams } = new URL(request.url);
@@ -34,7 +43,7 @@ export async function GET(request: NextRequest) {
 
     // Build filter conditions
     const filter: any = {
-      isDeleted: { $ne: true } // Only get non-deleted users
+      // No need to filter by isDeleted since we're doing hard delete now
     };
 
     // Search filter
@@ -96,11 +105,11 @@ export async function GET(request: NextRequest) {
         }
       }] : []),
       
-      // Apply club members filter (includes Admin, Officer, and Student members)
+      // Apply club members filter (includes Admin, Club Leaders, and Student members)
       ...(clubMembers === 'true' ? [{
         $match: {
           $or: [
-            { role: { $in: ['ADMIN', 'OFFICER'] } },
+            { role: { $in: ['SUPER_ADMIN', 'ADMIN', 'CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER'] } },
             { isClubMember: true }
           ]
         }
@@ -143,18 +152,20 @@ export async function GET(request: NextRequest) {
     ]);
 
     // Debug logging
-    console.log('Query params:', { search, roles, faculty, isClubMember, clubMembers, nonClubMembers, sortBy, sortOrder, page, limit });
-    console.log('Filter:', filter);
-    console.log('Pipeline stages:', pipeline.length);
-    console.log('Users found:', users.length);
+    console.log('📊 Query params:', { search, roles, faculty, isClubMember, clubMembers, nonClubMembers, sortBy, sortOrder, page, limit });
+    console.log('🔍 Filter:', filter);
+    console.log('🔄 Pipeline stages:', pipeline.length);
+    console.log('👥 Users found:', users.length);
     if (users.length > 0) {
-      console.log('Sample user:', {
+      console.log('📝 Sample user:', {
         _id: users[0]._id,
         name: users[0].name,
+        role: users[0].role,
         isClubMember: users[0].isClubMember,
         membershipCount: users[0].membership ? users[0].membership.length : 0
       });
     }
+    console.log('✅ API response successful');
 
     return NextResponse.json({
       success: true,
@@ -171,7 +182,8 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error('Error fetching users:', error);
+    console.error('❌ Error fetching users:', error);
+    console.error('❌ Error stack:', error.stack);
     return NextResponse.json(
       { error: 'Failed to fetch users', details: error.message },
       { status: 500 }
@@ -184,7 +196,7 @@ export async function POST(request: NextRequest) {
   try {
     // Verify authentication
     const user = getUserFromRequest(request);
-    if (!user || user.role !== 'ADMIN') {
+    if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN' && user.role !== 'CLUB_LEADER')) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -201,6 +213,15 @@ export async function POST(request: NextRequest) {
     if (!studentId || !name || !email || !password || !role) {
       return NextResponse.json(
         { error: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
+
+    // Validate role
+    const validRoles = ['SUPER_ADMIN', 'ADMIN', 'CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER', 'CLUB_STUDENT', 'STUDENT'];
+    if (!validRoles.includes(role)) {
+      return NextResponse.json(
+        { error: 'Invalid role. Must be one of the valid roles' },
         { status: 400 }
       );
     }

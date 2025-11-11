@@ -17,23 +17,43 @@ export async function GET(request: NextRequest) {
     // Connect to database
     await dbConnect();
 
-    // Get membership for current user
+    // Get membership for current user with populated user info
     const membership = await Membership.findOne({ 
       userId: user.userId 
-    }).select('status createdAt');
+    }).populate('userId', 'name studentId email')
+      .populate('approvedBy', 'name studentId')
+      .populate('removedBy', 'name studentId')
+      .populate('restoredBy', 'name studentId');
 
     if (!membership) {
       return NextResponse.json({
         success: true,
-        membership: null
+        data: {
+          membership: null
+        }
       });
     }
 
     return NextResponse.json({
       success: true,
-      membership: {
-        status: membership.status,
-        createdAt: membership.createdAt
+      data: {
+        membership: {
+          _id: membership._id,
+          userId: membership.userId,
+          status: membership.status,
+          createdAt: membership.createdAt,
+          joinedAt: membership.joinedAt,
+          approvedAt: membership.approvedAt,
+          approvedBy: membership.approvedBy,
+          removedAt: membership.removedAt,
+          removedBy: membership.removedBy,
+          removalReason: membership.removalReason,
+          removalReasonTrue: membership.removalReasonTrue,
+          restoredAt: membership.restoredAt,
+          restoredBy: membership.restoredBy,
+          restorationReason: membership.restorationReason,
+          removalHistory: membership.removalHistory
+        }
       }
     });
 

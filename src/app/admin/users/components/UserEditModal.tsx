@@ -7,7 +7,7 @@ interface User {
   studentId: string;
   name: string;
   email: string;
-  role: 'STUDENT' | 'OFFICER' | 'ADMIN';
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'STUDENT';
   phone?: string;
   class?: string;
   faculty?: string;
@@ -49,7 +49,7 @@ export default function UserEditModal({ isOpen, onClose, userId, isDarkMode, onU
     phone: '',
     class: '',
     faculty: '',
-    role: 'STUDENT' as 'STUDENT' | 'OFFICER' | 'ADMIN',
+    role: 'STUDENT' as 'SUPER_ADMIN' | 'ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'STUDENT',
     avatarUrl: ''
   });
 
@@ -180,18 +180,21 @@ export default function UserEditModal({ isOpen, onClose, userId, isDarkMode, onU
     }
   };
 
-  const handleRoleChange = async (newRole: 'STUDENT' | 'OFFICER' | 'ADMIN') => {
+  const handleRoleChange = async (newRole: 'SUPER_ADMIN' | 'ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'STUDENT') => {
     try {
       setSaving(true);
       setError(null);
 
       console.log('Attempting to change role:', { userId, newRole });
+      
+      const token = localStorage.getItem('token');
+      console.log('🔑 Token from localStorage:', token ? `${token.substring(0, 20)}...` : 'No token found');
 
       const response = await fetch(`/api/users/${userId}/role`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ role: newRole })
       });
@@ -499,8 +502,12 @@ export default function UserEditModal({ isOpen, onClose, userId, isDarkMode, onU
                  <div className={`mb-4 p-3 rounded-lg ${isDarkMode ? 'bg-gray-600/50 border-gray-500/20' : 'bg-gray-100 border-gray-200'} border`}>
                    <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                                            Vai trò hiện tại: <span className="font-semibold">
-                        {formData.role === 'ADMIN' ? 'Admin (Thành viên CLB)' : 
-                         formData.role === 'OFFICER' ? 'Ban Chấp Hành (Thành viên CLB)' : 
+                        {formData.role === 'SUPER_ADMIN' ? 'Quản Trị Hệ Thống (Thành viên CLB)' :
+                         formData.role === 'ADMIN' ? 'Admin (Thành viên CLB)' :
+                         formData.role === 'CLUB_LEADER' ? 'Chủ Nhiệm CLB (Thành viên CLB)' :
+                         formData.role === 'CLUB_DEPUTY' ? 'Phó Chủ Nhiệm (Thành viên CLB)' :
+                         formData.role === 'CLUB_MEMBER' ? 'Ủy Viên BCH (Thành viên CLB)' :
+                         formData.role === 'CLUB_STUDENT' ? 'Thành Viên CLB' :
                          user?.isClubMember 
                            ? user?.membershipStatus === 'ACTIVE'
                              ? 'Sinh Viên (Thành viên CLB đã duyệt)'
@@ -528,7 +535,7 @@ export default function UserEditModal({ isOpen, onClose, userId, isDarkMode, onU
                    <>
                      {/* Nút thay đổi vai trò - chỉ hiển thị cho thành viên CLB */}
                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                       {(['STUDENT', 'OFFICER', 'ADMIN'] as const).map((role) => (
+                       {(['STUDENT', 'CLUB_STUDENT', 'CLUB_MEMBER', 'CLUB_DEPUTY', 'CLUB_LEADER', 'ADMIN', 'SUPER_ADMIN'] as const).map((role) => (
                          <button
                            key={role}
                            type="button"
@@ -542,7 +549,13 @@ export default function UserEditModal({ isOpen, onClose, userId, isDarkMode, onU
                                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                            } disabled:opacity-50 disabled:cursor-not-allowed`}
                          >
-                           {role === 'ADMIN' ? 'Admin' : role === 'OFFICER' ? 'Ban Chấp Hành' : 'Sinh Viên'}
+                           {role === 'SUPER_ADMIN' ? 'Quản Trị Hệ Thống' : 
+                            role === 'ADMIN' ? 'Admin' : 
+                            role === 'CLUB_LEADER' ? 'Chủ Nhiệm CLB' : 
+                            role === 'CLUB_DEPUTY' ? 'Phó Chủ Nhiệm' : 
+                            role === 'CLUB_MEMBER' ? 'Ủy Viên BCH' : 
+                            role === 'CLUB_STUDENT' ? 'Thành Viên CLB' : 
+                            'Sinh Viên'}
                          </button>
                        ))}
                      </div>

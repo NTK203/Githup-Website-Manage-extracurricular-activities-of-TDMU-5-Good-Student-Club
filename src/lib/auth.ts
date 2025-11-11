@@ -4,8 +4,9 @@ import { NextRequest } from 'next/server';
 export interface JWTPayload {
   userId: string;
   studentId: string;
+  name: string;
   email: string;
-  role: 'STUDENT' | 'OFFICER' | 'ADMIN';
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'STUDENT';
   iat: number;
   exp: number;
 }
@@ -54,30 +55,53 @@ export function getUserFromRequest(request: NextRequest): JWTPayload | null {
 }
 
 // Check if user has required role
-export function hasRole(user: JWTPayload | null, requiredRole: 'STUDENT' | 'OFFICER' | 'ADMIN'): boolean {
+export function hasRole(user: JWTPayload | null, requiredRole: 'SUPER_ADMIN' | 'ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'STUDENT'): boolean {
   if (!user) return false;
   
   const roleHierarchy = {
     'STUDENT': 1,
-    'OFFICER': 2,
-    'ADMIN': 3
+    'CLUB_STUDENT': 2,
+    'CLUB_MEMBER': 3,
+    'CLUB_DEPUTY': 4,
+    'CLUB_LEADER': 5,
+    'ADMIN': 6,
+    'SUPER_ADMIN': 7
   };
   
-  return roleHierarchy[user.role] >= roleHierarchy[requiredRole];
+  const userRoleLevel = roleHierarchy[user.role] || 0;
+  const requiredRoleLevel = roleHierarchy[requiredRole] || 0;
+  
+  return userRoleLevel >= requiredRoleLevel;
 }
 
-// Check if user is admin
+// Check if user is admin (Quản trị hệ thống)
+// Admin: SUPER_ADMIN
 export function isAdmin(user: JWTPayload | null): boolean {
-  return hasRole(user, 'ADMIN');
+  if (!user) return false;
+  return user.role === 'SUPER_ADMIN';
 }
 
-// Check if user is officer or admin
-export function isOfficerOrAdmin(user: JWTPayload | null): boolean {
-  return hasRole(user, 'OFFICER');
+// Check if user is officer (Cán bộ phụ trách câu lạc bộ)
+// Officers: CLUB_LEADER, CLUB_DEPUTY, CLUB_MEMBER
+export function isOfficer(user: JWTPayload | null): boolean {
+  if (!user) return false;
+  return ['CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER'].includes(user.role);
+}
+
+// Check if user is student (Thành viên câu lạc bộ và người tham gia)
+// Students: CLUB_STUDENT, STUDENT
+export function isStudent(user: JWTPayload | null): boolean {
+  if (!user) return false;
+  return user.role === 'CLUB_STUDENT' || user.role === 'STUDENT';
+}
+
+// Check if user is club leader or admin (legacy function for backward compatibility)
+export function isClubLeaderOrAdmin(user: JWTPayload | null): boolean {
+  return hasRole(user, 'CLUB_LEADER') || isAdmin(user);
 }
 
 // Create middleware for protected routes
-export function requireAuth(requiredRole?: 'STUDENT' | 'OFFICER' | 'ADMIN') {
+export function requireAuth(requiredRole?: 'SUPER_ADMIN' | 'ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'STUDENT') {
   return function(request: NextRequest) {
     const user = getUserFromRequest(request);
     

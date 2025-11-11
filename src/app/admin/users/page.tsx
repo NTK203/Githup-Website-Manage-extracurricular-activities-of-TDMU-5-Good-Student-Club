@@ -16,7 +16,7 @@ interface User {
   studentId: string;
   name: string;
   email: string;
-  role: 'STUDENT' | 'OFFICER' | 'ADMIN';
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'STUDENT';
   phone?: string;
   class?: string;
   faculty?: string;
@@ -38,6 +38,8 @@ export default function UsersPage() {
   const router = useRouter();
   const { user } = useAuth();
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isDesktop, setIsDesktop] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(true);
@@ -75,6 +77,57 @@ export default function UsersPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+
+  // Check if desktop
+  useEffect(() => {
+    const checkDesktop = () => {
+      setIsDesktop(window.innerWidth >= 1024);
+    };
+    
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
+
+  // Load sidebar state from localStorage on component mount
+  useEffect(() => {
+    const savedSidebarState = localStorage.getItem('sidebarOpen');
+    if (savedSidebarState !== null) {
+      setIsSidebarOpen(savedSidebarState === 'true');
+    }
+
+    // Listen for sidebar state changes via custom event
+    const handleSidebarChange = (event: Event) => {
+      const customEvent = event as CustomEvent<{ isOpen: boolean }>;
+      if (customEvent.detail) {
+        setIsSidebarOpen(customEvent.detail.isOpen);
+      }
+    };
+
+    window.addEventListener('sidebarStateChange', handleSidebarChange);
+    
+    // Also check localStorage periodically as fallback
+    const checkSidebarState = () => {
+      const currentSidebarState = localStorage.getItem('sidebarOpen');
+      if (currentSidebarState !== null) {
+        const newState = currentSidebarState === 'true';
+        setIsSidebarOpen(prev => {
+          if (prev !== newState) {
+            return newState;
+          }
+          return prev;
+        });
+      }
+    };
+    
+    checkSidebarState();
+    const intervalId = setInterval(checkSidebarState, 100);
+
+    return () => {
+      window.removeEventListener('sidebarStateChange', handleSidebarChange);
+      clearInterval(intervalId);
+    };
+  }, []);
 
   // Load theme from localStorage on component mount
   useEffect(() => {
@@ -337,17 +390,25 @@ export default function UsersPage() {
 
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
+      case 'SUPER_ADMIN': return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
       case 'ADMIN': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
-      case 'OFFICER': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
-      case 'STUDENT': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+      case 'CLUB_LEADER': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
+      case 'CLUB_DEPUTY': return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200';
+      case 'CLUB_MEMBER': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
+      case 'CLUB_STUDENT': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+      case 'STUDENT': return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
       default: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
     }
   };
 
   const getRoleDisplayName = (role: string) => {
     switch (role) {
+      case 'SUPER_ADMIN': return 'Quản Trị Hệ Thống';
       case 'ADMIN': return 'Admin';
-      case 'OFFICER': return 'Ban Chấp Hành';
+      case 'CLUB_LEADER': return 'Chủ Nhiệm CLB';
+      case 'CLUB_DEPUTY': return 'Phó Chủ Nhiệm';
+      case 'CLUB_MEMBER': return 'Ủy Viên BCH';
+      case 'CLUB_STUDENT': return 'Thành Viên CLB';
       case 'STUDENT': return 'Sinh Viên';
       default: return role;
     }
@@ -364,11 +425,23 @@ export default function UsersPage() {
   };
 
   return (
-    <ProtectedRoute requiredRole="ADMIN">
-      <div className={`min-h-screen flex flex-col transition-colors duration-200 ${isDarkMode ? 'bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900' : 'bg-gradient-to-br from-gray-50 via-blue-50 to-indigo-50'}`}>
+    <ProtectedRoute requiredRole="CLUB_LEADER">
+      <div 
+        className={`min-h-screen flex flex-col transition-colors duration-200 overflow-x-hidden ${isDarkMode ? 'bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900' : 'bg-gradient-to-br from-gray-50 via-blue-50 to-indigo-50'}`}
+        style={{
+          '--sidebar-width': isSidebarOpen ? '288px' : '80px'
+        } as React.CSSProperties}
+      >
         <AdminNav />
         
-        <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative">
+        <main 
+          className="flex-1 transition-all duration-300 px-4 sm:px-6 lg:px-8 py-8 relative overflow-x-hidden min-w-0"
+          style={{
+            marginLeft: isDesktop ? (isSidebarOpen ? '288px' : '80px') : '0',
+            width: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%',
+            maxWidth: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%'
+          }}
+        >
           {/* Header */}
           <div className="mb-10">
             <div className="flex items-center justify-between mb-4">
@@ -566,35 +639,35 @@ export default function UsersPage() {
                      {roleDropdownOpen && (
                        <div className={`absolute z-[99999] w-full mt-2 border rounded-lg shadow-xl ${isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'}`}>
                          <div className="py-1">
-                           {['ADMIN', 'OFFICER', 'STUDENT'].map((role) => (
-                             <label key={role} className={`flex items-center px-2 py-3 cursor-pointer transition-colors duration-150 ${isDarkMode ? 'hover:bg-gray-600' : 'hover:bg-gray-50'}`}>
-                               <input
-                                 type="checkbox"
-                                 checked={roleFilter.includes(role)}
-                                 onChange={(e) => {
-                                   if (e.target.checked) {
-                                     setRoleFilter(prev => [...prev, role]);
-                                   } else {
-                                     setRoleFilter(prev => prev.filter(r => r !== role));
-                                   }
-                                   
-                                   // Nếu chọn Admin, tự động set faculty filter
-                                   if (role === 'ADMIN' && e.target.checked) {
-                                     setFacultyFilter('ADMIN');
-                                   } else if (role === 'ADMIN' && !e.target.checked && facultyFilter === 'ADMIN') {
-                                     // Nếu bỏ chọn Admin và faculty filter đang là ADMIN, reset về ALL
-                                     setFacultyFilter('ALL');
-                                   }
-                                   
-                                   handleFilterChange();
-                                 }}
-                                 className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 mr-2 w-3 h-3"
-                               />
-                               <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                 {role === 'ADMIN' ? 'Admin' : role === 'OFFICER' ? 'Ban Chấp Hành' : 'Sinh Viên'}
-                               </span>
-                             </label>
-                           ))}
+                                                {['SUPER_ADMIN', 'ADMIN', 'CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER', 'CLUB_STUDENT', 'STUDENT'].map((role) => (
+                       <label key={role} className={`flex items-center px-2 py-3 cursor-pointer transition-colors duration-150 ${isDarkMode ? 'hover:bg-gray-600' : 'hover:bg-gray-50'}`}>
+                         <input
+                           type="checkbox"
+                           checked={roleFilter.includes(role)}
+                           onChange={(e) => {
+                             if (e.target.checked) {
+                               setRoleFilter(prev => [...prev, role]);
+                             } else {
+                               setRoleFilter(prev => prev.filter(r => r !== role));
+                             }
+                             
+                             // Nếu chọn Admin hoặc SUPER_ADMIN, tự động set faculty filter
+                             if ((role === 'ADMIN' || role === 'SUPER_ADMIN') && e.target.checked) {
+                               setFacultyFilter('ADMIN');
+                             } else if ((role === 'ADMIN' || role === 'SUPER_ADMIN') && !e.target.checked && facultyFilter === 'ADMIN') {
+                               // Nếu bỏ chọn Admin và faculty filter đang là ADMIN, reset về ALL
+                               setFacultyFilter('ALL');
+                             }
+                             
+                             handleFilterChange();
+                           }}
+                           className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 mr-2 w-3 h-3"
+                         />
+                         <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                           {getRoleDisplayName(role)}
+                         </span>
+                       </label>
+                     ))}
                          </div>
                        </div>
                      )}
@@ -804,11 +877,11 @@ export default function UsersPage() {
                           </span>
                         </td>
                                                  <td className="px-6 py-4 whitespace-nowrap">
-                           {user.role === 'ADMIN' ? (
+                           {user.role === 'SUPER_ADMIN' || user.role === 'ADMIN' ? (
                              <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
                                Admin
                              </span>
-                           ) : user.role === 'OFFICER' ? (
+                           ) : ['CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER'].includes(user.role) ? (
                              <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
                                Ban Chấp Hành
                              </span>
@@ -820,13 +893,13 @@ export default function UsersPage() {
                          </td>
                                                                                                                             <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                              <div>
-                               {user.role === 'ADMIN' ? (
+                               {user.role === 'SUPER_ADMIN' || user.role === 'ADMIN' ? (
                                  <div>
                                    <div className="text-red-600 font-medium">👑 Quản trị viên hệ thống</div>
                                    {user.phone && <div>📞 {user.phone}</div>}
                                    <div className="text-purple-600 text-xs">Thành viên CLB</div>
                                  </div>
-                               ) : user.role === 'OFFICER' ? (
+                               ) : ['CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER'].includes(user.role) ? (
                                  <div>
                                    <div className="text-blue-600 font-medium">🏛️ Ban Chấp Hành CLB</div>
                                    {user.phone && <div>📞 {user.phone}</div>}

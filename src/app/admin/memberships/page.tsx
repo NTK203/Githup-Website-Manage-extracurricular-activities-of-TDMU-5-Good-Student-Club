@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import ProtectedRoute from '@/components/common/ProtectedRoute';
 import AdminNav from '@/components/admin/AdminNav';
 import Footer from '@/components/common/Footer';
+import { useDarkMode } from '@/hooks/useDarkMode';
 
 interface Membership {
   _id: string;
@@ -15,11 +16,31 @@ interface Membership {
   rejectionReason?: string;
   removedAt?: string;
   removalReason?: string;
+  removalReasonTrue?: string;
   removedBy?: {
     _id: string;
     name: string;
     studentId: string;
   };
+  restoredAt?: string;
+  restoredBy?: {
+    _id: string;
+    name: string;
+    studentId: string;
+  };
+  restorationReason?: string;
+  removalHistory?: Array<{
+    removedAt: string;
+    removedBy: {
+      _id: string;
+      name: string;
+      studentId: string;
+    };
+    removalReason: string;
+    restoredAt?: string;
+    restoredBy?: string;
+    restorationReason?: string;
+  }>;
   motivation?: string;
   experience?: string;
   expectations?: string;
@@ -31,7 +52,7 @@ interface Membership {
     studentId: string;
     name: string;
     email: string;
-    role: 'STUDENT' | 'OFFICER' | 'ADMIN';
+    role: 'SUPER_ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'STUDENT';
     phone?: string;
     class?: string;
     faculty?: string;
@@ -53,8 +74,10 @@ interface Pagination {
 }
 
 export default function MembershipsPage() {
-  const { user } = useAuth();
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const { user, refetchUser } = useAuth();
+  const { isDarkMode } = useDarkMode();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isDesktop, setIsDesktop] = useState(false);
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(true);
@@ -101,21 +124,55 @@ export default function MembershipsPage() {
   const [rejectionReason, setRejectionReason] = useState('');
   const [processingAction, setProcessingAction] = useState(false);
 
-  // Load theme from localStorage on component mount
+  // Check if desktop
   useEffect(() => {
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'dark') {
-      setIsDarkMode(true);
+    const checkDesktop = () => {
+      setIsDesktop(window.innerWidth >= 1024);
+    };
+    
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
+
+  // Load sidebar state from localStorage on component mount
+  useEffect(() => {
+    const savedSidebarState = localStorage.getItem('sidebarOpen');
+    if (savedSidebarState !== null) {
+      setIsSidebarOpen(savedSidebarState === 'true');
     }
 
-    // Listen for theme changes from AdminNav
-    const handleThemeChange = () => {
-      const currentTheme = localStorage.getItem('theme');
-      setIsDarkMode(currentTheme === 'dark');
+    // Listen for sidebar state changes via custom event
+    const handleSidebarChange = (event: Event) => {
+      const customEvent = event as CustomEvent<{ isOpen: boolean }>;
+      if (customEvent.detail) {
+        setIsSidebarOpen(customEvent.detail.isOpen);
+      }
     };
 
-    window.addEventListener('themeChange', handleThemeChange);
-    return () => window.removeEventListener('themeChange', handleThemeChange);
+    window.addEventListener('sidebarStateChange', handleSidebarChange);
+    
+    // Also check localStorage periodically as fallback
+    const checkSidebarState = () => {
+      const currentSidebarState = localStorage.getItem('sidebarOpen');
+      if (currentSidebarState !== null) {
+        const newState = currentSidebarState === 'true';
+        setIsSidebarOpen(prev => {
+          if (prev !== newState) {
+            return newState;
+          }
+          return prev;
+        });
+      }
+    };
+    
+    checkSidebarState();
+    const intervalId = setInterval(checkSidebarState, 100);
+
+    return () => {
+      window.removeEventListener('sidebarStateChange', handleSidebarChange);
+      clearInterval(intervalId);
+    };
   }, []);
 
   const fetchMemberships = async () => {
@@ -230,6 +287,9 @@ export default function MembershipsPage() {
       // Refresh the list and stats
       await Promise.all([fetchMemberships(), fetchTotalStats()]);
       
+      // Refetch user data to update isClubMember status in frontend
+      refetchUser();
+      
       // Show success message
       setError(null);
       
@@ -273,6 +333,9 @@ export default function MembershipsPage() {
       setSelectedMembership(null);
       setRejectionReason('');
       await Promise.all([fetchMemberships(), fetchTotalStats()]);
+
+      // Refetch user data to update isClubMember status in frontend, in case of re-approval after rejection
+      refetchUser();
       
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -317,20 +380,44 @@ export default function MembershipsPage() {
     return new Date(dateString).toLocaleString('vi-VN');
   };
 
-  if (!user || (user.role !== 'ADMIN' && user.role !== 'OFFICER')) {
+  const getRoleDisplayName = (role: string) => {
+    switch (role) {
+      case 'SUPER_ADMIN': return 'Quản Trị Hệ Thống';
+      case 'CLUB_LEADER': return 'Chủ Nhiệm CLB';
+      case 'CLUB_DEPUTY': return 'Phó Chủ Nhiệm';
+      case 'CLUB_MEMBER': return 'Ủy Viên BCH';
+      case 'CLUB_STUDENT': return 'Thành Viên CLB';
+      case 'STUDENT': return 'Sinh Viên';
+      default: return role;
+    }
+  };
+
+  if (!user || (user.role !== 'SUPER_ADMIN' && user.role !== 'CLUB_LEADER' && user.role !== 'CLUB_DEPUTY' && user.role !== 'CLUB_MEMBER')) {
     return (
-      <ProtectedRoute requiredRole="ADMIN">
+      <ProtectedRoute requiredRole="CLUB_LEADER">
         <div>Loading...</div>
       </ProtectedRoute>
     );
   }
 
   return (
-    <ProtectedRoute requiredRole="ADMIN">
-      <div className={`min-h-screen flex flex-col transition-colors duration-200 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
+    <ProtectedRoute requiredRole="CLUB_LEADER">
+      <div 
+        className={`min-h-screen flex flex-col transition-colors duration-200 overflow-x-hidden ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}
+        style={{
+          '--sidebar-width': isSidebarOpen ? '288px' : '80px'
+        } as React.CSSProperties}
+      >
         <AdminNav />
         
-        <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <main 
+          className="flex-1 transition-all duration-300 px-4 sm:px-6 lg:px-8 py-6 sm:py-8 overflow-x-hidden min-w-0"
+          style={{
+            marginLeft: isDesktop ? (isSidebarOpen ? '288px' : '80px') : '0',
+            width: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%',
+            maxWidth: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%'
+          }}
+        >
           {/* Header */}
           <div className="mb-8">
             <h1 className={`text-3xl font-bold mb-2 transition-colors duration-200 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
@@ -596,6 +683,9 @@ export default function MembershipsPage() {
                                 <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                   {membership.userId?.email || 'Không có email'}
                                 </div>
+                                <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  {membership.userId?.role ? getRoleDisplayName(membership.userId.role) : 'Không có vai trò'}
+                                </div>
                               </div>
                             </div>
                           </td>
@@ -651,10 +741,78 @@ export default function MembershipsPage() {
                                   <span className="text-xs">{membership.rejectionReason}</span>
                                 </div>
                               )}
-                              {membership.removalReason && (
+                              {(membership.removalReasonTrue || membership.removalReason) && (
                                 <div className="text-red-600 dark:text-red-400 flex items-start">
                                   <span className="mr-2 mt-0.5">🗑️</span>
-                                  <span className="text-xs">{membership.removalReason}</span>
+                                  <span className="text-xs">{membership.removalReasonTrue || membership.removalReason}</span>
+                                </div>
+                              )}
+                              {/* Hiển thị lịch sử xóa/duyệt lại */}
+                              {membership.removalHistory && membership.removalHistory.length > 0 && (
+                                <div className={`removal-history-light mt-2 p-2 rounded border`}>
+                                  <div className="text-header text-xs font-medium mb-1">
+                                    📋 Lịch sử xóa/duyệt lại ({(() => {
+                                      // Loại bỏ các entries trùng lặp dựa trên removedAt (trong vòng 1 giây)
+                                      const uniqueHistory = membership.removalHistory!.reduce((acc, history) => {
+                                        const existing = acc.find(h => 
+                                          Math.abs(new Date(h.removedAt).getTime() - new Date(history.removedAt).getTime()) < 1000
+                                        );
+                                        if (!existing) {
+                                          acc.push(history);
+                                        }
+                                        return acc;
+                                      }, [] as typeof membership.removalHistory);
+                                      return uniqueHistory.length;
+                                    })()} lần)
+                                  </div>
+                                  {(() => {
+                                    // Loại bỏ các entries trùng lặp dựa trên removedAt (trong vòng 1 giây)
+                                    // Ưu tiên giữ lại entry có thông tin duyệt lại
+                                    const uniqueHistory = membership.removalHistory!.reduce((acc, history) => {
+                                      const existingIndex = acc.findIndex(h => 
+                                        Math.abs(new Date(h.removedAt).getTime() - new Date(history.removedAt).getTime()) < 1000
+                                      );
+                                      
+                                      if (existingIndex === -1) {
+                                        // Không tìm thấy entry trùng lặp, thêm vào
+                                        acc.push(history);
+                                      } else {
+                                        // Tìm thấy entry trùng lặp, kiểm tra xem có thông tin duyệt lại không
+                                        const existing = acc[existingIndex];
+                                        const hasRestorationInfo = history.restoredAt && history.restorationReason;
+                                        const existingHasRestorationInfo = existing.restoredAt && existing.restorationReason;
+                                        
+                                        // Nếu entry mới có thông tin duyệt lại mà entry cũ không có, thay thế
+                                        if (hasRestorationInfo && !existingHasRestorationInfo) {
+                                          acc[existingIndex] = history;
+                                        }
+                                        // Nếu cả hai đều có hoặc đều không có thông tin duyệt lại, giữ lại entry đầu tiên
+                                      }
+                                      return acc;
+                                    }, [] as typeof membership.removalHistory);
+
+                                    return (
+                                      <>
+                                        {uniqueHistory.slice(0, 2).map((history, index) => {
+                                          return (
+                                            <div key={index} className="text-content text-xs mb-1">
+                                              <div>• Lần {index + 1}: {history.removalReason}</div>
+                                              {history.restoredAt && (
+                                                <div className="text-green ml-2">
+                                                  ↳ Duyệt lại: {history.restorationReason}
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                        {uniqueHistory.length > 2 && (
+                                          <div className="text-content text-xs">
+                                            ... và {uniqueHistory.length - 2} lần khác
+                                          </div>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
                                 </div>
                               )}
                               <button
@@ -869,100 +1027,171 @@ export default function MembershipsPage() {
 
                  {/* Details Modal */}
          {showDetailsModal && selectedMembership && (
-           <div className="fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
-             <div className={`relative w-full max-w-5xl shadow-2xl rounded-xl ${isDarkMode ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-200'} border`}>
+           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
+             <div className={`relative w-full max-w-6xl max-h-[90vh] shadow-2xl rounded-2xl ${isDarkMode ? 'bg-gray-900/95 border-gray-700' : 'bg-white/95 border-gray-200'} border backdrop-blur-md flex flex-col`}>
                {/* Header */}
-               <div className={`flex justify-between items-center p-6 border-b ${isDarkMode ? 'border-gray-600' : 'border-gray-200'}`}>
-                 <div className="flex items-center space-x-3">
-                   <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-600'}`}>
-                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+               <div className={`relative p-6 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+                 <div className={`absolute inset-0 ${isDarkMode ? 'bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-600/10' : 'bg-gradient-to-r from-blue-50 via-purple-50 to-pink-50'}`}></div>
+                 <div className="relative flex justify-between items-center">
+                   <div className="flex items-center space-x-3">
+                     <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-600'}`}>
+                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                       </svg>
+                     </div>
+                     <div>
+                       <h3 className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                         Chi tiết đơn đăng ký
+                       </h3>
+                       <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                         {selectedMembership.userId?.name || 'Không có tên'} - {selectedMembership.userId?.studentId || 'Không có MSSV'}
+                       </p>
+                     </div>
+                   </div>
+                   <button
+                     onClick={() => {
+                       setShowDetailsModal(false);
+                       setSelectedMembership(null);
+                     }}
+                     className={`p-2 rounded-lg transition-all duration-200 ${isDarkMode ? 'text-gray-400 hover:text-white hover:bg-gray-800' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                   >
+                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                      </svg>
-                   </div>
-                   <div>
-                     <h3 className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                       Chi tiết đơn đăng ký
-                     </h3>
-                     <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                       {selectedMembership.userId?.name || 'Không có tên'} - {selectedMembership.userId?.studentId || 'Không có MSSV'}
-                     </p>
-                   </div>
+                   </button>
                  </div>
-                 <button
-                   onClick={() => {
-                     setShowDetailsModal(false);
-                     setSelectedMembership(null);
-                   }}
-                   className={`p-2 rounded-lg transition-colors duration-200 ${isDarkMode ? 'text-gray-400 hover:text-gray-300 hover:bg-gray-700' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
-                 >
-                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                   </svg>
-                 </button>
                </div>
 
                {/* Content */}
-               <div className="p-6">
-                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                   {/* User Information */}
-                   <div className={`${isDarkMode ? 'bg-gray-700/50' : 'bg-gray-50'} rounded-xl p-6 border ${isDarkMode ? 'border-gray-600' : 'border-gray-200'}`}>
+               <div className="p-6 overflow-y-auto flex-1">
+                 <div className="space-y-6">
+                   {/* User Information Card */}
+                   <div className={`${isDarkMode ? 'bg-gray-800/50' : 'bg-white'} rounded-xl p-5 border ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} shadow-sm`}>
                      <div className="flex items-center space-x-3 mb-4">
                        <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-600'}`}>
-                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                          </svg>
                        </div>
                        <h4 className={`text-lg font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Thông tin sinh viên</h4>
                      </div>
-                     <div className="space-y-3">
-                       <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-600">
-                         <span className={`font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Họ và tên:</span>
-                         <span className={`${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{selectedMembership.userId?.name || 'Không có tên'}</span>
-                       </div>
-                       <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-600">
-                         <span className={`font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>MSSV:</span>
-                         <span className={`${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{selectedMembership.userId?.studentId || 'Không có MSSV'}</span>
-                       </div>
-                       <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-600">
-                         <span className={`font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Email:</span>
-                         <span className={`${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{selectedMembership.userId?.email || 'Không có email'}</span>
-                       </div>
-                       <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-600">
-                         <span className={`font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Khoa:</span>
-                         <span className={`${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{selectedMembership.userId?.faculty || 'Chưa cập nhật'}</span>
-                       </div>
-                       <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-600">
-                         <span className={`font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Lớp:</span>
-                         <span className={`${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{selectedMembership.userId?.class || 'Chưa cập nhật'}</span>
-                       </div>
-                       <div className="flex justify-between items-center py-2">
-                         <span className={`font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Số điện thoại:</span>
-                         <span className={`${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{selectedMembership.userId?.phone || 'Chưa cập nhật'}</span>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                         <div className={`flex items-center p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/30' : 'bg-gray-50'}`}>
+                           <div className={`p-1.5 rounded-md ${isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-600'} mr-3`}>
+                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                             </svg>
+                           </div>
+                           <div className="flex-1">
+                             <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Họ và tên</p>
+                             <p className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{selectedMembership.userId?.name || 'Không có tên'}</p>
+                           </div>
+                         </div>
+                         
+                         <div className={`flex items-center p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/30' : 'bg-gray-50'}`}>
+                           <div className={`p-1.5 rounded-md ${isDarkMode ? 'bg-purple-500/20 text-purple-400' : 'bg-purple-100 text-purple-600'} mr-3`}>
+                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                             </svg>
+                           </div>
+                           <div className="flex-1">
+                             <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>MSSV</p>
+                             <p className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{selectedMembership.userId?.studentId || 'Không có MSSV'}</p>
+                           </div>
+                         </div>
+                         
+                         <div className={`flex items-center p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/30' : 'bg-gray-50'}`}>
+                           <div className={`p-1.5 rounded-md ${isDarkMode ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-600'} mr-3`}>
+                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                             </svg>
+                           </div>
+                           <div className="flex-1">
+                             <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Email</p>
+                             <p className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{selectedMembership.userId?.email || 'Không có email'}</p>
+                           </div>
+                         </div>
+                         
+                         <div className={`flex items-center p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/30' : 'bg-gray-50'}`}>
+                           <div className={`p-1.5 rounded-md ${isDarkMode ? 'bg-orange-500/20 text-orange-400' : 'bg-orange-100 text-orange-600'} mr-3`}>
+                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                             </svg>
+                           </div>
+                           <div className="flex-1">
+                             <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Khoa</p>
+                             <p className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{selectedMembership.userId?.faculty || 'Chưa cập nhật'}</p>
+                           </div>
+                         </div>
+                         
+                         <div className={`flex items-center p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/30' : 'bg-gray-50'}`}>
+                           <div className={`p-1.5 rounded-md ${isDarkMode ? 'bg-indigo-500/20 text-indigo-400' : 'bg-indigo-100 text-indigo-600'} mr-3`}>
+                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                             </svg>
+                           </div>
+                           <div className="flex-1">
+                             <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Lớp</p>
+                             <p className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{selectedMembership.userId?.class || 'Chưa cập nhật'}</p>
+                           </div>
+                         </div>
+                         
+                         <div className={`flex items-center p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/30' : 'bg-gray-50'}`}>
+                           <div className={`p-1.5 rounded-md ${isDarkMode ? 'bg-pink-500/20 text-pink-400' : 'bg-pink-100 text-pink-600'} mr-3`}>
+                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                             </svg>
+                           </div>
+                           <div className="flex-1">
+                             <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Số điện thoại</p>
+                             <p className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{selectedMembership.userId?.phone || 'Chưa cập nhật'}</p>
+                           </div>
+                         </div>
+                         
+                         <div className={`flex items-center p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/30' : 'bg-gray-50'}`}>
+                           <div className={`p-1.5 rounded-md ${isDarkMode ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-600'} mr-3`}>
+                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                             </svg>
+                           </div>
+                           <div className="flex-1">
+                             <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Vai trò</p>
+                             <p className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                               {selectedMembership.userId?.role ? getRoleDisplayName(selectedMembership.userId.role) : 'Chưa cập nhật'}
+                             </p>
+                           </div>
+                         </div>
                        </div>
                      </div>
-                   </div>
 
-                   {/* Application Status */}
-                   <div className={`${isDarkMode ? 'bg-gray-700/50' : 'bg-gray-50'} rounded-xl p-6 border ${isDarkMode ? 'border-gray-600' : 'border-gray-200'}`}>
+                   {/* Application Status Card */}
+                   <div className={`${isDarkMode ? 'bg-gray-800/50' : 'bg-white'} rounded-xl p-5 border ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} shadow-sm`}>
                      <div className="flex items-center space-x-3 mb-4">
                        <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-600'}`}>
-                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                          </svg>
                        </div>
                        <h4 className={`text-lg font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Trạng thái đơn</h4>
                      </div>
-                     <div className="space-y-3">
-                       <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-600">
-                         <span className={`font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Trạng thái:</span>
-                         <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full ${getStatusBadgeColor(selectedMembership.status)}`}>
-                           {selectedMembership.status === 'PENDING' && 'Chờ duyệt'}
-                           {selectedMembership.status === 'ACTIVE' && 'Đã duyệt'}
-                           {selectedMembership.status === 'REJECTED' && 'Đã từ chối'}
-                           {selectedMembership.status === 'REMOVED' && 'Đã xóa'}
-                           {selectedMembership.status === 'INACTIVE' && 'Không hoạt động'}
-                         </span>
-                       </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                         <div className={`flex items-center p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/30' : 'bg-gray-50'}`}>
+                           <div className={`p-1.5 rounded-md ${isDarkMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-600'} mr-3`}>
+                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                             </svg>
+                           </div>
+                           <div className="flex-1">
+                             <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Trạng thái</p>
+                             <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadgeColor(selectedMembership.status)}`}>
+                               {selectedMembership.status === 'PENDING' && 'Chờ duyệt'}
+                               {selectedMembership.status === 'ACTIVE' && 'Đã duyệt'}
+                               {selectedMembership.status === 'REJECTED' && 'Đã từ chối'}
+                               {selectedMembership.status === 'REMOVED' && 'Đã xóa'}
+                               {selectedMembership.status === 'INACTIVE' && 'Không hoạt động'}
+                             </span>
+                           </div>
+                         </div>
                        <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-600">
                          <span className={`font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Ngày đăng ký:</span>
                          <span className={`${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{formatDateTime(selectedMembership.joinedAt)}</span>
@@ -1003,12 +1232,14 @@ export default function MembershipsPage() {
                            <p className={`mt-1 text-sm ${isDarkMode ? 'text-red-300' : 'text-red-600'}`}>{selectedMembership.rejectionReason}</p>
                          </div>
                        )}
-                       {selectedMembership.removalReason && (
+                       {(selectedMembership.removalReasonTrue || selectedMembership.removalReason) && (
                          <div className="py-2">
-                           <span className={`font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Lý do xóa:</span>
-                           <p className={`mt-1 text-sm ${isDarkMode ? 'text-red-300' : 'text-red-600'}`}>{selectedMembership.removalReason}</p>
+                           <span className={`font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Lý do xóa hiện tại:</span>
+                           <p className={`mt-1 text-sm ${isDarkMode ? 'text-red-300' : 'text-red-600'}`}>{selectedMembership.removalReasonTrue || selectedMembership.removalReason}</p>
                          </div>
                        )}
+                       
+
                      </div>
                    </div>
                  </div>
@@ -1067,8 +1298,199 @@ export default function MembershipsPage() {
                    </div>
                  </div>
 
+                 {/* History Table */}
+                 {selectedMembership.removalHistory && selectedMembership.removalHistory.length > 0 && (
+                   <div className={`${isDarkMode ? 'bg-gray-800/50' : 'bg-white'} rounded-2xl p-6 border ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} shadow-lg hover:shadow-xl transition-all duration-300`}>
+                     <div className="flex items-center space-x-4 mb-6">
+                       <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-gradient-to-br from-orange-500 to-red-600 text-white' : 'bg-gradient-to-br from-orange-500 to-red-600 text-white'} shadow-lg`}>
+                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                         </svg>
+                       </div>
+                       <h4 className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Lịch sử xóa/duyệt lại</h4>
+                     </div>
+                     
+                     <div className="overflow-x-auto">
+                       <table className="w-full">
+                         <thead>
+                           <tr className={`border-b ${isDarkMode ? 'border-gray-600' : 'border-gray-200'}`}>
+                             <th className={`text-left py-3 px-4 font-semibold text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                               <div className="flex items-center">
+                                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                                 </svg>
+                                 Lần
+                               </div>
+                             </th>
+                             <th className={`text-left py-3 px-4 font-semibold text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                               <div className="flex items-center">
+                                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                 </svg>
+                                 Ngày xóa
+                               </div>
+                             </th>
+                             <th className={`text-left py-3 px-4 font-semibold text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                               <div className="flex items-center">
+                                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                 </svg>
+                                 Lý do xóa
+                               </div>
+                             </th>
+                             <th className={`text-left py-3 px-4 font-semibold text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                               <div className="flex items-center">
+                                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                 </svg>
+                                 Người xóa
+                               </div>
+                             </th>
+                             <th className={`text-center py-3 px-4 font-semibold text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                               <div className="flex items-center justify-center">
+                                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                 </svg>
+                                 Trạng thái
+                               </div>
+                             </th>
+                             <th className={`text-left py-3 px-4 font-semibold text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                               <div className="flex items-center">
+                                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                 </svg>
+                                 Ngày duyệt lại
+                               </div>
+                             </th>
+                             <th className={`text-left py-3 px-4 font-semibold text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                               <div className="flex items-center">
+                                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                 </svg>
+                                 Lý do duyệt lại
+                               </div>
+                             </th>
+                           </tr>
+                         </thead>
+                         <tbody>
+                           {(() => {
+                             // Loại bỏ các entries trùng lặp dựa trên removedAt (trong vòng 1 giây)
+                             // Ưu tiên giữ lại entry có thông tin duyệt lại
+                             const uniqueHistory = selectedMembership.removalHistory!.reduce((acc, history) => {
+                               const existingIndex = acc.findIndex(h => 
+                                 Math.abs(new Date(h.removedAt).getTime() - new Date(history.removedAt).getTime()) < 1000
+                               );
+                               
+                               if (existingIndex === -1) {
+                                 acc.push(history);
+                               } else {
+                                 const existing = acc[existingIndex];
+                                 const hasRestorationInfo = history.restoredAt && history.restorationReason;
+                                 const existingHasRestorationInfo = existing.restoredAt && existing.restorationReason;
+                                 
+                                 if (hasRestorationInfo && !existingHasRestorationInfo) {
+                                   acc[existingIndex] = history;
+                                 }
+                               }
+                               return acc;
+                             }, [] as typeof selectedMembership.removalHistory);
+
+                             return uniqueHistory.map((history, index) => (
+                               <tr key={index} className={`border-b ${isDarkMode ? 'border-gray-700 hover:bg-gray-700/30' : 'border-gray-200 hover:bg-gray-50'} transition-colors duration-200`}>
+                                 <td className="py-4 px-4">
+                                   <div className="flex items-center">
+                                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
+                                       isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-600'
+                                     }`}>
+                                       {index + 1}
+                                     </div>
+                                   </div>
+                                 </td>
+                                 <td className="py-4 px-4">
+                                   <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                     {new Date(history.removedAt).toLocaleDateString('vi-VN')}
+                                   </div>
+                                   <div className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                     {new Date(history.removedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                                   </div>
+                                 </td>
+                                 <td className="py-4 px-4">
+                                   <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} max-w-xs truncate`} title={history.removalReason}>
+                                     {history.removalReason}
+                                   </div>
+                                 </td>
+                                 <td className="py-4 px-4">
+                                   <div className="flex items-center">
+                                     <div className={`w-6 h-6 rounded-full bg-gray-300 flex items-center justify-center mr-2`}>
+                                       <span className="text-xs font-medium text-gray-600">
+                                         {history.removedBy.name.charAt(0).toUpperCase()}
+                                       </span>
+                                     </div>
+                                     <div>
+                                       <div className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                         {history.removedBy.name}
+                                       </div>
+                                       <div className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                         {history.removedBy.studentId}
+                                       </div>
+                                     </div>
+                                   </div>
+                                 </td>
+                                 <td className="py-4 px-4 text-center">
+                                   <div className="flex items-center justify-center">
+                                     {history.restoredAt ? (
+                                       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                         isDarkMode ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-800'
+                                       }`}>
+                                         <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                         </svg>
+                                         Đã duyệt lại
+                                       </span>
+                                     ) : (
+                                       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                         isDarkMode ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-800'
+                                       }`}>
+                                         <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                         </svg>
+                                         Đã xóa
+                                       </span>
+                                     )}
+                                   </div>
+                                 </td>
+                                 <td className="py-4 px-4">
+                                   {history.restoredAt ? (
+                                     <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                       {new Date(history.restoredAt).toLocaleDateString('vi-VN')}
+                                       <div className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                         {new Date(history.restoredAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                                       </div>
+                                     </div>
+                                   ) : (
+                                     <span className={`text-sm ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>-</span>
+                                   )}
+                                 </td>
+                                 <td className="py-4 px-4">
+                                   {history.restorationReason ? (
+                                     <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} max-w-xs truncate`} title={history.restorationReason}>
+                                       {history.restorationReason}
+                                     </div>
+                                   ) : (
+                                     <span className={`text-sm ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>-</span>
+                                   )}
+                                 </td>
+                               </tr>
+                             ));
+                           })()}
+                         </tbody>
+                       </table>
+                     </div>
+                   </div>
+                 )}
+
                  {/* Footer */}
-                 <div className="flex justify-end mt-6 pt-6 border-t border-gray-200 dark:border-gray-600">
+                 <div className="flex justify-end mt-6 pt-6 border-t border-gray-200 dark:border-gray-600 flex-shrink-0">
                    <button
                      onClick={() => {
                        setShowDetailsModal(false);

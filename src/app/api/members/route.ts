@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   try {
     // Verify authentication
     const user = getUserFromRequest(request);
-    if (!user || user.role !== 'ADMIN') {
+    if (!user || (user.role !== 'CLUB_LEADER' && user.role !== 'SUPER_ADMIN')) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
   try {
     // Verify authentication
     const user = getUserFromRequest(request);
-    if (!user || user.role !== 'ADMIN') {
+    if (!user || (user.role !== 'CLUB_LEADER' && user.role !== 'SUPER_ADMIN')) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -139,8 +139,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate role for club members (only STUDENT, OFFICER, ADMIN allowed)
-    if (!['STUDENT', 'OFFICER', 'ADMIN'].includes(role)) {
+    // Validate role for club members (only club-related roles allowed)
+    if (!['CLUB_STUDENT', 'CLUB_MEMBER', 'CLUB_DEPUTY', 'CLUB_LEADER', 'SUPER_ADMIN'].includes(role)) {
       return NextResponse.json(
         { error: 'Invalid role for members API', details: 'Vai trò không hợp lệ cho API này' },
         { status: 400 }

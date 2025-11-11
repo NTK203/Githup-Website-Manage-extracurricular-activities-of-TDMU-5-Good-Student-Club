@@ -12,8 +12,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if user is admin
-    if (currentUserPayload.role !== 'ADMIN') {
+    // Check if user is admin or club leader
+    if (currentUserPayload.role !== 'ADMIN' && currentUserPayload.role !== 'SUPER_ADMIN' && currentUserPayload.role !== 'CLUB_LEADER') {
       return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
     }
 
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
 
     // Build filter conditions
     const filter: any = {
-      isDeleted: { $ne: true }
+      // No need to filter by isDeleted since we're doing hard delete now
     };
 
     // Search filter
@@ -87,11 +87,11 @@ export async function GET(request: NextRequest) {
         }
       }] : []),
       
-      // Apply club members filter (includes Admin, Officer, and Student members)
+      // Apply club members filter (includes Admin, Club Leaders, and Student members)
       ...(clubMembers === 'true' ? [{
         $match: {
           $or: [
-            { role: { $in: ['ADMIN', 'OFFICER'] } },
+            { role: { $in: ['SUPER_ADMIN', 'ADMIN', 'CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER'] } },
             { isClubMember: true }
           ]
         }
@@ -129,8 +129,18 @@ export async function GET(request: NextRequest) {
       'Số điện thoại': user.phone || '',
       'Lớp': user.class || '',
       'Khoa/Viện': user.faculty || '',
-      'Vai trò': user.role === 'ADMIN' ? 'Admin' : user.role === 'OFFICER' ? 'Ban Chấp Hành' : 'Sinh Viên',
-      'Thành viên CLB': user.role === 'ADMIN' ? 'Admin' : user.role === 'OFFICER' ? 'Ban Chấp Hành' : (user.isClubMember ? 'Có' : 'Không'),
+             'Vai trò': user.role === 'SUPER_ADMIN' ? 'Quản Trị Hệ Thống' : 
+                  user.role === 'ADMIN' ? 'Admin' : 
+                  user.role === 'CLUB_LEADER' ? 'Chủ Nhiệm CLB' : 
+                  user.role === 'CLUB_DEPUTY' ? 'Phó Chủ Nhiệm' : 
+                  user.role === 'CLUB_MEMBER' ? 'Ủy Viên BCH' : 
+                  user.role === 'CLUB_STUDENT' ? 'Thành Viên CLB' : 'Sinh Viên',
+       'Thành viên CLB': user.role === 'SUPER_ADMIN' ? 'Quản Trị Hệ Thống' : 
+                        user.role === 'ADMIN' ? 'Admin' : 
+                        user.role === 'CLUB_LEADER' ? 'Chủ Nhiệm CLB' : 
+                        user.role === 'CLUB_DEPUTY' ? 'Phó Chủ Nhiệm' : 
+                        user.role === 'CLUB_MEMBER' ? 'Ủy Viên BCH' : 
+                        user.role === 'CLUB_STUDENT' ? 'Thành Viên CLB' : (user.isClubMember ? 'Có' : 'Không'),
       'Ngày tạo': new Date(user.createdAt).toLocaleDateString('vi-VN'),
       'Ngày cập nhật': new Date(user.updatedAt).toLocaleDateString('vi-VN')
     }));

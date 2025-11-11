@@ -12,8 +12,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if user is admin
-    if (currentUserPayload.role !== 'ADMIN') {
+    console.log('Current user role for /api/users/stats:', currentUserPayload.role);
+
+    const allowedRoles = ['ADMIN', 'SUPER_ADMIN', 'CLUB_LEADER', 'CLUB_STUDENT'];
+    if (!allowedRoles.includes(currentUserPayload.role)) {
       return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
     }
 
@@ -21,7 +23,6 @@ export async function GET(request: NextRequest) {
 
     // Base pipeline to calculate isClubMember
     const basePipeline = [
-      { $match: { isDeleted: { $ne: true } } },
       {
         $lookup: {
           from: 'memberships',
@@ -51,13 +52,13 @@ export async function GET(request: NextRequest) {
     ]);
     const totalUsers = totalUsersResult.length > 0 ? totalUsersResult[0].total : 0;
 
-    // Get total club members (Admin + Officer + Students with isClubMember = true)
+    // Get total club members (Admin + Club Leaders + Students with isClubMember = true)
     const totalClubMembersResult = await User.aggregate([
       ...basePipeline,
       {
         $match: {
           $or: [
-            { role: { $in: ['ADMIN', 'OFFICER'] } },
+            { role: { $in: ['SUPER_ADMIN', 'ADMIN', 'CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER'] } },
             { isClubMember: true }
           ]
         }
@@ -79,12 +80,12 @@ export async function GET(request: NextRequest) {
     ]);
     const totalNonClubMembers = totalNonClubMembersResult.length > 0 ? totalNonClubMembersResult[0].total : 0;
 
-    // Get total management staff (Admin + Officer)
+    // Get total management staff (Admin + Club Leaders)
     const totalManagementStaffResult = await User.aggregate([
       ...basePipeline,
       {
         $match: {
-          role: { $in: ['ADMIN', 'OFFICER'] }
+          role: { $in: ['SUPER_ADMIN', 'ADMIN', 'CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER'] }
         }
       },
       { $count: 'total' }

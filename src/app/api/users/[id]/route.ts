@@ -12,7 +12,10 @@ export async function GET(
   try {
     // Verify authentication
     const currentUser = getUserFromRequest(request);
-    if (!currentUser || currentUser.role !== 'ADMIN') {
+    if (!currentUser || (
+      currentUser.role !== 'SUPER_ADMIN' &&
+      currentUser.role !== 'CLUB_LEADER'
+    )) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -98,7 +101,10 @@ export async function PUT(
 
     // Verify authentication
     const currentUserPayload = getUserFromRequest(request);
-    if (!currentUserPayload || currentUserPayload.role !== 'ADMIN') {
+    if (!currentUserPayload || (
+      currentUserPayload.role !== 'SUPER_ADMIN' &&
+      currentUserPayload.role !== 'CLUB_LEADER'
+    )) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -179,7 +185,7 @@ export async function PUT(
     };
 
     // Handle faculty and class fields based on role
-    if (updateData.role === 'ADMIN') {
+    if (updateData.role === 'SUPER_ADMIN') {
       updateFields.faculty = '';
       updateFields.class = '';
     } else {

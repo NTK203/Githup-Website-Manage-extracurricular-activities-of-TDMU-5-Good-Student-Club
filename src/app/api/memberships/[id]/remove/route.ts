@@ -26,64 +26,98 @@ export async function POST(
       );
     }
 
-    // Check if user has ADMIN or OFFICER role
-    if (decoded.role !== 'ADMIN' && decoded.role !== 'OFFICER') {
+    // Check if user has admin permissions
+    const user = await User.findById(decoded.userId);
+    if (!user || (
+      user.role !== 'SUPER_ADMIN' && 
+      user.role !== 'CLUB_LEADER'
+    )) {
       return NextResponse.json(
-        { success: false, error: 'Không có quyền truy cập' },
+        { success: false, error: 'Không có quyền thực hiện hành động này' },
         { status: 403 }
       );
     }
 
-    // Parse request body to get removal reason
-    const body = await request.json();
-    const { removalReason } = body;
+    // Connect to database
+    await dbConnect();
 
-    // Validate removal reason
-    if (!removalReason || !removalReason.trim()) {
+    // Get request body
+    const { removalReason } = await request.json();
+
+    if (!removalReason || removalReason.trim().length === 0) {
       return NextResponse.json(
         { success: false, error: 'Lý do xóa là bắt buộc' },
         { status: 400 }
       );
     }
 
-    await dbConnect();
-
-    // Get user information for the admin/officer who is performing the removal
-    const user = await User.findById(decoded.userId);
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'Không tìm thấy thông tin người dùng' },
-        { status: 404 }
-      );
-    }
-
+    // Find membership
     const membership = await Membership.findById(params.id);
     if (!membership) {
       return NextResponse.json(
-        { success: false, error: 'Không tìm thấy thành viên' },
+        { success: false, error: 'Không tìm thấy membership' },
         { status: 404 }
       );
     }
 
-    // Use the remove method from the model to properly save removal reason
-    await membership.remove(
-      removalReason.trim(),
-      {
-        _id: decoded.userId,
+    // Check if membership is already removed
+    if (membership.status === 'REMOVED') {
+      return NextResponse.json(
+        { success: false, error: 'Membership đã bị xóa trước đó' },
+        { status: 400 }
+      );
+    }
+
+    // Initialize removalHistory if it doesn't exist
+    if (!membership.removalHistory) {
+      membership.removalHistory = [];
+    }
+
+    // Thêm lần xóa mới vào history
+    const newRemovalEntry = {
+      removedAt: new Date(),
+      removedBy: {
+        _id: user._id,
         name: user.name,
         studentId: user.studentId
-      }
-    );
+      },
+      removalReason: removalReason.trim()
+    };
+
+    membership.removalHistory.push(newRemovalEntry);
+
+    // Cập nhật trạng thái hiện tại
+    membership.status = 'REMOVED';
+    membership.removedAt = new Date();
+    membership.removedBy = {
+      _id: user._id,
+      name: user.name,
+      studentId: user.studentId
+    };
+    
+    // Lưu lý do xóa hiện tại vào trường mới thay vì ghi đè removalReason
+    membership.removalReasonTrue = removalReason.trim();
+    
+    // Xóa thông tin duyệt lại vì đây là lần xóa mới
+    membership.restoredAt = undefined;
+    membership.restoredBy = undefined;
+    membership.restorationReason = undefined;
+
+    await membership.save();
 
     return NextResponse.json({
       success: true,
-      message: 'Đã xóa thành viên khỏi CLB thành công'
+      message: 'Đã xóa thành viên thành công',
+      data: {
+        membershipId: membership._id,
+        removalCount: membership.removalHistory.length
+      }
     });
 
   } catch (error) {
-    console.error('Error removing membership:', error);
+    console.error('Error removing member:', error);
     return NextResponse.json(
-      { success: false, error: 'Lỗi server' },
+      { success: false, error: 'Lỗi server khi xóa thành viên' },
       { status: 500 }
     );
   }

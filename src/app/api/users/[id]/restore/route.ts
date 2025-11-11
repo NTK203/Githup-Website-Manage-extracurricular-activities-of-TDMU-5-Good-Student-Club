@@ -12,7 +12,7 @@ export async function POST(
   try {
     // Verify authentication
     const currentUser = getUserFromRequest(request);
-    if (!currentUser || currentUser.role !== 'ADMIN') {
+    if (!currentUser || (currentUser.role !== 'ADMIN' && currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'CLUB_LEADER')) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -23,18 +23,11 @@ export async function POST(
 
     const userId = params.id;
 
-    // Check if user exists and is deleted
+    // Check if user exists (since we're doing hard delete, user should not exist)
     const user = await User.findById(userId);
-    if (!user) {
+    if (user) {
       return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
-    }
-
-    if (!user.isDeleted) {
-      return NextResponse.json(
-        { error: 'User is not deleted' },
+        { error: 'User still exists in database. Cannot restore a user that was not deleted.' },
         { status: 400 }
       );
     }
@@ -48,51 +41,13 @@ export async function POST(
       );
     }
 
-    // Restore the user
-    const restoredUser = await User.findByIdAndUpdate(
-      userId,
-      {
-        isDeleted: false,
-        deletedAt: null,
-        deletedBy: null,
-        deletionReason: null
-      },
-      { new: true }
-    ).select('-passwordHash');
-
-    if (!restoredUser) {
-      return NextResponse.json(
-        { error: 'Failed to restore user' },
-        { status: 500 }
-      );
-    }
-
-    // Restore membership records (change status from REMOVED to ACTIVE if they were active before)
-    const membershipUpdateResult = await Membership.updateMany(
-      { 
-        userId: user._id,
-        status: 'REMOVED',
-        removalReason: { $exists: true }
-      },
-      { 
-        status: 'ACTIVE',
-        removedAt: null,
-        removedBy: null,
-        removalReason: null
-      }
-    );
-
-    console.log(`Restored user: ${userId} (${restoredUser.name}) by admin ${currentAdminUser.name}`);
-    console.log(`Restored ${membershipUpdateResult.modifiedCount} membership records`);
-
+    // Since we're doing hard delete, restoration is not possible
+    // This API endpoint is now deprecated
     return NextResponse.json({
-      success: true,
-      message: 'User restored successfully',
-      data: {
-        user: restoredUser,
-        restoredMemberships: membershipUpdateResult.modifiedCount
-      }
-    });
+      success: false,
+      message: 'User restoration is not available with hard delete system',
+      error: 'Hard delete does not support restoration'
+    }, { status: 400 });
 
   } catch (error) {
     console.error('Error restoring user:', error);

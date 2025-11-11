@@ -1,11 +1,11 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { useAuth } from '@/hooks/useAuth';
-import StudentNav from '@/components/student/StudentNav';
-import Footer from '@/components/common/Footer';
-import ProtectedRoute from '@/components/common/ProtectedRoute';
-import Image from 'next/image';
+import { useState, useEffect } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import StudentNav from "@/components/student/StudentNav";
+import Footer from "@/components/common/Footer";
+import ProtectedRoute from "@/components/common/ProtectedRoute";
+import Image from "next/image";
 
 interface ProfileForm {
   name: string;
@@ -21,55 +21,88 @@ export default function StudentProfile() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
   const [formData, setFormData] = useState<ProfileForm>({
-    name: '',
-    email: '',
-    phone: '',
-    avatarUrl: '',
-    faculty: '',
-    class: ''
+    name: "",
+    email: "",
+    phone: "",
+    avatarUrl: "",
+    faculty: "",
+    class: "",
   });
 
-  const [membershipData, setMembershipData] = useState<{
-    status: string;
-    createdAt: string;
-  } | null>(null);
+  const [membershipData, setMembershipData] = useState<
+    | {
+        status: string;
+        createdAt: string;
+        joinedAt?: string;
+        approvedAt?: string;
+        approvedBy?: {
+          _id: string;
+          name: string;
+          studentId: string;
+        };
+        removedAt?: string;
+        removedBy?: {
+          _id: string;
+          name: string;
+          studentId: string;
+        };
+        restoredAt?: string;
+        restoredBy?: {
+          _id: string;
+          name: string;
+          studentId: string;
+        };
+        restorationReason?: string;
+        removalReason?: string;
+        removalReasonTrue?: string;
+        removalHistory?: Array<{
+          removedAt: string;
+          removedBy: {
+            _id: string;
+            name: string;
+            studentId: string;
+          };
+          removalReason: string;
+          restoredAt?: string;
+          restoredBy?: string;
+          restorationReason?: string;
+        }>;
+      }
+    | null
+  >(null);
 
   // Load theme from localStorage on component mount
   useEffect(() => {
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'dark') {
-      setIsDarkMode(true);
-    }
+    const savedTheme = localStorage.getItem("theme");
+    if (savedTheme === "dark") setIsDarkMode(true);
 
-    // Listen for theme changes from StudentNav
     const handleThemeChange = () => {
-      const currentTheme = localStorage.getItem('theme');
-      setIsDarkMode(currentTheme === 'dark');
+      const currentTheme = localStorage.getItem("theme");
+      setIsDarkMode(currentTheme === "dark");
     };
 
-    window.addEventListener('themeChange', handleThemeChange);
-    return () => window.removeEventListener('themeChange', handleThemeChange);
+    window.addEventListener("themeChange", handleThemeChange);
+    return () => window.removeEventListener("themeChange", handleThemeChange);
   }, []);
 
   // Load user data into form
   useEffect(() => {
     if (user) {
-      console.log('Loading user data into form:', user);
       setFormData({
-        name: user.name || '',
-        email: user.email || '',
-        phone: user.phone || '',
-        avatarUrl: user.avatarUrl || '',
-        faculty: user.faculty || '',
-        class: user.class || ''
+        name: user.name || "",
+        email: user.email || "",
+        phone: user.phone || "",
+        avatarUrl: user.avatarUrl || "",
+        faculty: user.faculty || "",
+        class: user.class || "",
       });
     }
   }, [user]);
 
-  // Refresh user data on component mount
+  // Refresh user + membership on mount
   useEffect(() => {
     refreshUserData();
     loadMembershipData();
@@ -77,10 +110,7 @@ export default function StudentProfile() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -88,36 +118,28 @@ export default function StudentProfile() {
     setLoading(true);
     setMessage(null);
 
-    console.log('Submitting form data:', formData);
-
     try {
-      const response = await fetch('/api/users/profile', {
-        method: 'PUT',
+      const response = await fetch("/api/users/profile", {
+        method: "PUT",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
         },
         body: JSON.stringify(formData),
       });
 
       const data = await response.json();
-      console.log('API response:', data);
-
       if (data.success) {
-        // Update user data in auth context
         updateUser(formData);
-        
-        // Update localStorage with new user data
         const updatedUser = { ...user, ...formData };
-        localStorage.setItem('user', JSON.stringify(updatedUser));
-        
-        setMessage({ type: 'success', text: 'Cập nhật thông tin thành công!' });
+        localStorage.setItem("user", JSON.stringify(updatedUser));
+        setMessage({ type: "success", text: "Cập nhật thông tin thành công!" });
         setIsEditing(false);
       } else {
-        setMessage({ type: 'error', text: data.error || 'Cập nhật thất bại' });
+        setMessage({ type: "error", text: data.error || "Cập nhật thất bại" });
       }
     } catch (error) {
-      setMessage({ type: 'error', text: 'Lỗi kết nối. Vui lòng thử lại.' });
+      setMessage({ type: "error", text: "Lỗi kết nối. Vui lòng thử lại." });
     } finally {
       setLoading(false);
     }
@@ -126,65 +148,46 @@ export default function StudentProfile() {
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     setLoading(true);
     setMessage(null);
 
     try {
-      const formData = new FormData();
-      formData.append('avatar', file);
+      const fd = new FormData();
+      fd.append("avatar", file);
 
-      const response = await fetch('/api/upload/avatar', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: formData,
+      const response = await fetch("/api/upload/avatar", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        body: fd,
       });
 
       const data = await response.json();
-
       if (data.success) {
-        // Update form data with new avatar URL
-        setFormData(prev => ({ ...prev, avatarUrl: data.url }));
-        
-        // Update user data in auth context
+        setFormData((prev) => ({ ...prev, avatarUrl: data.url }));
         updateUser({ ...formData, avatarUrl: data.url });
-        
-        // Emit event to notify StudentNav about avatar change
-        window.dispatchEvent(new CustomEvent('avatarUploaded', { 
-          detail: { avatarUrl: data.url } 
-        }));
-        
-        setMessage({ type: 'success', text: 'Tải ảnh đại diện thành công!' });
+        window.dispatchEvent(new CustomEvent("avatarUploaded", { detail: { avatarUrl: data.url } }));
+        setMessage({ type: "success", text: "Tải ảnh đại diện thành công!" });
 
-        // Check if avatar URL was saved to database
         setTimeout(async () => {
           try {
-            const checkResponse = await fetch('/api/users/check', {
-              headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-              }
+            const checkResponse = await fetch("/api/users/check", {
+              headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
             });
-            
             if (checkResponse.ok) {
               const checkData = await checkResponse.json();
-              console.log('User data from database:', checkData.user);
-              if (checkData.user.avatarUrl === data.url) {
-                console.log('✅ Avatar URL successfully saved to database!');
-              } else {
-                console.log('❌ Avatar URL not saved to database');
+              if (checkData.user?.avatarUrl !== data.url) {
+                console.warn("Avatar URL not persisted yet");
               }
             }
-          } catch (error) {
-            console.error('Error checking database:', error);
+          } catch (err) {
+            console.error("Error checking database:", err);
           }
         }, 1000);
       } else {
-        setMessage({ type: 'error', text: data.error || 'Tải ảnh thất bại' });
+        setMessage({ type: "error", text: data.error || "Tải ảnh thất bại" });
       }
     } catch (error) {
-      setMessage({ type: 'error', text: 'Lỗi tải ảnh. Vui lòng thử lại.' });
+      setMessage({ type: "error", text: "Lỗi tải ảnh. Vui lòng thử lại." });
     } finally {
       setLoading(false);
     }
@@ -192,462 +195,823 @@ export default function StudentProfile() {
 
   // Danh sách khoa/viện
   const facultyOptions = [
-    'Trường Kinh Tế Tài Chính',
-    'Trường Luật Và Quản Lí Phát Triển',
-    'Viện Kỹ Thuật Công Nghệ',
-    'Viện Đào Tạo Ngoại Ngữ',
-    'Viện Đào Tạo CNTT Chuyển Đổi Số',
-    'Viện Đào Tạo Kiến Trúc Xây Dựng Và Giao Thông',
-    'Khoa Sư Phạm',
-    'Khoa Kiến Thức Chung',
-    'Khoa Công Nghiệp Văn Hóa Thể Thao Và Du Lịch',
-    'Ban Quản Lý Đào Tạo Sau Đại Học',
-    'Khác'
+    "Trường Kinh Tế Tài Chính",
+    "Trường Luật Và Quản Lí Phát Triển",
+    "Viện Kỹ Thuật Công Nghệ",
+    "Viện Đào Tạo Ngoại Ngữ",
+    "Viện Đào Tạo CNTT Chuyển Đổi Số",
+    "Viện Đào Tạo Kiến Trúc Xây Dựng Và Giao Thông",
+    "Khoa Sư Phạm",
+    "Khoa Kiến Thức Chung",
+    "Khoa Công Nghiệp Văn Hóa Thể Thao Và Du Lịch",
+    "Ban Quản Lý Đào Tạo Sau Đại Học",
+    "Khác",
   ];
 
-  // Refresh user data from database
   const refreshUserData = async () => {
     try {
-      const response = await fetch('/api/users/check', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+      const response = await fetch("/api/users/check", {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
-      
       if (response.ok) {
         const data = await response.json();
-        console.log('Fresh user data from database:', data.user);
-        
-        // Update localStorage and auth context
-        localStorage.setItem('user', JSON.stringify(data.user));
+        localStorage.setItem("user", JSON.stringify(data.user));
         updateUser(data.user);
-        
-        // Reload form data
         setFormData({
-          name: data.user.name || '',
-          email: data.user.email || '',
-          phone: data.user.phone || '',
-          avatarUrl: data.user.avatarUrl || '',
-          faculty: data.user.faculty || '',
-          class: data.user.class || ''
+          name: data.user.name || "",
+          email: data.user.email || "",
+          phone: data.user.phone || "",
+          avatarUrl: data.user.avatarUrl || "",
+          faculty: data.user.faculty || "",
+          class: data.user.class || "",
         });
       }
     } catch (error) {
-      console.error('Error refreshing user data:', error);
+      console.error("Error refreshing user data:", error);
     }
   };
 
-  // Load membership data from database
   const loadMembershipData = async () => {
     try {
-      const response = await fetch('/api/memberships/my-status', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+      const response = await fetch("/api/memberships/my-status", {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
-      
       if (response.ok) {
         const data = await response.json();
-        console.log('Membership data:', data);
-        setMembershipData(data.membership);
+        if (data.data && data.data.membership) setMembershipData(data.data.membership);
       }
     } catch (error) {
-      console.error('Error loading membership data:', error);
+      console.error("Error loading membership data:", error);
     }
   };
 
-  const getInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map(word => word.charAt(0))
-      .join('')
+  const getInitials = (name: string) =>
+    name
+      .split(" ")
+      .map((w) => w.charAt(0))
+      .join("")
       .toUpperCase()
       .slice(0, 2);
+
+  const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime()) || date.getTime() === 0) return "Không có thông tin";
+      return date.toLocaleDateString("vi-VN", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch (error) {
+      console.error("Error formatting date:", dateString, error);
+      return "Không có thông tin";
+    }
   };
 
-  // Get status display info
-  const getStatusDisplay = (status: string | null) => {
-    if (!status) {
-      return { color: 'bg-gray-100 text-gray-800', text: 'Chưa đăng ký' };
+  const formatDateShort = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime()) || date.getTime() === 0) return "Không có thông tin";
+      
+      const day = date.getDate().toString().padStart(2, '0');
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const year = date.getFullYear();
+      const hours = date.getHours().toString().padStart(2, '0');
+      const minutes = date.getMinutes().toString().padStart(2, '0');
+      
+      return `${day}/${month}/${year}\n${hours}:${minutes}`;
+    } catch (error) {
+      console.error("Error formatting date:", dateString, error);
+      return "Không có thông tin";
+    }
+  };
+
+  const getMembershipDays = () => {
+    if (!membershipData?.createdAt) return { days: 0, status: "Chưa tham gia" };
+    
+    let startDate: Date;
+    let endDate: Date;
+    let status: string;
+    
+    // Xác định ngày bắt đầu
+    if (membershipData.approvedAt) {
+      // Nếu đã được duyệt, tính từ ngày duyệt
+      startDate = new Date(membershipData.approvedAt);
+      status = "Ngày tham gia";
+    } else if (membershipData.status === "PENDING") {
+      // Nếu đang chờ duyệt, tính từ ngày đăng ký
+      startDate = new Date(membershipData.createdAt);
+      status = "Ngày chờ duyệt";
+    } else {
+      // Trường hợp khác, tính từ ngày đăng ký
+      startDate = new Date(membershipData.createdAt);
+      status = "Ngày tham gia";
     }
     
-    const statusMap = {
-      ACTIVE: { color: 'bg-green-100 text-green-800', text: 'Hoạt động' },
-      INACTIVE: { color: 'bg-red-100 text-red-800', text: 'Không hoạt động' },
-      PENDING: { color: 'bg-yellow-100 text-yellow-800', text: 'Chờ duyệt' },
-      REJECTED: { color: 'bg-orange-100 text-orange-800', text: 'Đã từ chối' },
-      REMOVED: { color: 'bg-red-100 text-red-800', text: 'Đã xóa' }
-    };
-    return statusMap[status as keyof typeof statusMap] || { color: 'bg-gray-100 text-gray-800', text: 'Không xác định' };
+    // Xác định ngày kết thúc
+    if (membershipData.status === "REMOVED") {
+      // Nếu đã bị xóa, tìm thời điểm bị xóa mới nhất
+      let latestRemovalDate: Date | null = null;
+      
+      // Kiểm tra removedAt hiện tại
+      if (membershipData.removedAt) {
+        latestRemovalDate = new Date(membershipData.removedAt);
+      }
+      
+      // Kiểm tra trong removalHistory để tìm thời điểm xóa mới nhất
+      if (membershipData.removalHistory && membershipData.removalHistory.length > 0) {
+        const removalDates = membershipData.removalHistory
+          .map(history => new Date(history.removedAt))
+          .filter(date => !isNaN(date.getTime()));
+        
+        if (removalDates.length > 0) {
+          const maxRemovalDate = new Date(Math.max(...removalDates.map(d => d.getTime())));
+          if (!latestRemovalDate || maxRemovalDate > latestRemovalDate) {
+            latestRemovalDate = maxRemovalDate;
+          }
+        }
+      }
+      
+      if (latestRemovalDate) {
+        endDate = latestRemovalDate;
+        status = "Ngày đã tham gia";
+      } else {
+        endDate = new Date(); // Fallback về hiện tại
+        status = "Ngày đã tham gia";
+      }
+    } else {
+      // Nếu chưa bị xóa, tính đến hiện tại
+      endDate = new Date();
+    }
+    
+    const days = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)));
+    
+    return { days, status, startDate, endDate };
+  };
+
+  const getTimelineEvents = () => {
+    if (!membershipData) return [] as Array<{
+      type: string;
+      date: string;
+      title: string;
+      description: string;
+      badge: string;
+      badgeColor: string;
+      additionalInfo?: string;
+    }>;
+
+    const timelineEvents: Array<{
+      type: string;
+      date: string;
+      title: string;
+      description: string;
+      badge: string;
+      badgeColor: string;
+      additionalInfo?: string;
+    }> = [];
+
+    const isPending = membershipData.status === "PENDING";
+    timelineEvents.push({
+      type: "registered",
+      date: membershipData.createdAt,
+      title: isPending ? "Thời gian gửi đơn đăng ký chờ xét duyệt" : "Ngày đăng ký CLB",
+      description: formatDate(membershipData.createdAt),
+      badge: isPending ? "Chờ duyệt" : "Đăng ký",
+      badgeColor: isPending ? "yellow" : "gray",
+      additionalInfo: isPending ? "Đơn đăng ký đang chờ ban quản lý CLB xét duyệt" : "Bắt đầu quá trình tham gia CLB Sinh viên 5 Tốt TDMU",
+    });
+
+    if (membershipData.approvedAt) {
+      timelineEvents.push({
+        type: "approved",
+        date: membershipData.approvedAt,
+        title: "Ngày được duyệt đăng ký đầu tiên",
+        description: formatDate(membershipData.approvedAt),
+        badge: "Được duyệt lần đầu",
+        badgeColor: "blue",
+        additionalInfo: membershipData.approvedBy ? `Duyệt bởi: ${membershipData.approvedBy.name} (${membershipData.approvedBy.studentId})` : "Được ban quản lý CLB phê duyệt",
+      });
+    }
+
+    const hasRemovalHistory = membershipData.removalHistory && membershipData.removalHistory.length > 0;
+    if (hasRemovalHistory) {
+      // Loại bỏ các entries trùng lặp dựa trên removedAt (trong vòng 1 giây)
+      // Ưu tiên giữ lại entry có thông tin duyệt lại
+      const uniqueHistory = membershipData.removalHistory!.reduce<Array<{
+        removedAt: string;
+        removedBy: {
+          _id: string;
+          name: string;
+          studentId: string;
+        };
+        removalReason: string;
+        restoredAt?: string;
+        restoredBy?: string;
+        restorationReason?: string;
+      }>>((acc, history) => {
+        const existingIndex = acc.findIndex(h => 
+          Math.abs(new Date(h.removedAt).getTime() - new Date(history.removedAt).getTime()) < 1000
+        );
+        
+        if (existingIndex === -1) {
+          // Không tìm thấy entry trùng lặp, thêm vào
+          acc.push(history);
+        } else {
+          // Tìm thấy entry trùng lặp, kiểm tra xem có thông tin duyệt lại không
+          const existing = acc[existingIndex];
+          const hasRestorationInfo = history.restoredAt && history.restorationReason;
+          const existingHasRestorationInfo = existing.restoredAt && existing.restorationReason;
+          
+          // Nếu entry mới có thông tin duyệt lại mà entry cũ không có, thay thế
+          if (hasRestorationInfo && !existingHasRestorationInfo) {
+            acc[existingIndex] = history;
+          }
+          // Nếu cả hai đều có hoặc đều không có thông tin duyệt lại, giữ lại entry đầu tiên
+        }
+        return acc;
+      }, []);
+
+      uniqueHistory.forEach((history, index) => {
+        const removalNumber = index + 1;
+        timelineEvents.push({
+          type: "removed",
+          date: history.removedAt,
+          title: `Thời gian xóa lần thứ ${removalNumber}`,
+          description: formatDate(history.removedAt),
+          badge: `Bị xóa lần ${removalNumber}`,
+          badgeColor: "red",
+          additionalInfo: `Lý do: ${history.removalReason} | Xóa bởi: ${history.removedBy.name}`,
+        });
+        if (history.restoredAt && history.restorationReason) {
+          timelineEvents.push({
+            type: "restored",
+            date: history.restoredAt,
+            title: `Thời gian duyệt lại sau lần xóa thứ ${removalNumber}`,
+            description: formatDate(history.restoredAt),
+            badge: `Được duyệt lại lần ${removalNumber}`,
+            badgeColor: "purple",
+            additionalInfo: `Lý do: ${history.restorationReason} | Duyệt lại bởi: Admin Hệ thống`,
+          });
+        }
+      });
+    } else {
+      const hasRemovalInfo = membershipData.removedAt && membershipData.removalReason;
+      const hasRestorationInfo = membershipData.restoredAt && membershipData.restorationReason;
+
+      if (hasRemovalInfo && membershipData.removedAt && membershipData.removalReason) {
+        const removedDate = new Date(membershipData.removedAt);
+        const isValidRemovedDate = !isNaN(removedDate.getTime()) && removedDate.getTime() > 0;
+        if (isValidRemovedDate) {
+          timelineEvents.push({
+            type: "removed",
+            date: membershipData.removedAt,
+            title: "Thời gian xóa lần đầu",
+            description: formatDate(membershipData.removedAt),
+            badge: "Bị xóa lần đầu",
+            badgeColor: "red",
+            additionalInfo: `Lý do: ${membershipData.removalReasonTrue || membershipData.removalReason}${
+              membershipData.removedBy ? ` | Xóa bởi: ${membershipData.removedBy.name}` : ""
+            }`,
+          });
+        }
+      }
+
+      if (hasRestorationInfo && membershipData.restoredAt && membershipData.restorationReason) {
+        const restorationDate = new Date(membershipData.restoredAt);
+        const isValidRestorationDate = !isNaN(restorationDate.getTime()) && restorationDate.getTime() > 0;
+        if (isValidRestorationDate) {
+          timelineEvents.push({
+            type: "restored",
+            date: membershipData.restoredAt,
+            title: "Thời gian duyệt lại sau lần xóa đầu tiên",
+            description: formatDate(membershipData.restoredAt),
+            badge: "Được duyệt lại lần đầu",
+            badgeColor: "purple",
+            additionalInfo: `Lý do: ${membershipData.restorationReason}${
+              membershipData.restoredBy ? ` | Duyệt lại bởi: ${membershipData.restoredBy.name}` : ""
+            }`,
+          });
+        }
+      }
+    }
+
+    timelineEvents.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    return timelineEvents;
   };
 
   return (
     <ProtectedRoute requiredRole="STUDENT">
-      <div className={`min-h-screen flex flex-col transition-colors duration-200 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
-        <StudentNav />
-        
-        <main className="flex-1 max-w-4xl mx-auto px-3 sm:px-4 lg:px-8 py-4 sm:py-8">
-          {/* Header */}
-          <div className="mb-6 sm:mb-8">
-            <div className="flex justify-between items-start">
+      <div className={`min-h-screen flex flex-col ${isDarkMode ? "bg-[#0b1220]" : "bg-slate-50"}`}>
+        <StudentNav key="student-nav" />
+
+        {/* Gradient Page Header */}
+        <div className="relative isolate">
+          <div
+            className={`pointer-events-none absolute inset-0 -z-10 opacity-60 blur-3xl ${
+              isDarkMode
+                ? "bg-gradient-to-tr from-green-500/20 via-blue-500/20 to-fuchsia-500/20"
+                : "bg-gradient-to-tr from-green-300/30 via-blue-300/30 to-fuchsia-300/30"
+            }`}
+          />
+          <header className="max-w-6xl mx-auto px-4 lg:px-8 pt-6 pb-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between" >
               <div>
-                <h1 className={`text-2xl sm:text-3xl font-bold mb-2 transition-colors duration-200 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                  Hồ sơ cá nhân
+                <h1 className={`text-2xl sm:text-3xl font-bold tracking-tight ${isDarkMode ? "text-white" : "text-black"}`}>
+                  👤 Hồ sơ cá nhân
                 </h1>
-                <p className={`text-sm sm:text-base transition-colors duration-200 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                <p className={`${isDarkMode ? "text-slate-300" : "text-black"}`}>
                   Quản lý thông tin cá nhân và cài đặt tài khoản
                 </p>
               </div>
-              <button
-                onClick={refreshUserData}
-                className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                  isDarkMode 
-                    ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' 
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-                title="Làm mới dữ liệu"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={refreshUserData}
+                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-all ${
+                    isDarkMode
+                      ? "bg-slate-800 text-slate-100 hover:bg-slate-700 border border-slate-700"
+                      : "bg-white text-slate-700 hover:bg-slate-50 border border-slate-200"
+                  }`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Làm mới dữ liệu
+                </button>
+                <button
+                  onClick={() => setIsEditing((v) => !v)}
+                  className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-sky-600 hover:from-emerald-700 hover:to-sky-700 shadow-md"
+                >
+                  {isEditing ? "Hủy" : "Chỉnh sửa"}
+                </button>
+              </div>
             </div>
-          </div>
+          </header>
+        </div>
 
-          {/* Message */}
-          {message && (
-            <div className={`mb-6 p-4 rounded-lg ${
-              message.type === 'success' 
-                ? 'bg-green-50 border border-green-200 text-green-700' 
-                : 'bg-red-50 border border-red-200 text-red-700'
-            }`}>
-              <div className="flex items-center">
-                {message.type === 'success' ? (
-                  <svg className="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        {/* Global Message */}
+        {message && (
+          <div className="max-w-4xl mx-auto w-full px-4 lg:px-0">
+            <div
+              className={`mb-4 rounded-xl border p-3 sm:p-4 text-sm ${
+                message.type === "success"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border-rose-200 bg-rose-50 text-rose-700"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                {message.type === "success" ? (
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 ) : (
-                  <svg className="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 )}
-                {message.text}
+                <span>{message.text}</span>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-                     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 sm:gap-8">
-             {/* Profile Card */}
-             <div className="lg:col-span-2">
-              <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg shadow-md border p-6`}>
-                <div className="text-center">
+        <main className="flex-1">
+          <div className="max-w-6xl mx-auto px-4 lg:px-8 pb-10">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
+              {/* LEFT: Profile Card + Stats */}
+              <section className="lg:col-span-1 space-y-6">
+                <div className={`${
+                    isDarkMode
+                      ? "bg-slate-900/60 border border-slate-800"
+                      : "bg-white/80 border border-slate-200"
+                  } backdrop-blur rounded-2xl shadow-xl overflow-hidden`}
+                >
+                  {/* Cover */}
+                  <div className="relative h-28 bg-gradient-to-r from-emerald-500 via-sky-500 to-fuchsia-500" />
+
                   {/* Avatar */}
-                  <div className="relative inline-block mb-4">
-                    {formData.avatarUrl ? (
-                      <Image
-                        src={formData.avatarUrl}
-                        alt="Avatar"
-                        width={120}
-                        height={120}
-                        className="rounded-full border-4 border-green-500"
-                      />
-                    ) : (
-                      <div className="w-30 h-30 rounded-full bg-green-600 flex items-center justify-center border-4 border-green-500">
-                        <span className="text-white text-3xl font-bold">
-                          {getInitials(formData.name)}
-                        </span>
+                  <div className="px-6 -mt-12">
+                    <div className="relative w-24 h-24 mx-auto">
+                      {formData.avatarUrl ? (
+                        <Image
+                          src={formData.avatarUrl}
+                          alt="Avatar"
+                          width={96}
+                          height={96}
+                          className="rounded-full border-4 border-white shadow-xl object-cover"
+                        />
+                      ) : (
+                        <div className="w-24 h-24 rounded-full bg-gradient-to-br from-emerald-600 to-sky-600 flex items-center justify-center border-4 border-white shadow-xl">
+                          <span className="text-white text-2xl font-bold">{getInitials(formData.name)}</span>
+                        </div>
+                      )}
+
+                      <label className="absolute -bottom-1 -right-1 bg-emerald-600 text-white p-2 rounded-full cursor-pointer hover:bg-emerald-700 shadow-lg">
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        <input type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" disabled={loading} />
+                      </label>
+                    </div>
+
+                    <div className="text-center mt-4">
+                      <h2 className={`text-lg font-semibold ${isDarkMode ? "text-white" : "text-black"}`}>{formData.name}</h2>
+                      <p className={`${isDarkMode ? "text-slate-300" : "text-black"} break-all text-sm`}>{formData.email}</p>
+                      <p className={`${isDarkMode ? "text-slate-300" : "text-black"} text-sm`}>{formData.phone || "Chưa cập nhật số điện thoại"}</p>
+
+                      <div className="mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 border-emerald-200">
+                        <span>👨‍🎓</span>
+                        THÀNH VIÊN CLB
+                      </div>
+                    </div>
+
+                    {/* Quick stats */}
+                    <div className="mt-6 grid grid-cols-2 gap-3">
+                      <div className={`${isDarkMode ? "bg-slate-800" : "bg-slate-50"} rounded-xl p-4 text-center border ${isDarkMode ? "border-slate-700" : "border-slate-200"}`}>
+                        <div className={`${isDarkMode ? "text-emerald-400" : "text-emerald-600"} text-2xl font-bold`}>5</div>
+                        <div className={`${isDarkMode ? "text-slate-400" : "text-black"} text-xs`}>Hoạt động tham gia</div>
+                      </div>
+                      <div className={`${isDarkMode ? "bg-slate-800" : "bg-slate-50"} rounded-xl p-4 text-center border ${isDarkMode ? "border-slate-700" : "border-slate-200"}`}>
+                        <div className={`${isDarkMode ? "text-sky-400" : "text-sky-600"} text-2xl font-bold`}>
+                          {getMembershipDays().days}
+                        </div>
+                        <div className={`${isDarkMode ? "text-slate-400" : "text-black"} text-xs`}>
+                          {getMembershipDays().status}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Membership Timeline Info */}
+                    {membershipData?.createdAt && (
+                      <div className={`mt-4 rounded-xl p-4 border ${isDarkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                        <div className="text-center mb-3">
+                          <div className={`text-xs uppercase tracking-wide ${isDarkMode ? "text-slate-500" : "text-black"}`}>
+                            📅 Thời gian tham gia
+                          </div>
+                        </div>
+                        <div className="space-y-2 text-xs">
+                          <div className="flex justify-between items-center">
+                            <span className={`${isDarkMode ? "text-slate-400" : "text-black"}`}>Ngày bắt đầu:</span>
+                            <span className={`font-medium ${isDarkMode ? "text-slate-200" : "text-slate-800"}`}>
+                              {(() => {
+                                const membershipDays = getMembershipDays();
+                                return membershipDays.startDate ? formatDate(membershipDays.startDate.toISOString()) : "Không có thông tin";
+                              })()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className={`${isDarkMode ? "text-slate-400" : "text-black"}`}>
+                              {membershipData.status === "REMOVED" ? "Đến khi bị xóa:" : "Đến hiện tại:"}
+                            </span>
+                            <span className={`font-medium ${isDarkMode ? "text-slate-200" : "text-slate-800"}`}>
+                              {(() => {
+                                const membershipDays = getMembershipDays();
+                                return membershipDays.endDate ? formatDate(membershipDays.endDate.toISOString()) : "Không có thông tin";
+                              })()}
+                            </span>
+                          </div>
+                          <div className="border-t border-slate-300 dark:border-slate-600 pt-2 mt-2">
+                            <div className="flex justify-between items-center">
+                              <span className={`${isDarkMode ? "text-slate-400" : "text-black"}`}>Tổng thời gian:</span>
+                              <span className={`font-semibold ${isDarkMode ? "text-sky-400" : "text-sky-600"}`}>
+                                {getMembershipDays().days} ngày
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     )}
-                    
-                    {/* Upload Button */}
-                    <label className="absolute bottom-0 right-0 bg-green-600 text-white p-2 rounded-full cursor-pointer hover:bg-green-700 transition-colors">
-                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleAvatarUpload}
-                        className="hidden"
-                        disabled={loading}
-                      />
-                    </label>
-                  </div>
-
-                  {/* User Info */}
-                  <h2 className={`text-xl font-semibold mb-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    {formData.name}
-                  </h2>
-                                     <p className={`text-sm mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} break-all`}>
-                     {formData.email}
-                   </p>
-                  <p className={`text-sm mb-4 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                    {formData.phone || 'Chưa cập nhật số điện thoại'}
-                  </p>
-
-                  {/* Role Badge */}
-                  <div className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                    <span className="mr-2">👨‍🎓</span>
-                    THÀNH VIÊN CLB
-                  </div>
-                </div>
-
-                {/* Quick Stats */}
-                <div className="mt-6 pt-6 border-t border-gray-200">
-                  <div className="grid grid-cols-2 gap-4 text-center">
-                    <div>
-                      <div className={`text-2xl font-bold ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>
-                        5
-                      </div>
-                      <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                        Hoạt động tham gia
-                      </div>
-                    </div>
-                    <div>
-                      <div className={`text-2xl font-bold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
-                        127
-                      </div>
-                      <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                        Ngày tham gia
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-                         {/* Profile Form */}
-             <div className="lg:col-span-3">
-              <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg shadow-md border`}>
-                <div className={`px-6 py-4 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-                  <div className="flex justify-between items-center">
-                    <h3 className={`text-lg font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                      Thông tin cá nhân
-                    </h3>
-                    <button
-                      onClick={() => setIsEditing(!isEditing)}
-                      className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                        isEditing
-                          ? 'bg-gray-600 text-white hover:bg-gray-700'
-                          : 'bg-green-600 text-white hover:bg-green-700'
-                      }`}
-                    >
-                      {isEditing ? 'Hủy' : 'Chỉnh sửa'}
-                    </button>
-                  </div>
-                </div>
-
-                <form onSubmit={handleSubmit} className="p-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Name */}
-                    <div>
-                      <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                        Họ và tên
-                      </label>
-                      <input
-                        type="text"
-                        name="name"
-                        value={formData.name}
-                        onChange={handleInputChange}
-                        disabled={!isEditing || loading}
-                        className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 transition-colors ${
-                          isDarkMode 
-                            ? 'bg-gray-700 border-gray-600 text-white disabled:bg-gray-800 disabled:text-gray-400' 
-                            : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500'
-                        }`}
-                        required
-                      />
-                    </div>
-
-                    {/* Email */}
-                    <div>
-                      <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                        Email
-                      </label>
-                      <input
-                        type="email"
-                        name="email"
-                        value={formData.email}
-                        onChange={handleInputChange}
-                        disabled={!isEditing || loading}
-                        className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 transition-colors ${
-                          isDarkMode 
-                            ? 'bg-gray-700 border-gray-600 text-white disabled:bg-gray-800 disabled:text-gray-400' 
-                            : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500'
-                        }`}
-                        required
-                      />
-                    </div>
-
-                    {/* Phone */}
-                    <div>
-                      <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                        Số điện thoại
-                      </label>
-                      <input
-                        type="tel"
-                        name="phone"
-                        value={formData.phone}
-                        onChange={handleInputChange}
-                        disabled={!isEditing || loading}
-                        className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 transition-colors ${
-                          isDarkMode 
-                            ? 'bg-gray-700 border-gray-600 text-white disabled:bg-gray-800 disabled:text-gray-400' 
-                            : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500'
-                        }`}
-                        placeholder="0934567890"
-                      />
-                    </div>
 
                     {/* Student ID */}
-                    <div>
-                      <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                        Mã số sinh viên
-                      </label>
-                      <input
-                        type="text"
-                        value={user?.studentId || ''}
-                        disabled
-                        className={`w-full px-3 py-2 border rounded-md ${
-                          isDarkMode 
-                            ? 'bg-gray-800 border-gray-600 text-gray-400' 
-                            : 'bg-gray-50 border-gray-300 text-gray-500'
-                        }`}
-                      />
+                    <div className={`mt-4 rounded-xl p-4 border ${isDarkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"} text-center`}>
+                      <div className={`text-xs uppercase tracking-wide ${isDarkMode ? "text-slate-500" : "text-black"}`}>Mã số sinh viên</div>
+                      <div className={`mt-1 font-mono text-sm ${isDarkMode ? "text-slate-200" : "text-slate-800"}`}>{user?.studentId || "—"}</div>
                     </div>
 
-                    {/* Faculty */}
-                    <div>
-                      <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                        Khoa/Viện
-                      </label>
-                      <select
-                        name="faculty"
-                        value={formData.faculty}
-                        onChange={handleInputChange}
-                        disabled={!isEditing || loading}
-                        className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 transition-colors ${
-                          isDarkMode 
-                            ? 'bg-gray-700 border-gray-600 text-white disabled:bg-gray-800 disabled:text-gray-400' 
-                            : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500'
-                        }`}
-                      >
-                        <option value="">Chọn khoa/viện</option>
-                        {facultyOptions.map((faculty) => (
-                          <option key={faculty} value={faculty}>
-                            {faculty}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <div className="h-4" />
+                  </div>
+                </div>
 
-                    {/* Class */}
+                {/* Register Prompt */}
+                {!membershipData && (
+                  <div className={`${isDarkMode ? "bg-gradient-to-r from-sky-900/30 to-fuchsia-900/30 border-sky-800" : "bg-gradient-to-r from-sky-50 to-fuchsia-50 border-sky-200"} border rounded-2xl shadow-lg p-6 text-center`}>
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-sky-500 to-fuchsia-600 flex items-center justify-center text-white text-2xl">＋</div>
+                    <h3 className={`text-lg font-semibold ${isDarkMode ? "text-white" : "text-black"}`}>Chưa tham gia CLB</h3>
+                    <p className={`${isDarkMode ? "text-slate-300" : "text-black"} text-sm mt-1`}>
+                      Bạn chưa đăng ký tham gia CLB Sinh viên 5 Tốt TDMU. Hãy đăng ký ngay để trở thành thành viên!
+                    </p>
+                    <a
+                      href="/student/register"
+                      className="mt-4 inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-sky-600 to-fuchsia-600 hover:from-sky-700 hover:to-fuchsia-700 shadow-md"
+                    >
+                      🚀 Đăng ký tham gia CLB
+                    </a>
+                  </div>
+                )}
+              </section>
+
+              {/* RIGHT: Form + Timeline */}
+              <section className="lg:col-span-2 space-y-6">
+                {/* Profile Form */}
+                <div className={`${
+                    isDarkMode ? "bg-slate-900/60 border-slate-800" : "bg-white/80 border-slate-200"
+                  } backdrop-blur rounded-2xl border shadow-xl overflow-hidden`}
+                >
+                  <div className={`${isDarkMode ? "bg-slate-900/70 border-b border-slate-800" : "bg-slate-50 border-b border-slate-200"} px-6 py-4 flex items-center justify-between`}>
                     <div>
-                      <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                        Lớp
-                      </label>
-                      <input
-                        type="text"
-                        name="class"
-                        value={formData.class}
-                        onChange={handleInputChange}
-                        disabled={!isEditing || loading}
-                        className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 transition-colors ${
-                          isDarkMode 
-                            ? 'bg-gray-700 border-gray-600 text-white disabled:bg-gray-800 disabled:text-gray-400' 
-                            : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500'
-                        }`}
-                        placeholder="VD: CNTT-K45"
-                      />
+                      <h3 className={`text-base sm:text-lg font-semibold ${isDarkMode ? "text-white" : "text-black"}`}>✏️ Thông tin cá nhân</h3>
+                      <p className={`text-xs ${isDarkMode ? "text-slate-400" : "text-black"}`}>Cập nhật thông tin để ban quản trị liên hệ khi cần</p>
                     </div>
+                    <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${isEditing ? (isDarkMode ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" : "bg-amber-100 text-amber-700 border border-amber-200") : (isDarkMode ? "bg-slate-800 text-slate-300 border border-slate-700" : "bg-white text-slate-600 border border-slate-200")}`}>
+                      {isEditing ? "Đang chỉnh sửa" : "Chế độ xem"}
+                    </span>
                   </div>
 
-                  {/* Submit Button */}
-                  {isEditing && (
-                    <div className="mt-6 flex justify-end space-x-3">
-                      <button
-                        type="button"
-                        onClick={() => setIsEditing(false)}
-                        className={`px-4 py-2 text-sm font-medium rounded-md border transition-colors ${
-                          isDarkMode 
-                            ? 'border-gray-600 text-gray-300 hover:bg-gray-700' 
-                            : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                        }`}
-                        disabled={loading}
-                      >
-                        Hủy
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={loading}
-                        className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        {loading ? (
-                          <div className="flex items-center">
-                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  <form onSubmit={handleSubmit} className="p-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                      {/* Name */}
+                      <div className="space-y-1.5">
+                        <label className={`text-sm ${isDarkMode ? "text-slate-300" : "text-black"}`}>Họ và tên</label>
+                        <input
+                          type="text"
+                          name="name"
+                          value={formData.name}
+                          onChange={handleInputChange}
+                          disabled={!isEditing || loading}
+                          className={`w-full rounded-xl px-4 py-3 outline-none transition border ${
+                            isDarkMode
+                              ? "bg-slate-800 border-slate-700 text-white disabled:bg-slate-900 disabled:text-slate-500 focus:ring-2 focus:ring-emerald-500/40"
+                              : "bg-white border-slate-300 text-slate-900 disabled:bg-slate-50 disabled:text-slate-500 focus:ring-2 focus:ring-emerald-500/40"
+                          }`}
+                          required
+                        />
+                      </div>
+
+                      {/* Email */}
+                      <div className="space-y-1.5">
+                        <label className={`text-sm ${isDarkMode ? "text-slate-300" : "text-black"}`}>Email</label>
+                        <input
+                          type="email"
+                          name="email"
+                          value={formData.email}
+                          onChange={handleInputChange}
+                          disabled={!isEditing || loading}
+                          className={`w-full rounded-xl px-4 py-3 outline-none transition border ${
+                            isDarkMode
+                              ? "bg-slate-800 border-slate-700 text-white disabled:bg-slate-900 disabled:text-slate-500 focus:ring-2 focus:ring-emerald-500/40"
+                              : "bg-white border-slate-300 text-slate-900 disabled:bg-slate-50 disabled:text-slate-500 focus:ring-2 focus:ring-emerald-500/40"
+                          }`}
+                          required
+                        />
+                      </div>
+
+                      {/* Phone */}
+                      <div className="space-y-1.5">
+                        <label className={`text-sm ${isDarkMode ? "text-slate-300" : "text-black"}`}>Số điện thoại</label>
+                        <input
+                          type="tel"
+                          name="phone"
+                          value={formData.phone}
+                          onChange={handleInputChange}
+                          disabled={!isEditing || loading}
+                          placeholder="0934567890"
+                          className={`w-full rounded-xl px-4 py-3 outline-none transition border ${
+                            isDarkMode
+                              ? "bg-slate-800 border-slate-700 text-white disabled:bg-slate-900 disabled:text-slate-500 focus:ring-2 focus:ring-emerald-500/40"
+                              : "bg-white border-slate-300 text-slate-900 disabled:bg-slate-50 disabled:text-slate-500 focus:ring-2 focus:ring-emerald-500/40"
+                          }`}
+                        />
+                      </div>
+
+                      {/* Class */}
+                      <div className="space-y-1.5">
+                        <label className={`text-sm ${isDarkMode ? "text-slate-300" : "text-black"}`}>Lớp</label>
+                        <input
+                          type="text"
+                          name="class"
+                          value={formData.class}
+                          onChange={handleInputChange}
+                          disabled={!isEditing || loading}
+                          placeholder="VD: CNTT-K45"
+                          className={`w-full rounded-xl px-4 py-3 outline-none transition border ${
+                            isDarkMode
+                              ? "bg-slate-800 border-slate-700 text-white disabled:bg-slate-900 disabled:text-slate-500 focus:ring-2 focus:ring-emerald-500/40"
+                              : "bg-white border-slate-300 text-slate-900 disabled:bg-slate-50 disabled:text-slate-500 focus:ring-2 focus:ring-emerald-500/40"
+                          }`}
+                        />
+                      </div>
+
+                      {/* Faculty */}
+                      <div className="space-y-1.5 sm:col-span-2">
+                        <label className={`text-sm ${isDarkMode ? "text-slate-300" : "text-black"}`}>Khoa/Viện</label>
+                        <select
+                          name="faculty"
+                          value={formData.faculty}
+                          onChange={handleInputChange}
+                          disabled={!isEditing || loading}
+                          className={`w-full rounded-xl px-4 py-3 outline-none transition border ${
+                            isDarkMode
+                              ? "bg-slate-800 border-slate-700 text-white disabled:bg-slate-900 disabled:text-slate-500 focus:ring-2 focus:ring-emerald-500/40"
+                              : "bg-white border-slate-300 text-slate-900 disabled:bg-slate-50 disabled:text-slate-500 focus:ring-2 focus:ring-emerald-500/40"
+                          }`}
+                        >
+                          <option value="">Chọn khoa/viện</option>
+                          {facultyOptions.map((faculty) => (
+                            <option key={faculty} value={faculty}>
+                              {faculty}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    {isEditing && (
+                      <div className="mt-6 flex justify-end gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setIsEditing(false)}
+                          disabled={loading}
+                          className={`${
+                            isDarkMode
+                              ? "border border-slate-700 text-slate-200 hover:bg-slate-800"
+                              : "border border-slate-300 text-slate-700 hover:bg-slate-50"
+                          } rounded-lg px-4 py-2 text-sm font-medium`}
+                        >
+                          Hủy
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={loading}
+                          className="rounded-lg px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-sky-600 hover:from-emerald-700 hover:to-sky-700 shadow disabled:opacity-60"
+                        >
+                          {loading ? (
+                            <span className="inline-flex items-center gap-2">
+                              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                              </svg>
+                              Đang cập nhật...
+                            </span>
+                          ) : (
+                            "Lưu thay đổi"
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </form>
+                </div>
+
+                {/* Timeline */}
+                {membershipData && (
+                  <div className={`${
+                      isDarkMode ? "bg-slate-900/60 border-slate-800" : "bg-white/80 border-slate-200"
+                    } backdrop-blur rounded-2xl border shadow-xl overflow-hidden`}
+                  >
+                    <div className={`${isDarkMode ? "bg-slate-900/70 border-b border-slate-800" : "bg-slate-50 border-b border-slate-200"} px-6 py-4`}>
+                      <h3 className={`text-base sm:text-lg font-semibold ${isDarkMode ? "text-white" : "text-black"}`}>📅 Lịch sử thành viên CLB</h3>
+                      <p className={`${isDarkMode ? "text-slate-400" : "text-black"} text-sm`}>Bảng lịch sử các sự kiện quan trọng trong quá trình tham gia CLB</p>
+                    </div>
+
+                    <div className="p-6">
+                      {getTimelineEvents().length > 0 ? (
+                        <div className="overflow-x-auto">
+                          <table className={`w-full ${isDarkMode ? "text-slate-200" : "text-slate-900"}`}>
+                            <thead>
+                              <tr className={`border-b ${isDarkMode ? "border-slate-700" : "border-slate-200"}`}>
+                                <th className={`text-left py-3 px-4 font-semibold text-sm ${isDarkMode ? "text-slate-300" : "text-slate-700"}`}>
+                                  Sự kiện
+                                </th>
+                                <th className={`text-left py-3 px-4 font-semibold text-sm ${isDarkMode ? "text-slate-300" : "text-slate-700"}`}>
+                                  Thời gian
+                                </th>
+                                <th className={`text-left py-3 px-4 font-semibold text-sm ${isDarkMode ? "text-slate-300" : "text-slate-700"}`}>
+                                  Trạng thái
+                                </th>
+                                <th className={`text-left py-3 px-4 font-semibold text-sm ${isDarkMode ? "text-slate-300" : "text-slate-700"}`}>
+                                  Chi tiết
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {getTimelineEvents().map((event, idx) => (
+                                <tr 
+                                  key={idx} 
+                                  className={`border-b ${isDarkMode ? "border-slate-800 hover:bg-slate-800/50" : "border-slate-100 hover:bg-slate-50"} transition-colors`}
+                                >
+                                                                     <td className="py-4 px-4">
+                                     <div className="flex items-center space-x-3">
+                                       <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                                         event.badgeColor === "green" ? "bg-emerald-100 text-emerald-600" :
+                                         event.badgeColor === "blue" ? "bg-sky-100 text-sky-600" :
+                                         event.badgeColor === "purple" ? "bg-fuchsia-100 text-fuchsia-600" :
+                                         event.badgeColor === "yellow" ? "bg-amber-100 text-amber-600" :
+                                         event.badgeColor === "gray" ? "bg-slate-100 text-slate-600" :
+                                         "bg-rose-100 text-rose-600"
+                                       }`}>
+                                         {event.type === "registered" && (
+                                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                           </svg>
+                                         )}
+                                         {event.type === "approved" && (
+                                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                           </svg>
+                                         )}
+                                         {event.type === "removed" && (
+                                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                           </svg>
+                                         )}
+                                         {event.type === "restored" && (
+                                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                           </svg>
+                                         )}
+                                         {event.type === "joined" && (
+                                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                           </svg>
+                                         )}
+                                       </div>
+                                       <div>
+                                         <h4 className={`font-semibold text-sm ${isDarkMode ? "text-white" : "text-black"}`}>
+                                           {event.title}
+                                         </h4>
+                                       </div>
+                                     </div>
+                                   </td>
+                                  <td className="py-4 px-4 text-center">
+                                    <span className={`text-sm whitespace-pre-line ${isDarkMode ? "text-slate-400" : "text-slate-600"}`}>
+                                      {formatDateShort(event.date)}
+                                    </span>
+                                  </td>
+                                  <td className="py-4 px-4 text-center">
+                                    <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                      event.badgeColor === "green"
+                                        ? isDarkMode
+                                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                                          : "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                                        : event.badgeColor === "blue"
+                                        ? isDarkMode
+                                          ? "bg-sky-500/20 text-sky-300 border border-sky-500/30"
+                                          : "bg-sky-100 text-sky-700 border border-sky-200"
+                                        : event.badgeColor === "purple"
+                                        ? isDarkMode
+                                          ? "bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30"
+                                          : "bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200"
+                                        : event.badgeColor === "yellow"
+                                        ? isDarkMode
+                                          ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                                          : "bg-amber-100 text-amber-700 border border-amber-200"
+                                        : event.badgeColor === "gray"
+                                        ? isDarkMode
+                                          ? "bg-slate-500/20 text-slate-300 border border-slate-500/30"
+                                          : "bg-slate-100 text-slate-700 border border-slate-200"
+                                        : isDarkMode
+                                        ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                                        : "bg-rose-100 text-rose-700 border border-rose-200"
+                                    }`}>
+                                      {event.badge}
+                                    </span>
+                                  </td>
+                                  <td className="py-4 px-4">
+                                    {event.additionalInfo ? (
+                                      <div className={`inline-block rounded-lg border px-3 py-2 text-xs max-w-xs ${
+                                        isDarkMode 
+                                          ? "bg-slate-800 text-slate-300 border-slate-700" 
+                                          : "bg-slate-100 text-slate-700 border-slate-200"
+                                      }`}>
+                                        {event.additionalInfo}
+                                      </div>
+                                    ) : (
+                                      <span className={`text-xs ${isDarkMode ? "text-slate-500" : "text-slate-400"}`}>
+                                        —
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="text-center py-12">
+                          <div className={`${isDarkMode ? "bg-slate-800" : "bg-slate-100"} w-20 h-20 mx-auto rounded-full flex items-center justify-center mb-4`}>
+                            <svg className="w-10 h-10 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
-                            Đang cập nhật...
                           </div>
-                        ) : (
-                          'Lưu thay đổi'
-                        )}
-                      </button>
+                          <p className={`text-lg font-semibold ${isDarkMode ? "text-white" : "text-black"}`}>Chưa có lịch sử</p>
+                          <p className={`${isDarkMode ? "text-slate-400" : "text-black"} text-sm`}>Bạn chưa có thông tin lịch sử tham gia CLB</p>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </form>
-              </div>
-
-              {/* Membership Status */}
-              <div className={`mt-6 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg shadow-md border`}>
-                <div className={`px-6 py-4 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-                  <h3 className={`text-lg font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    Trạng thái thành viên
-                  </h3>
-                </div>
-                <div className="p-6">
-                  <div className="space-y-4">
-                                         <div className="flex items-center justify-between">
-                       <div>
-                         <h4 className={`font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                           Trạng thái CLB
-                         </h4>
-                         <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                           Thông tin về tư cách thành viên
-                         </p>
-                       </div>
-                       {membershipData ? (
-                         <span className={`px-3 py-1 text-sm font-medium rounded-full ${getStatusDisplay(membershipData.status).color}`}>
-                           {getStatusDisplay(membershipData.status).text}
-                         </span>
-                       ) : (
-                         <a 
-                           href="/student/register"
-                           className={`px-3 py-1 text-sm font-medium rounded-full ${getStatusDisplay(null).color} hover:opacity-80 transition-opacity cursor-pointer`}
-                         >
-                           {getStatusDisplay(null).text}
-                         </a>
-                       )}
-                     </div>
-                    
-                                         <div className="flex items-center justify-between">
-                       <div>
-                         <h4 className={`font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                           Ngày tham gia
-                         </h4>
-                         <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                           Thời gian chính thức trở thành thành viên
-                         </p>
-                       </div>
-                       <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                         {membershipData?.createdAt ? new Date(membershipData.createdAt).toLocaleDateString('vi-VN') : 'Chưa đăng ký'}
-                       </span>
-                     </div>
                   </div>
-                </div>
-              </div>
+                )}
+              </section>
             </div>
           </div>
         </main>

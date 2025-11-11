@@ -8,11 +8,13 @@ interface User {
   studentId: string;
   name: string;
   email: string;
-  role: 'STUDENT' | 'OFFICER' | 'ADMIN';
+  role: 'SUPER_ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'STUDENT' | 'OFFICER' | 'ADMIN';
   phone?: string;
   class?: string;
   faculty?: string;
   avatarUrl?: string;
+  position?: string;
+  department?: string;
   isClubMember?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -34,7 +36,52 @@ export function useAuth() {
     isLoading: true
   });
 
-  // Load auth state from localStorage on mount
+  // Function to fetch and update user data from the backend
+  const refetchUser = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    try {
+      const response = await fetch('/api/auth/me', { // Assuming you have a /api/auth/me endpoint
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.user) {
+          const updatedUser = { ...data.user };
+          // Determine isClubMember based on role if not provided or incorrect
+          if (['CLUB_STUDENT', 'CLUB_MEMBER', 'CLUB_LEADER', 'CLUB_DEPUTY'].includes(updatedUser.role)) {
+            updatedUser.isClubMember = true;
+          } else {
+            updatedUser.isClubMember = false;
+          }
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+          setAuthState(prev => ({
+            ...prev,
+            user: updatedUser,
+            isAuthenticated: true,
+          }));
+          return updatedUser; // Return the updated user
+        } else {
+          console.error('Failed to refetch user data:', data.error);
+          logout();
+        }
+      } else if (response.status === 401) {
+        console.warn('Token expired or invalid during refetch, logging out.');
+        logout();
+      } else {
+        console.error('Error refetching user data:', response.statusText);
+      }
+    } catch (error) {
+      console.error('Network error refetching user data:', error);
+      logout(); // Logout on network errors to prevent stale data
+    }
+  };
+
+  // Load auth state from localStorage on mount and refetch user data
   useEffect(() => {
     const token = localStorage.getItem('token');
     const userStr = localStorage.getItem('user');
@@ -42,12 +89,33 @@ export function useAuth() {
     if (token && userStr) {
       try {
         const user = JSON.parse(userStr);
+        
+        // Check if token is expired by decoding it
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          const currentTime = Math.floor(Date.now() / 1000);
+          
+          if (payload.exp && payload.exp < currentTime) {
+            console.log('Token expired, logging out');
+            logout();
+            return;
+          }
+        } catch (error) {
+          console.error('Error decoding token:', error);
+          logout();
+          return;
+        }
+        
         setAuthState({
           user,
           token,
           isAuthenticated: true,
           isLoading: false
         });
+        
+        // IMPORTANT: Refetch user data from backend to ensure it's up-to-date
+        refetchUser();
+
       } catch (error) {
         console.error('Error parsing user data:', error);
         logout();
@@ -80,20 +148,9 @@ export function useAuth() {
           isLoading: false
         });
 
-        // Redirect based on role
-        switch (data.user.role) {
-          case 'ADMIN':
-            router.push('/admin/dashboard');
-            break;
-          case 'OFFICER':
-            router.push('/officer/dashboard');
-            break;
-          case 'STUDENT':
-            router.push('/student/dashboard');
-            break;
-          default:
-            router.push('/');
-        }
+        // Use redirectUrl from API response or fallback to role-based routing
+        const redirectUrl = data.redirectUrl || '/student/dashboard';
+        router.push(redirectUrl);
 
         return { success: true, user: data.user };
       } else {
@@ -101,6 +158,42 @@ export function useAuth() {
       }
     } catch (error) {
       console.error('Login error:', error);
+      return { success: false, error: 'Lỗi kết nối. Vui lòng thử lại.' };
+    }
+  };
+
+  const loginGoogle = async (access_token: string) => {
+    try {
+      const response = await fetch('/api/auth/google', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ access_token }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.user && data.token) {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        
+        setAuthState({
+          user: data.user,
+          token: data.token,
+          isAuthenticated: true,
+          isLoading: false
+        });
+
+        const redirectUrl = data.redirectUrl || '/student/dashboard';
+        router.push(redirectUrl);
+
+        return { success: true, user: data.user, isNewUser: data.isNewUser };
+      } else {
+        return { success: false, error: data.error || 'Đăng nhập Google thất bại' };
+      }
+    } catch (error) {
+      console.error('Google login error:', error);
       return { success: false, error: 'Lỗi kết nối. Vui lòng thử lại.' };
     }
   };
@@ -123,6 +216,23 @@ export function useAuth() {
     router.push('/auth/login');
   };
 
+  const checkTokenValidity = () => {
+    const token = localStorage.getItem('token');
+    console.log('🔍 checkTokenValidity: token exists?', !!token);
+    if (!token) return false;
+    
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const currentTime = Math.floor(Date.now() / 1000);
+      console.log('🔍 checkTokenValidity: payload.exp =', payload.exp, 'currentTime =', currentTime);
+      console.log('🔍 checkTokenValidity: token valid?', payload.exp && payload.exp > currentTime);
+      return payload.exp && payload.exp > currentTime;
+    } catch (error) {
+      console.error('Error checking token validity:', error);
+      return false;
+    }
+  };
+
   const updateUser = (userData: Partial<User>) => {
     if (authState.user) {
       const updatedUser = { ...authState.user, ...userData };
@@ -134,28 +244,41 @@ export function useAuth() {
     }
   };
 
-  const hasRole = (requiredRole: 'STUDENT' | 'OFFICER' | 'ADMIN'): boolean => {
+  const hasRole = (requiredRole: 'SUPER_ADMIN' | 'CLUB_LEADER' | 'CLUB_DEPUTY' | 'CLUB_MEMBER' | 'CLUB_STUDENT' | 'STUDENT' | 'OFFICER' | 'ADMIN'): boolean => {
     if (!authState.user) return false;
     
     const roleHierarchy = {
+      'CLUB_STUDENT': 1,
       'STUDENT': 1,
+      'CLUB_MEMBER': 2,
+      'CLUB_DEPUTY': 3,
+      'CLUB_LEADER': 4,
+      'SUPER_ADMIN': 5,
       'OFFICER': 2,
-      'ADMIN': 3
+      'ADMIN': 5
     };
     
-    return roleHierarchy[authState.user.role] >= roleHierarchy[requiredRole];
+    const userRoleLevel = roleHierarchy[authState.user.role] || 0;
+    const requiredRoleLevel = roleHierarchy[requiredRole] || 0;
+    
+    return userRoleLevel >= requiredRoleLevel;
   };
 
   const isAdmin = (): boolean => hasRole('ADMIN');
-  const isOfficerOrAdmin = (): boolean => hasRole('OFFICER');
+  const isOfficerOrAdmin = (): boolean => hasRole('CLUB_MEMBER');
+
+
 
   return {
     ...authState,
     login,
+    loginGoogle,
     logout,
     updateUser,
     hasRole,
     isAdmin,
-    isOfficerOrAdmin
+    isOfficerOrAdmin,
+    checkTokenValidity,
+    refetchUser
   };
 }

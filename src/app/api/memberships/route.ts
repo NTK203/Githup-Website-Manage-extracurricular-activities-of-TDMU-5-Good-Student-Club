@@ -9,7 +9,13 @@ export async function GET(request: NextRequest) {
   try {
     // Verify authentication
     const user = getUserFromRequest(request);
-    if (!user || (user.role !== 'ADMIN' && user.role !== 'OFFICER')) {
+    if (!user || (
+      user.role !== 'SUPER_ADMIN' && 
+      user.role !== 'CLUB_LEADER' && 
+      user.role !== 'CLUB_DEPUTY' && 
+      user.role !== 'CLUB_MEMBER' && 
+      user.role !== 'ADMIN'
+    )) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -151,20 +157,34 @@ export async function GET(request: NextRequest) {
           preserveNullAndEmptyArrays: true
         }
       },
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'removedBy._id',
-          foreignField: '_id',
-          as: 'remover'
-        }
-      },
-      {
-        $unwind: {
-          path: '$remover',
-          preserveNullAndEmptyArrays: true
-        }
-      },
+             {
+         $lookup: {
+           from: 'users',
+           localField: 'removedBy._id',
+           foreignField: '_id',
+           as: 'remover'
+         }
+       },
+       {
+         $unwind: {
+           path: '$remover',
+           preserveNullAndEmptyArrays: true
+         }
+       },
+       {
+         $lookup: {
+           from: 'users',
+           localField: 'restoredBy',
+           foreignField: '_id',
+           as: 'restorer'
+         }
+       },
+       {
+         $unwind: {
+           path: '$restorer',
+           preserveNullAndEmptyArrays: true
+         }
+       },
       {
         $project: {
           _id: 1,
@@ -200,13 +220,29 @@ export async function GET(request: NextRequest) {
             name: '$rejecter.name',
             studentId: '$rejecter.studentId'
           },
-          removedBy: {
-            _id: '$remover._id',
-            name: '$remover.name',
-            studentId: '$remover.studentId'
-          },
-          removedAt: 1,
-          removalReason: 1
+                     removedBy: {
+             _id: '$remover._id',
+             name: '$remover.name',
+             studentId: '$remover.studentId'
+           },
+           removedAt: 1,
+           removalReason: 1,
+           // Reapplication fields
+           previousStatus: 1,
+           reapplicationAt: 1,
+           reapplicationReason: 1,
+           isReapplication: 1,
+           // Restoration fields
+           restoredBy: {
+             _id: '$restorer._id',
+             name: '$restorer.name',
+             studentId: '$restorer.studentId'
+           },
+           restoredAt: 1,
+           restorationReason: 1,
+           // Removal history
+           removalHistory: 1,
+           removalReasonTrue: 1
         }
       }
     );
@@ -302,7 +338,57 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create new membership
+    // Check if user has a REMOVED membership (for reapplication)
+    const existingRemovedMembership = await Membership.findOne({
+      userId,
+      status: 'REMOVED'
+    });
+
+    if (existingRemovedMembership) {
+      // Check if enough time has passed since removal (1 day minimum)
+      // For development/testing, you can comment out this check
+      const timeSinceRemoval = Date.now() - new Date(existingRemovedMembership.removedAt).getTime();
+      const minWaitTime = 1 * 24 * 60 * 60 * 1000; // 1 day in milliseconds
+
+      // Uncomment the line below to disable time restriction completely
+      // const minWaitTime = 0; // No wait time
+
+      if (timeSinceRemoval < minWaitTime) {
+        const hoursRemaining = Math.ceil((minWaitTime - timeSinceRemoval) / (60 * 60 * 1000));
+        return NextResponse.json(
+          { 
+            error: `Bạn phải chờ ít nhất 1 ngày sau khi bị xóa mới được đăng ký lại. Còn ${hoursRemaining} giờ nữa.`,
+            hoursRemaining: hoursRemaining
+          },
+          { status: 400 }
+        );
+      }
+
+      // Update the existing REMOVED membership for reapplication
+      existingRemovedMembership.status = 'PENDING';
+      existingRemovedMembership.previousStatus = 'REMOVED';
+      existingRemovedMembership.reapplicationAt = new Date();
+      existingRemovedMembership.reapplicationReason = body.reapplicationReason || 'Đăng ký lại sau khi khắc phục vấn đề';
+      existingRemovedMembership.motivation = motivation;
+      existingRemovedMembership.experience = experience;
+      existingRemovedMembership.expectations = expectations;
+      existingRemovedMembership.commitment = commitment;
+      existingRemovedMembership.isReapplication = true;
+
+      await existingRemovedMembership.save();
+
+      // Populate user data for response
+      await existingRemovedMembership.populate('userId');
+
+      return NextResponse.json({
+        success: true,
+        message: 'Đăng ký lại thành công sau khi bị xóa',
+        data: existingRemovedMembership,
+        isReapplication: true
+      });
+    }
+
+    // Create new membership (first time application)
     const newMembership = new Membership({
       userId,
       status: 'PENDING',
@@ -310,7 +396,8 @@ export async function POST(request: NextRequest) {
       motivation,
       experience,
       expectations,
-      commitment
+      commitment,
+      isReapplication: false
     });
 
     await newMembership.save();
@@ -321,7 +408,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Membership application created successfully',
-      data: newMembership
+      data: newMembership,
+      isReapplication: false
     });
 
   } catch (error: unknown) {
@@ -357,7 +445,13 @@ export async function PATCH(request: NextRequest) {
   try {
     // Verify authentication
     const user = getUserFromRequest(request);
-    if (!user || (user.role !== 'ADMIN' && user.role !== 'OFFICER')) {
+    if (!user || (
+      user.role !== 'SUPER_ADMIN' && 
+      user.role !== 'CLUB_LEADER' && 
+      user.role !== 'CLUB_DEPUTY' && 
+      user.role !== 'CLUB_MEMBER' && 
+      user.role !== 'ADMIN'
+    )) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -428,6 +522,39 @@ export async function PATCH(request: NextRequest) {
     // Populate user data for response
     await membership.populate(['userId', 'approvedBy']);
 
+    // Send notification to user
+    try {
+      const Notification = (await import('@/models/Notification')).default;
+      if (action === 'approve') {
+        await Notification.createForUsers(
+          [membership.userId],
+          {
+            title: 'Đơn đăng ký được duyệt',
+            message: `Chúc mừng! Bạn đã được chấp nhận vào CLB Sinh viên 5 Tốt TDMU.`,
+            type: 'success',
+            relatedType: 'membership',
+            relatedId: membership._id,
+            createdBy: user.userId
+          }
+        );
+      } else if (action === 'reject') {
+        await Notification.createForUsers(
+          [membership.userId],
+          {
+            title: 'Đơn đăng ký không được duyệt',
+            message: `Rất tiếc, đơn đăng ký của bạn không được duyệt. Lý do: ${rejectionReason || 'Không có lý do cụ thể'}`,
+            type: 'error',
+            relatedType: 'membership',
+            relatedId: membership._id,
+            createdBy: user.userId
+          }
+        );
+      }
+    } catch (notificationError) {
+      console.error('Error sending notification:', notificationError);
+      // Don't fail the request if notification fails
+    }
+
     return NextResponse.json({
       success: true,
       message: `Membership ${action}ed successfully`,
@@ -489,7 +616,7 @@ export async function DELETE(request: NextRequest) {
 
     // Only allow students to delete their own membership applications
     // Admins and officers can delete any membership
-    if (user.role === 'STUDENT' && membership.userId.toString() !== user.userId) {
+    if ((user.role === 'STUDENT' || user.role === 'CLUB_STUDENT') && membership.userId.toString() !== user.userId) {
       return NextResponse.json(
         { error: 'You can only delete your own membership application' },
         { status: 403 }
