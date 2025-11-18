@@ -13,7 +13,10 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch user from DB to get the latest data, including isClubMember
-    const user = await User.findById(currentUserPayload.userId).select('-passwordHash');
+    // Sử dụng lean() để nhanh hơn và chỉ select fields cần thiết
+    const user = await User.findById(currentUserPayload.userId)
+      .select('-passwordHash')
+      .lean();
 
     if (!user) {
       return NextResponse.json({ success: false, error: 'User not found' }, { status: 404 });

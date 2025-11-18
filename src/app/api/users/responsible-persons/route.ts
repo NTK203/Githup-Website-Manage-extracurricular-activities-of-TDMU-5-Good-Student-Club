@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     const responsiblePersons = await User.find({
       role: { $in: allowedRoles }
     })
-    .select('_id name email role studentId')
+    .select('_id name email role studentId avatarUrl imageUrl status')
     .sort({ name: 1 });
 
     console.log('✅ API: Found responsible persons:', responsiblePersons.length);

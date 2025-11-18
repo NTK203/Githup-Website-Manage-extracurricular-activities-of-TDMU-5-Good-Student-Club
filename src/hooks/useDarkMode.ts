@@ -18,6 +18,37 @@ export function useDarkMode() {
     } else {
       document.documentElement.classList.remove('dark');
     }
+
+    // Listen for theme changes from other components (like Nav)
+    const handleThemeChange = () => {
+      const currentTheme = localStorage.getItem('theme');
+      const newDarkMode = currentTheme === 'dark';
+      setIsDarkMode(newDarkMode);
+      
+      if (newDarkMode) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    };
+
+    // Listen for custom themeChange event
+    window.addEventListener('themeChange', handleThemeChange);
+    // Also listen for darkModeToggle event with detail
+    const handleDarkModeToggle = (event: Event) => {
+      const customEvent = event as CustomEvent<boolean>;
+      if (customEvent.detail !== undefined) {
+        setIsDarkMode(customEvent.detail);
+      } else {
+        handleThemeChange();
+      }
+    };
+    window.addEventListener('darkModeToggle', handleDarkModeToggle);
+
+    return () => {
+      window.removeEventListener('themeChange', handleThemeChange);
+      window.removeEventListener('darkModeToggle', handleDarkModeToggle);
+    };
   }, []);
 
   const toggleDarkMode = () => {

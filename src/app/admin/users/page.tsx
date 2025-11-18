@@ -10,6 +10,7 @@ import ProtectedRoute from '@/components/common/ProtectedRoute';
 import UserDetailModal from './components/UserDetailModal';
 import UserEditModal from './components/UserEditModal';
 import UserDeleteModal from './components/UserDeleteModal';
+import PaginationBar from '@/components/common/PaginationBar';
 
 interface User {
   _id: string;
@@ -62,7 +63,7 @@ export default function UsersPage() {
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
-  const [usersPerPage] = useState(10);
+  const [usersPerPage, setUsersPerPage] = useState(10);
 
   // Stats states (tổng thể, không bị ảnh hưởng bởi filter)
   const [totalStats, setTotalStats] = useState({
@@ -243,7 +244,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     fetchUsers();
-  }, [currentPage, search, roleFilter, clubMemberFilter, facultyFilter, sortBy, sortOrder]);
+  }, [currentPage, search, roleFilter, clubMemberFilter, facultyFilter, sortBy, sortOrder, usersPerPage]);
 
 
 
@@ -814,6 +815,24 @@ export default function UsersPage() {
               </div>
             ) : (
               <>
+                {/* Pagination - Top */}
+                {!loading && !error && pagination && pagination.totalCount > 0 && (
+                  <div className="px-6 py-3 border-b border-gray-200 dark:border-gray-700">
+                    <PaginationBar
+                      totalItems={pagination.totalCount}
+                      currentPage={currentPage}
+                      itemsPerPage={usersPerPage}
+                      onPageChange={(page) => setCurrentPage(page)}
+                      onItemsPerPageChange={(newItemsPerPage) => {
+                        setUsersPerPage(newItemsPerPage);
+                        setCurrentPage(1);
+                      }}
+                      itemLabel="người dùng"
+                      isDarkMode={isDarkMode}
+                      itemsPerPageOptions={[5, 10, 20, 50, 100]}
+                    />
+                  </div>
+                )}
                 <div className="overflow-x-auto">
                   <table className={`min-w-full divide-y ${isDarkMode ? 'divide-gray-700/50' : 'divide-gray-200/50'}`}>
                                          <thead className={isDarkMode ? 'bg-gray-700/50 backdrop-blur-sm' : 'bg-gray-50/80 backdrop-blur-sm'}>
@@ -947,82 +966,22 @@ export default function UsersPage() {
                 </table>
               </div>
 
-                                                           {/* Pagination */}
-                {pagination && pagination.totalPages > 1 && (
-                  <div className={`${isDarkMode ? 'bg-gray-700/50 backdrop-blur-sm' : 'bg-gray-50/80 backdrop-blur-sm'} px-6 py-4 flex items-center justify-between border-t ${isDarkMode ? 'border-gray-700/50' : 'border-gray-200/50'} sm:px-8`}>
-                    <div className="flex-1 flex justify-between sm:hidden">
-                                              <button
-                          onClick={() => setCurrentPage(currentPage - 1)}
-                          disabled={!pagination.hasPrevPage}
-                          className={`relative inline-flex items-center px-6 py-3 border text-sm font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 ${isDarkMode ? 'border-gray-600 text-gray-300 bg-gray-700/50 hover:bg-gray-600/50 shadow-lg' : 'border-gray-300 text-gray-700 bg-white/70 hover:bg-gray-50/80 shadow-lg'}`}
-                        >
-                          Trước
-                        </button>
-                        <button
-                          onClick={() => setCurrentPage(currentPage + 1)}
-                          disabled={!pagination.hasNextPage}
-                          className={`ml-3 relative inline-flex items-center px-6 py-3 border text-sm font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 ${isDarkMode ? 'border-gray-600 text-gray-300 bg-gray-700/50 hover:bg-gray-600/50 shadow-lg' : 'border-gray-300 text-gray-700 bg-white/70 hover:bg-gray-50/80 shadow-lg'}`}
-                        >
-                          Sau
-                        </button>
-                    </div>
-                    <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-                      <div>
-                        <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                          Hiển thị{' '}
-                          <span className="font-medium">{(currentPage - 1) * usersPerPage + 1}</span>
-                          {' '}đến{' '}
-                          <span className="font-medium">
-                            {Math.min(currentPage * usersPerPage, pagination.totalCount)}
-                          </span>
-                          {' '}trong tổng số{' '}
-                          <span className="font-medium">{pagination.totalCount}</span> users
-                        </p>
-                      </div>
-                      <div>
-                                                 <nav className="relative z-0 inline-flex rounded-xl shadow-lg -space-x-px">
-                           <button
-                             onClick={() => setCurrentPage(currentPage - 1)}
-                             disabled={!pagination.hasPrevPage}
-                             className={`relative inline-flex items-center px-3 py-2 rounded-l-xl border text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 ${isDarkMode ? 'border-gray-600 text-gray-400 bg-gray-700/50 hover:bg-gray-600/50' : 'border-gray-300 text-gray-500 bg-white/70 hover:bg-gray-50/80'}`}
-                           >
-                             <span className="sr-only">Trước</span>
-                             <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                               <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-                             </svg>
-                           </button>
-                           
-                           {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map((page) => (
-                             <button
-                               key={page}
-                               onClick={() => setCurrentPage(page)}
-                               className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium transition-all duration-200 ${
-                                 page === currentPage
-                                   ? isDarkMode 
-                                     ? 'z-10 bg-blue-600 border-blue-400 text-white shadow-lg'
-                                     : 'z-10 bg-blue-500 border-blue-500 text-white shadow-lg'
-                                   : isDarkMode
-                                     ? 'bg-gray-700/50 border-gray-600 text-gray-300 hover:bg-gray-600/50'
-                                     : 'bg-white/70 border-gray-300 text-gray-500 hover:bg-gray-50/80'
-                               }`}
-                             >
-                               {page}
-                             </button>
-                           ))}
-                           
-                           <button
-                             onClick={() => setCurrentPage(currentPage + 1)}
-                             disabled={!pagination.hasNextPage}
-                             className={`relative inline-flex items-center px-3 py-2 rounded-r-xl border text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 ${isDarkMode ? 'border-gray-600 text-gray-400 bg-gray-700/50 hover:bg-gray-600/50' : 'border-gray-300 text-gray-500 bg-white/70 hover:bg-gray-50/80'}`}
-                           >
-                             <span className="sr-only">Sau</span>
-                             <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                               <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                             </svg>
-                           </button>
-                         </nav>
-                      </div>
-                    </div>
+                {/* Pagination - Bottom */}
+                {!loading && !error && pagination && pagination.totalCount > 0 && (
+                  <div className="px-6 py-3 border-t border-gray-200 dark:border-gray-700">
+                    <PaginationBar
+                      totalItems={pagination.totalCount}
+                      currentPage={currentPage}
+                      itemsPerPage={usersPerPage}
+                      onPageChange={(page) => setCurrentPage(page)}
+                      onItemsPerPageChange={(newItemsPerPage) => {
+                        setUsersPerPage(newItemsPerPage);
+                        setCurrentPage(1);
+                      }}
+                      itemLabel="người dùng"
+                      isDarkMode={isDarkMode}
+                      itemsPerPageOptions={[5, 10, 20, 50, 100]}
+                    />
                   </div>
                 )}
             </>

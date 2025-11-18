@@ -7,6 +7,8 @@ import AdminNav from '@/components/admin/AdminNav';
 import Footer from '@/components/common/Footer';
 import ProtectedRoute from '@/components/common/ProtectedRoute';
 import Image from 'next/image';
+import { Loader, Users, CheckCircle2, Clock, XCircle, Ban } from 'lucide-react';
+import PaginationBar from '@/components/common/PaginationBar';
 
 interface ClubMember {
   _id: string;
@@ -55,6 +57,9 @@ export default function MemberStatusPage() {
   const [showRejectionModal, setShowRejectionModal] = useState(false);
   const [selectedMembershipId, setSelectedMembershipId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [membersPerPage, setMembersPerPage] = useState(10);
+  const [totalMembers, setTotalMembers] = useState(0);
 
   // Check if desktop
   useEffect(() => {
@@ -124,7 +129,7 @@ export default function MemberStatusPage() {
   // Load members data
   useEffect(() => {
     loadMembers();
-  }, []);
+  }, [currentPage, membersPerPage]);
 
   const loadMembers = async () => {
     setLoading(true);
@@ -134,8 +139,13 @@ export default function MemberStatusPage() {
         throw new Error('No authentication token found');
       }
 
-      // Load all memberships (all statuses)
-      const response = await fetch('/api/memberships', {
+      // Load all memberships (all statuses) with pagination
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: membersPerPage.toString()
+      });
+      
+      const response = await fetch(`/api/memberships?${params}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -151,6 +161,9 @@ export default function MemberStatusPage() {
       
       if (data.success) {
         setMembers(data.data.memberships);
+        // Get total count from pagination if available, otherwise use length
+        const total = data.data.pagination?.totalCount || data.data.memberships.length;
+        setTotalMembers(total);
       } else {
         throw new Error(data.error || 'Failed to load members');
       }
@@ -229,26 +242,46 @@ export default function MemberStatusPage() {
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
-      ACTIVE: { color: 'bg-green-100 text-green-800', text: 'Hoạt động' },
-      INACTIVE: { color: 'bg-red-100 text-red-800', text: 'Không hoạt động' },
-      PENDING: { color: 'bg-yellow-100 text-yellow-800', text: 'Chờ duyệt' },
-      REJECTED: { color: 'bg-orange-100 text-orange-800', text: 'Đã từ chối' },
-      REMOVED: { color: 'bg-red-100 text-red-800', text: 'Đã xóa' }
+      ACTIVE: { 
+        textColor: isDarkMode ? 'text-emerald-400' : 'text-emerald-600', 
+        border: isDarkMode ? 'border-emerald-500/50' : 'border-emerald-300', 
+        label: 'Hoạt động' 
+      },
+      INACTIVE: { 
+        textColor: isDarkMode ? 'text-red-400' : 'text-red-600', 
+        border: isDarkMode ? 'border-red-500/50' : 'border-red-300', 
+        label: 'Không hoạt động' 
+      },
+      PENDING: { 
+        textColor: isDarkMode ? 'text-amber-400' : 'text-amber-600', 
+        border: isDarkMode ? 'border-amber-500/50' : 'border-amber-300', 
+        label: 'Chờ duyệt' 
+      },
+      REJECTED: { 
+        textColor: isDarkMode ? 'text-orange-400' : 'text-orange-600', 
+        border: isDarkMode ? 'border-orange-500/50' : 'border-orange-300', 
+        label: 'Đã từ chối' 
+      },
+      REMOVED: { 
+        textColor: isDarkMode ? 'text-red-400' : 'text-red-600', 
+        border: isDarkMode ? 'border-red-500/50' : 'border-red-300', 
+        label: 'Đã xóa' 
+      }
     };
     const config = statusConfig[status as keyof typeof statusConfig];
     
     if (!config) {
       return (
-        <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">
+        <div className={`w-full min-w-[120px] px-2.5 py-1.5 text-xs font-semibold rounded-lg border text-center flex items-center justify-center ${isDarkMode ? 'border-gray-600 text-gray-300 bg-gray-800/30' : 'border-gray-300 text-gray-700 bg-transparent'} shadow-sm`}>
           {status || 'Không xác định'}
-        </span>
+        </div>
       );
     }
     
     return (
-      <span className={`px-2 py-1 text-xs font-medium rounded-full ${config.color}`}>
-        {config.text}
-      </span>
+      <div className={`w-full min-w-[120px] px-2.5 py-1.5 text-xs font-semibold rounded-lg border shadow-sm text-center flex items-center justify-center ${config.border} ${config.textColor} ${isDarkMode ? 'bg-gray-800/30' : 'bg-transparent'}`}>
+        {config.label}
+      </div>
     );
   };
 
@@ -256,34 +289,58 @@ export default function MemberStatusPage() {
     // Handle undefined, null, or empty string
     if (!role || role.trim() === '') {
       return (
-        <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">
+        <div className={`w-full min-w-[120px] px-2.5 py-1.5 text-xs font-semibold rounded-lg border text-center flex items-center justify-center ${isDarkMode ? 'border-gray-600 text-gray-300 bg-gray-800/30' : 'border-gray-300 text-gray-700 bg-transparent'} shadow-sm`}>
           Không xác định
-        </span>
+        </div>
       );
     }
 
     const roleConfig = {
-      SUPER_ADMIN: { color: 'bg-purple-100 text-purple-800', text: 'Quản Trị Hệ Thống' },
-      CLUB_LEADER: { color: 'bg-red-100 text-red-800', text: 'Chủ Nhiệm CLB' },
-      CLUB_DEPUTY: { color: 'bg-orange-100 text-orange-800', text: 'Phó Chủ Nhiệm' },
-      CLUB_MEMBER: { color: 'bg-blue-100 text-blue-800', text: 'Ủy Viên BCH' },
-      CLUB_STUDENT: { color: 'bg-green-100 text-green-800', text: 'Thành Viên CLB' },
-      STUDENT: { color: 'bg-gray-100 text-gray-800', text: 'Sinh Viên' }
+      SUPER_ADMIN: { 
+        textColor: isDarkMode ? 'text-purple-400' : 'text-purple-600', 
+        border: isDarkMode ? 'border-purple-500/50' : 'border-purple-300', 
+        label: 'Quản Trị Hệ Thống' 
+      },
+      CLUB_LEADER: { 
+        textColor: isDarkMode ? 'text-red-400' : 'text-red-600', 
+        border: isDarkMode ? 'border-red-500/50' : 'border-red-300', 
+        label: 'Chủ Nhiệm CLB' 
+      },
+      CLUB_DEPUTY: { 
+        textColor: isDarkMode ? 'text-orange-400' : 'text-orange-600', 
+        border: isDarkMode ? 'border-orange-500/50' : 'border-orange-300', 
+        label: 'Phó Chủ Nhiệm' 
+      },
+      CLUB_MEMBER: { 
+        textColor: isDarkMode ? 'text-blue-400' : 'text-blue-600', 
+        border: isDarkMode ? 'border-blue-500/50' : 'border-blue-300', 
+        label: 'Ủy Viên BCH' 
+      },
+      CLUB_STUDENT: { 
+        textColor: isDarkMode ? 'text-emerald-400' : 'text-emerald-600', 
+        border: isDarkMode ? 'border-emerald-500/50' : 'border-emerald-300', 
+        label: 'Thành Viên CLB' 
+      },
+      STUDENT: { 
+        textColor: isDarkMode ? 'text-gray-400' : 'text-gray-600', 
+        border: isDarkMode ? 'border-gray-500/50' : 'border-gray-300', 
+        label: 'Sinh Viên' 
+      }
     };
     
     const config = roleConfig[role as keyof typeof roleConfig];
     if (!config) {
       console.warn(`Unknown role: ${role}`);
       return (
-        <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">
+        <div className={`w-full min-w-[120px] px-2.5 py-1.5 text-xs font-semibold rounded-lg border text-center flex items-center justify-center ${isDarkMode ? 'border-gray-600 text-gray-300 bg-gray-800/30' : 'border-gray-300 text-gray-700 bg-transparent'} shadow-sm`}>
           Không xác định
-        </span>
+        </div>
       );
     }
     return (
-      <span className={`px-2 py-1 text-xs font-medium rounded-full ${config.color}`}>
-        {config.text}
-      </span>
+      <div className={`w-full min-w-[120px] px-2.5 py-1.5 text-xs font-semibold rounded-lg border shadow-sm text-center flex items-center justify-center ${config.border} ${config.textColor} ${isDarkMode ? 'bg-gray-800/30' : 'bg-transparent'}`}>
+        {config.label}
+      </div>
     );
   };
 
@@ -394,56 +451,46 @@ export default function MemberStatusPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <span className="text-blue-600 text-xl">👥</span>
-                </div>
-                <div className="ml-4">
-                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Tổng thành viên</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.total}</p>
+                <Users size={20} className={`${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} strokeWidth={1.5} />
+                <div className="ml-3">
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Tổng thành viên</p>
+                  <p className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.total}</p>
                 </div>
               </div>
             </div>
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
-                <div className="p-2 bg-green-100 rounded-lg">
-                  <span className="text-green-600 text-xl">✅</span>
-                </div>
-                <div className="ml-4">
-                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Đang hoạt động</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.active}</p>
+                <CheckCircle2 size={20} className={`${isDarkMode ? 'text-green-400' : 'text-green-600'}`} strokeWidth={1.5} />
+                <div className="ml-3">
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Đang hoạt động</p>
+                  <p className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.active}</p>
                 </div>
               </div>
             </div>
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
-                <div className="p-2 bg-yellow-100 rounded-lg">
-                  <span className="text-yellow-600 text-xl">⏳</span>
-                </div>
-                <div className="ml-4">
-                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Chờ duyệt</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.pending}</p>
+                <Clock size={20} className={`${isDarkMode ? 'text-yellow-400' : 'text-yellow-600'}`} strokeWidth={1.5} />
+                <div className="ml-3">
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Chờ duyệt</p>
+                  <p className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.pending}</p>
                 </div>
               </div>
             </div>
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
-                <div className="p-2 bg-red-100 rounded-lg">
-                  <span className="text-red-600 text-xl">❌</span>
-                </div>
-                <div className="ml-4">
-                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Không hoạt động</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.inactive}</p>
+                <XCircle size={20} className={`${isDarkMode ? 'text-red-400' : 'text-red-600'}`} strokeWidth={1.5} />
+                <div className="ml-3">
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Không hoạt động</p>
+                  <p className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.inactive}</p>
                 </div>
               </div>
             </div>
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
-                <div className="p-2 bg-orange-100 rounded-lg">
-                  <span className="text-orange-600 text-xl">🚫</span>
-                </div>
-                <div className="ml-4">
-                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Đã từ chối</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.rejected}</p>
+                <Ban size={20} className={`${isDarkMode ? 'text-orange-400' : 'text-orange-600'}`} strokeWidth={1.5} />
+                <div className="ml-3">
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Đã từ chối</p>
+                  <p className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{stats.rejected}</p>
                 </div>
               </div>
             </div>
@@ -453,84 +500,103 @@ export default function MemberStatusPage() {
           <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border shadow-sm overflow-hidden`}>
             {loading ? (
               <div className="p-8 text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                <Loader size={48} className="animate-spin text-blue-600 mx-auto mb-4" strokeWidth={1.5} />
                 <p className={`mt-4 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Đang tải dữ liệu...</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className={`${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
-                    <tr>
-                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
+              <>
+                {/* Pagination - Top */}
+                {!loading && totalMembers > 0 && (
+                  <div className="px-6 py-3 border-b border-gray-200 dark:border-gray-700">
+                    <PaginationBar
+                      totalItems={totalMembers}
+                      currentPage={currentPage}
+                      itemsPerPage={membersPerPage}
+                      onPageChange={(page) => setCurrentPage(page)}
+                      onItemsPerPageChange={(newItemsPerPage) => {
+                        setMembersPerPage(newItemsPerPage);
+                        setCurrentPage(1);
+                      }}
+                      itemLabel="thành viên"
+                      isDarkMode={isDarkMode}
+                      itemsPerPageOptions={[5, 10, 20, 50, 100]}
+                    />
+                  </div>
+                )}
+                <div className="overflow-x-auto">
+                <table className={`min-w-full border-collapse border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                  <thead>
+                    <tr className="bg-blue-600">
+                      <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider border border-blue-700 text-white`}>
                         Thành viên
                       </th>
-                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
+                      <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider border border-blue-700 text-white`}>
                         Thông tin
                       </th>
-                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
+                      <th className={`px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider border border-blue-700 text-white`}>
                         Vai trò & Trạng thái
                       </th>
-                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
+                      <th className={`px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider border border-blue-700 text-white`}>
                         Thay đổi trạng thái
                       </th>
                     </tr>
                   </thead>
-                  <tbody className={`${isDarkMode ? 'bg-gray-800 divide-gray-700' : 'bg-white divide-gray-200'}`}>
+                  <tbody className={`${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
                     {members.map((member) => (
                       <tr key={member._id} className={`${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-50'} transition-colors duration-200`}>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className={`px-4 py-3 whitespace-nowrap border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
                           <div className="flex items-center">
-                            <div className="flex-shrink-0 h-12 w-12">
+                            <div className="flex-shrink-0 h-10 w-10">
                               {member.userId?.avatarUrl ? (
                                 <Image
                                   src={member.userId.avatarUrl}
                                   alt={member.userId.name || 'User'}
-                                  width={48}
-                                  height={48}
-                                  className="h-12 w-12 rounded-full object-cover"
+                                  width={40}
+                                  height={40}
+                                  className="h-10 w-10 rounded-full object-cover"
                                 />
                               ) : (
-                                <div className="h-12 w-12 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center">
-                                  <span className="text-white text-sm font-bold">
+                                <div className="h-10 w-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center">
+                                  <span className="text-white text-xs font-bold">
                                     {getInitials(member.userId?.name || 'U')}
                                   </span>
                                 </div>
                               )}
                             </div>
-                            <div className="ml-4">
-                              <div className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                            <div className="ml-3">
+                              <div className={`text-xs font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                                 {member.userId?.name || 'Không có tên'}
                               </div>
-                              <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                              <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                 {member.userId?.studentId || 'Không có MSSV'}
                               </div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-900'}`}>
+                        <td className={`px-4 py-3 whitespace-nowrap border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                          <div className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-900'}`}>
                             <div>{member.userId?.email || 'Không có email'}</div>
-                            <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                            <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                               {member.userId?.phone || 'Không có số điện thoại'}
                             </div>
-                            <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                            <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                               {member.userId?.class || 'Chưa cập nhật'} - {member.userId?.faculty || 'Chưa cập nhật'}
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="space-y-2">
+                        <td className={`px-4 py-3 whitespace-nowrap border text-center ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                          <div className="flex flex-col items-center justify-center gap-2 w-full max-w-[140px] mx-auto">
                             {getRoleBadge(member.userId?.role)}
                             {getStatusBadge(member.status)}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center space-x-2">
+                        <td className={`px-4 py-3 whitespace-nowrap border text-center ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                          <div className="flex items-center justify-center space-x-2">
                             <select
                               value={member.status}
                               onChange={(e) => handleStatusChange(member._id, e.target.value)}
                               disabled={updatingStatus === member._id}
-                              className={`px-3 py-1 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+                              className={`px-2 py-1 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
                                 isDarkMode 
                                   ? 'bg-gray-700 border-gray-600 text-white' 
                                   : 'bg-white border-gray-300 text-gray-900'
@@ -542,7 +608,7 @@ export default function MemberStatusPage() {
                               <option value="REJECTED">Từ chối</option>
                             </select>
                             {updatingStatus === member._id && (
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                              <Loader size={14} className="animate-spin text-blue-600" strokeWidth={1.5} />
                             )}
                           </div>
                         </td>
@@ -551,6 +617,25 @@ export default function MemberStatusPage() {
                   </tbody>
                 </table>
               </div>
+              {/* Pagination - Bottom */}
+              {!loading && totalMembers > 0 && (
+                <div className="px-6 py-3 border-t border-gray-200 dark:border-gray-700">
+                  <PaginationBar
+                    totalItems={totalMembers}
+                    currentPage={currentPage}
+                    itemsPerPage={membersPerPage}
+                    onPageChange={(page) => setCurrentPage(page)}
+                    onItemsPerPageChange={(newItemsPerPage) => {
+                      setMembersPerPage(newItemsPerPage);
+                      setCurrentPage(1);
+                    }}
+                    itemLabel="thành viên"
+                    isDarkMode={isDarkMode}
+                    itemsPerPageOptions={[5, 10, 20, 50, 100]}
+                  />
+                </div>
+              )}
+            </>
             )}
           </div>
         </main>

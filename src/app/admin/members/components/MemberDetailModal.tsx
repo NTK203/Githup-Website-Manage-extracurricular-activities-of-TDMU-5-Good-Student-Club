@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { User, X, Mail, Phone, Building, Calendar, GraduationCap, Shield, Users, Crown, CheckCircle2, XCircle, Clock, AlertCircle, Loader } from 'lucide-react';
 
 interface ClubMember {
   _id: string;
@@ -42,6 +44,12 @@ export default function MemberDetailModal({ isOpen, onClose, memberId, isDarkMod
   const [member, setMember] = useState<ClubMember | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
 
   useEffect(() => {
     if (isOpen && memberId) {
@@ -150,99 +158,115 @@ export default function MemberDetailModal({ isOpen, onClose, memberId, isDarkMod
 
 
   
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
-  return (
-    <div className="fixed inset-0 z-[99999] overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-        {/* Background overlay */}
+  const modalContent = (
+    <>
+      {/* Background overlay - phủ toàn màn hình bao gồm cả sidebar */}
+      <div 
+        className="fixed inset-0 bg-black/60 transition-opacity"
+        onClick={onClose}
+        style={{ 
+          left: 0, 
+          top: 0, 
+          right: 0, 
+          bottom: 0,
+          zIndex: 99999
+        }}
+      ></div>
+
+      {/* Modal panel */}
+      <div 
+        className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none"
+        style={{
+          left: 0,
+          right: 0,
+          top: 0,
+          bottom: 0,
+          margin: 0,
+          padding: '1rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 100000
+        }}
+      >
         <div 
-          className="fixed inset-0 bg-black/50 transition-opacity"
-          onClick={onClose}
-        ></div>
-
-        {/* Modal panel */}
-        <div className={`inline-block align-bottom rounded-2xl text-left overflow-hidden shadow-2xl transform transition-all duration-300 sm:my-8 sm:align-middle sm:max-w-3xl sm:w-full relative z-[10000] ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}>
+          className={`relative rounded-lg text-left overflow-hidden shadow-2xl transform transition-all duration-300 w-full max-w-lg pointer-events-auto ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}
+          onClick={(e) => e.stopPropagation()}
+          style={{ 
+            margin: '0 auto',
+            maxHeight: '85vh',
+            overflowY: 'auto',
+            zIndex: 100000
+          }}
+        >
           {/* Header */}
-          <div className={`px-6 py-6 border-b ${isDarkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}>
+          <div className={`px-3 py-2 border-b ${isDarkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}>
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-blue-600' : 'bg-blue-500'}`}>
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    Chi tiết thành viên CLB
-                  </h3>
-                  <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                    Thông tin chi tiết về thành viên
-                  </p>
-                </div>
+              <div className="flex items-center space-x-2">
+                <User size={16} className={`${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} strokeWidth={1.5} />
+                <h3 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  Chi tiết thành viên CLB
+                </h3>
               </div>
               <button
                 onClick={onClose}
-                className={`p-2 rounded-lg transition-all duration-300 hover:scale-110 ${isDarkMode ? 'text-gray-400 hover:text-white hover:bg-gray-700' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                className={`p-1 rounded-md transition-all duration-300 hover:scale-110 ${isDarkMode ? 'text-gray-400 hover:text-white hover:bg-gray-700' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <X size={16} strokeWidth={1.5} />
               </button>
             </div>
           </div>
 
           {/* Content */}
-          <div className="px-6 py-6">
+          <div className="px-3 py-3">
             {loading ? (
-              <div className="text-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent mx-auto"></div>
-                <p className={`mt-4 text-base font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Đang tải thông tin...</p>
-                <p className={`mt-2 text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>Vui lòng chờ trong giây lát</p>
+              <div className="text-center py-6">
+                <Loader size={32} className="animate-spin text-blue-600 mx-auto mb-2" strokeWidth={1.5} />
+                <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Đang tải thông tin...</p>
               </div>
             ) : error ? (
-              <div className="text-center py-12">
-                <div className={`p-6 rounded-xl max-w-md mx-auto ${isDarkMode ? 'bg-red-900/20 border border-red-700' : 'bg-red-50 border border-red-200'}`}>
-                  <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+              <div className="text-center py-8">
+                <div className={`p-4 rounded-lg max-w-md mx-auto ${isDarkMode ? 'bg-red-900/20 border border-red-700' : 'bg-red-50 border border-red-200'}`}>
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-2">
+                    <AlertCircle size={20} className="text-red-600" strokeWidth={1.5} />
                   </div>
                   <p className="text-red-600 font-semibold text-base">{error}</p>
                 </div>
               </div>
             ) : member ? (
-              <div className="space-y-6">
+              <div className="space-y-2">
                 {/* Member Info Card */}
-                <div className={`p-6 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'} shadow-sm`}>
-                  <div className="flex items-center space-x-6">
+                <div className={`p-2.5 rounded-md ${isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'} shadow-sm`}>
+                  <div className="flex items-center space-x-2.5">
                     <div className="flex-shrink-0">
                       {member.userId?.avatarUrl ? (
                         <img
-                          className="h-20 w-20 rounded-lg object-cover border border-gray-200"
+                          className="h-10 w-10 rounded-md object-cover border border-gray-200"
                           src={member.userId.avatarUrl}
                           alt={member.userId.name || 'User'}
                         />
                       ) : (
-                        <div className="h-20 w-20 bg-blue-600 rounded-lg flex items-center justify-center border border-gray-200">
-                          <span className="text-white text-2xl font-bold">
+                        <div className="h-10 w-10 bg-blue-600 rounded-md flex items-center justify-center border border-gray-200">
+                          <span className="text-white text-xs font-bold">
                             {getInitials(member.userId?.name || 'U')}
                           </span>
                         </div>
                       )}
                     </div>
-                    <div className="flex-1">
-                      <h4 className={`text-2xl font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    <div className="flex-1 min-w-0">
+                      <h4 className={`text-base font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                         {member.userId?.name || 'Không có tên'}
                       </h4>
-                      <p className={`text-lg mb-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} font-medium`}>
+                      <p className={`text-sm mb-1.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} font-medium`}>
                         {member.userId?.studentId || 'Không có MSSV'}
                       </p>
-                      <div className="flex items-center space-x-3">
-                        <span className={`inline-flex px-4 py-2 text-xs font-bold rounded-lg ${getRoleBadgeColor(member.userId?.role)}`}>
+                      <div className="flex items-center space-x-1.5 flex-wrap">
+                        <span className={`inline-flex px-2 py-1 text-xs font-bold rounded ${getRoleBadgeColor(member.userId?.role)}`}>
                           {getRoleDisplayName(member.userId?.role)}
                         </span>
-                        <span className={`inline-flex px-4 py-2 text-xs font-bold rounded-lg ${getStatusBadgeColor(member.status)}`}>
+                        <span className={`inline-flex px-2 py-1 text-xs font-bold rounded ${getStatusBadgeColor(member.status)}`}>
                           {getStatusDisplayName(member.status)}
                         </span>
                       </div>
@@ -251,62 +275,62 @@ export default function MemberDetailModal({ isOpen, onClose, memberId, isDarkMod
                 </div>
 
                 {/* Contact Info Card */}
-                <div className={`p-6 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'} shadow-sm`}>
-                  <h5 className={`text-lg font-bold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                <div className={`p-2.5 rounded-md ${isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'} shadow-sm`}>
+                  <h5 className={`text-sm font-bold mb-1.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                     Thông tin liên hệ
                   </h5>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-white border border-gray-200'}`}>
-                      <p className={`text-xs font-bold mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} uppercase tracking-wide`}>Email</p>
-                      <p className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                    <div className={`p-2 rounded ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
+                      <p className={`text-xs font-semibold mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} uppercase`}>Email</p>
+                      <p className={`font-medium text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                         {member.userId?.email || 'Không có email'}
                       </p>
                     </div>
                     {member.userId?.phone && (
-                      <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-white border border-gray-200'}`}>
-                        <p className={`text-xs font-bold mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} uppercase tracking-wide`}>Số điện thoại</p>
-                        <p className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{member.userId.phone}</p>
+                      <div className={`p-2 rounded ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
+                        <p className={`text-xs font-semibold mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} uppercase`}>Số điện thoại</p>
+                        <p className={`font-medium text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{member.userId.phone}</p>
                       </div>
                     )}
                     {member.userId?.class && (
-                      <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-white border border-gray-200'}`}>
-                        <p className={`text-xs font-bold mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} uppercase tracking-wide`}>Lớp</p>
-                        <p className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{member.userId.class}</p>
+                      <div className={`p-2 rounded ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
+                        <p className={`text-xs font-semibold mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} uppercase`}>Lớp</p>
+                        <p className={`font-medium text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{member.userId.class}</p>
                       </div>
                     )}
                     {member.userId?.faculty && (
-                      <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-white border border-gray-200'}`}>
-                        <p className={`text-xs font-bold mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} uppercase tracking-wide`}>Khoa/Viện</p>
-                        <p className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{member.userId.faculty}</p>
+                      <div className={`p-2 rounded ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
+                        <p className={`text-xs font-semibold mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} uppercase`}>Khoa/Viện</p>
+                        <p className={`font-medium text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{member.userId.faculty}</p>
                       </div>
                     )}
                   </div>
                 </div>
 
                 {/* Membership Info Card */}
-                <div className={`p-6 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'} shadow-sm`}>
-                  <h5 className={`text-lg font-bold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                <div className={`p-2.5 rounded-md ${isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'} shadow-sm`}>
+                  <h5 className={`text-sm font-bold mb-1.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                     Thông tin thành viên
                   </h5>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-white border border-gray-200'}`}>
-                      <p className={`text-xs font-bold mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} uppercase tracking-wide`}>Ngày tham gia</p>
-                      <p className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                    <div className={`p-2 rounded ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
+                      <p className={`text-xs font-semibold mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} uppercase`}>Ngày tham gia</p>
+                      <p className={`font-medium text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                         {formatDate(member.joinedAt)}
                       </p>
                     </div>
                     {member.approvedAt && (
-                      <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-white border border-gray-200'}`}>
-                        <p className={`text-xs font-bold mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} uppercase tracking-wide`}>Ngày duyệt</p>
-                        <p className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                      <div className={`p-2 rounded ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
+                        <p className={`text-xs font-semibold mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} uppercase`}>Ngày duyệt</p>
+                        <p className={`font-medium text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                           {formatDate(member.approvedAt)}
                         </p>
                       </div>
                     )}
                     {member.approvedBy && (
-                      <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-white border border-gray-200'} md:col-span-2`}>
-                        <p className={`text-xs font-bold mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} uppercase tracking-wide`}>Người duyệt</p>
-                        <p className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                      <div className={`p-2 rounded ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-gray-50 border border-gray-200'} md:col-span-2`}>
+                        <p className={`text-xs font-semibold mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} uppercase`}>Người duyệt</p>
+                        <p className={`font-medium text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                           {member.approvedBy.name} ({member.approvedBy.studentId})
                         </p>
                       </div>
@@ -316,14 +340,14 @@ export default function MemberDetailModal({ isOpen, onClose, memberId, isDarkMod
 
                 {/* Application Details Card */}
                 {(member.motivation || member.experience || member.expectations || member.commitment) && (
-                  <div className={`p-6 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'} shadow-sm`}>
-                    <h5 className={`text-lg font-bold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'} shadow-sm`}>
+                    <h5 className={`text-base font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                       Chi tiết đơn đăng ký
                     </h5>
-                    <div className="space-y-4">
+                    <div className="space-y-2">
                       {member.motivation && (
-                        <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-white border border-gray-200'}`}>
-                          <p className={`text-xs font-bold mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} uppercase tracking-wide`}>
+                        <div className={`p-2 rounded ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
+                          <p className={`text-xs font-semibold mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} uppercase`}>
                             Động lực tham gia
                           </p>
                           <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} leading-relaxed text-sm`}>
@@ -332,8 +356,8 @@ export default function MemberDetailModal({ isOpen, onClose, memberId, isDarkMod
                         </div>
                       )}
                       {member.experience && (
-                        <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-white border border-gray-200'}`}>
-                          <p className={`text-xs font-bold mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} uppercase tracking-wide`}>
+                        <div className={`p-2 rounded ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
+                          <p className={`text-xs font-semibold mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} uppercase`}>
                             Kinh nghiệm
                           </p>
                           <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} leading-relaxed text-sm`}>
@@ -342,8 +366,8 @@ export default function MemberDetailModal({ isOpen, onClose, memberId, isDarkMod
                         </div>
                       )}
                       {member.expectations && (
-                        <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-white border border-gray-200'}`}>
-                          <p className={`text-xs font-bold mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} uppercase tracking-wide`}>
+                        <div className={`p-2 rounded ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
+                          <p className={`text-xs font-semibold mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} uppercase`}>
                             Kỳ vọng
                           </p>
                           <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} leading-relaxed text-sm`}>
@@ -352,8 +376,8 @@ export default function MemberDetailModal({ isOpen, onClose, memberId, isDarkMod
                         </div>
                       )}
                       {member.commitment && (
-                        <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-white border border-gray-200'}`}>
-                          <p className={`text-xs font-bold mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} uppercase tracking-wide`}>
+                        <div className={`p-2 rounded ${isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
+                          <p className={`text-xs font-semibold mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} uppercase`}>
                             Cam kết
                           </p>
                           <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} leading-relaxed text-sm`}>
@@ -382,11 +406,11 @@ export default function MemberDetailModal({ isOpen, onClose, memberId, isDarkMod
           </div>
 
           {/* Footer */}
-          <div className={`px-6 py-4 border-t ${isDarkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}>
+          <div className={`px-3 py-2 border-t ${isDarkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}>
             <div className="flex justify-end">
               <button
                 onClick={onClose}
-                className={`px-6 py-2 rounded-lg font-semibold transition-all duration-300 hover:scale-105 shadow-md ${isDarkMode ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                className={`px-4 py-2 rounded-md text-sm font-semibold transition-all duration-300 hover:scale-105 shadow-md ${isDarkMode ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
               >
                 Đóng
               </button>
@@ -394,6 +418,8 @@ export default function MemberDetailModal({ isOpen, onClose, memberId, isDarkMod
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
+
+  return createPortal(modalContent, document.body);
 }

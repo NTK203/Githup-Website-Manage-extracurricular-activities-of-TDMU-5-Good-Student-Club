@@ -1,5 +1,7 @@
 'use client';
 
+import { Loader2, MapPin, Search } from 'lucide-react';
+
 interface LoadingSpinnerProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
   color?: 'primary' | 'secondary' | 'white';
@@ -13,11 +15,11 @@ export default function LoadingSpinner({
   text,
   className = '' 
 }: LoadingSpinnerProps) {
-  const sizeClasses = {
-    sm: 'w-4 h-4',
-    md: 'w-8 h-8',
-    lg: 'w-12 h-12',
-    xl: 'w-16 h-16'
+  const sizeMap = {
+    sm: 16,
+    md: 32,
+    lg: 48,
+    xl: 64
   };
 
   const colorClasses = {
@@ -28,16 +30,10 @@ export default function LoadingSpinner({
 
   return (
     <div className={`flex flex-col items-center justify-center ${className}`}>
-      <div className="relative">
-        {/* Outer ring */}
-        <div className={`${sizeClasses[size]} border-2 border-gray-200 rounded-full animate-pulse`}></div>
-        
-        {/* Spinning ring */}
-        <div className={`absolute top-0 left-0 ${sizeClasses[size]} border-2 border-transparent border-t-current rounded-full animate-spin ${colorClasses[color]}`}></div>
-        
-        {/* Inner dot */}
-        <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 ${size === 'sm' ? 'w-1 h-1' : size === 'md' ? 'w-2 h-2' : size === 'lg' ? 'w-3 h-3' : 'w-4 h-4'} bg-current rounded-full ${colorClasses[color]} animate-pulse`}></div>
-      </div>
+      <Loader2 
+        size={sizeMap[size]} 
+        className={`animate-spin ${colorClasses[color]}`}
+      />
       
       {text && (
         <p className="mt-4 text-sm text-gray-600 dark:text-gray-400 font-medium animate-pulse">
@@ -128,7 +124,7 @@ export function TimeSlotValidationLoading({
 }) {
   return (
     <div className={`flex items-center justify-center space-x-3 p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 ${className}`}>
-      <div className="w-5 h-5 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
+      <Loader2 size={20} className="text-yellow-500 animate-spin" />
       <div className="text-sm font-medium text-yellow-700 dark:text-yellow-300">
         Đang kiểm tra buổi...
       </div>
@@ -144,7 +140,8 @@ export function LocationSelectionLoading({
 }) {
   return (
     <div className={`flex items-center justify-center space-x-3 p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 ${className}`}>
-      <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+      <Loader2 size={20} className="text-blue-500 animate-spin" />
+      <MapPin size={16} className="text-blue-600 dark:text-blue-400" />
       <div className="text-sm font-medium text-blue-700 dark:text-blue-300">
         Đang xử lý địa điểm...
       </div>
@@ -160,7 +157,8 @@ export function SearchLoading({
 }) {
   return (
     <div className={`flex items-center justify-center space-x-3 p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 ${className}`}>
-      <div className="w-5 h-5 border-2 border-green-500 border-t-transparent rounded-full animate-spin"></div>
+      <Loader2 size={20} className="text-green-500 animate-spin" />
+      <Search size={16} className="text-green-600 dark:text-green-400" />
       <div className="text-sm font-medium text-green-700 dark:text-green-300">
         Đang tìm kiếm...
       </div>

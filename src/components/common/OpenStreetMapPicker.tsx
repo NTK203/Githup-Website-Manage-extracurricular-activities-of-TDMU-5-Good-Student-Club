@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
+import { Search, MapPin, AlertCircle, CheckCircle, XCircle, Ruler, Lightbulb, Info, X, ZoomIn, Maximize2, Move, MousePointer2 } from 'lucide-react';
 
 // Dynamically import Leaflet components to avoid SSR issues
 const MapContainer = dynamic(
@@ -53,6 +54,9 @@ interface OpenStreetMapPickerProps {
   activeTimeSlots?: TimeSlot[];
   isReadOnly?: boolean;
   enforceActiveTimeSlots?: boolean;
+  locationContext?: 'global' | 'perDay' | 'perSlot';
+  dayLabel?: string; // Label cho PerDay mode (ví dụ: "Thứ 2")
+  slotLabel?: string; // Label cho PerSlot mode (ví dụ: "Buổi Sáng")
 }
 
 export default function OpenStreetMapPicker({
@@ -61,7 +65,10 @@ export default function OpenStreetMapPicker({
   isDarkMode = false,
   activeTimeSlots = [],
   isReadOnly = false,
-  enforceActiveTimeSlots = true
+  enforceActiveTimeSlots = true,
+  locationContext = 'global',
+  dayLabel,
+  slotLabel
 }: OpenStreetMapPickerProps) {
   const [tempLocation, setTempLocation] = useState<LocationData | null>(null);
   const [showLocationConfirm, setShowLocationConfirm] = useState(false);
@@ -93,6 +100,7 @@ export default function OpenStreetMapPicker({
   useEffect(() => {
     if (initialLocation) {
       setSelectedLocation(initialLocation);
+      setSearchQuery(initialLocation.address); // Cập nhật searchQuery khi có initialLocation
       if (mapRef.current) {
         mapRef.current.setView([initialLocation.lat, initialLocation.lng], 16, {
           animate: true,
@@ -129,6 +137,13 @@ export default function OpenStreetMapPicker({
       }
     }
   }, [initialLocation]); // Chạy lại khi initialLocation thay đổi (để ưu tiên nó)
+
+  // Effect để cập nhật searchQuery khi selectedLocation thay đổi
+  useEffect(() => {
+    if (selectedLocation && selectedLocation.address) {
+      setSearchQuery(selectedLocation.address);
+    }
+  }, [selectedLocation]);
 
   // Get current location when component mounts
   useEffect(() => {
@@ -322,9 +337,10 @@ export default function OpenStreetMapPicker({
           radius
         };
         
-              console.log('✅ Got full address:', address);
-      setTempLocation(newLocation);
-      setShowLocationConfirm(true);
+        console.log('✅ Got full address:', address);
+        setTempLocation(newLocation);
+        setSearchQuery(address); // Cập nhật searchQuery với địa chỉ đầy đủ
+        setShowLocationConfirm(true);
       } else {
         throw new Error('Failed to get address');
       }
@@ -740,25 +756,23 @@ export default function OpenStreetMapPicker({
             : 'bg-gradient-to-br from-white/90 to-gray-50/90 border border-gray-200/50'
         } backdrop-blur-xl shadow-xl`}>
           {/* Search Header */}
-          <div className="p-6 border-b border-gray-200/50 dark:border-gray-700/50">
-            <div className="flex items-center space-x-3">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+          <div className="p-2.5 border-b border-gray-200/50 dark:border-gray-700/50">
+            <div className="flex items-center space-x-2">
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
                 isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
               }`}>
-                <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
+                <Search size={16} className="text-blue-500" />
               </div>
               <div>
-                <h3 className={`text-lg font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                   Tìm kiếm địa chỉ
                 </h3>
-                <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                <p className={`text-[11px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                   Tìm kiếm địa điểm tại Việt Nam
                 </p>
-                {(!activeTimeSlots || activeTimeSlots.length === 0 || !activeTimeSlots.some(slot => slot.isActive)) && (
-                  <p className={`text-xs mt-1 ${isDarkMode ? 'text-yellow-400' : 'text-yellow-600'}`}>
-                    ⚠️ Vui lòng chọn buổi trước khi chọn địa điểm
+                {enforceActiveTimeSlots && (!activeTimeSlots || activeTimeSlots.length === 0 || !activeTimeSlots.some(slot => slot.isActive)) && (
+                  <p className={`text-[10px] mt-0.5 flex items-center gap-1 ${isDarkMode ? 'text-yellow-400' : 'text-yellow-600'}`}>
+                    <AlertCircle size={12} /> Vui lòng chọn buổi trước khi chọn địa điểm
                   </p>
                 )}
               </div>
@@ -766,64 +780,61 @@ export default function OpenStreetMapPicker({
           </div>
 
           {/* Search Input */}
-          <div className="p-6">
+          <div className="p-2.5">
             <div className="relative">
-              <div className={`absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none ${
+              <div className={`absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none ${
                 isDarkMode ? 'text-gray-400' : 'text-gray-500'
               }`}>
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
+                <MapPin className="w-4 h-4" />
               </div>
               <input
                 type="text"
                 value={searchQuery}
                 onChange={handleSearchChange}
                 placeholder="Nhập tên địa chỉ, đường phố, quận huyện, thành phố..."
-                className={`w-full pl-12 pr-12 py-4 rounded-xl border-2 text-lg transition-all duration-300 ${
+                className={`w-full pl-9 pr-9 py-2 rounded-lg border text-sm transition-all duration-300 ${
                   isDarkMode 
-                    ? 'bg-gray-700/50 border-gray-600/50 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20'
-                    : 'bg-white/80 border-gray-300/50 text-gray-900 placeholder-gray-500 focus:border-blue-400 focus:ring-4 focus:ring-blue-500/20'
+                    ? 'bg-gray-700/50 border-gray-600/50 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
+                    : 'bg-white/80 border-gray-300/50 text-gray-900 placeholder-gray-500 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20'
                 } focus:outline-none backdrop-blur-sm`}
               />
               {isSearching && (
-                <div className="absolute inset-y-0 right-0 pr-4 flex items-center">
-                  <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                <div className="absolute inset-y-0 right-0 pr-2.5 flex items-center">
+                  <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                 </div>
               )}
             </div>
 
             {/* Search Results */}
             {showSearchResults && searchResults.length > 0 && (
-              <div className={`mt-2 border rounded-lg max-h-48 overflow-y-auto ${
+              <div className={`mt-1.5 border rounded-lg max-h-40 overflow-y-auto ${
                 isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
               }`}>
                 {searchResults.map((result, index) => (
                   <button
                     key={index}
                     onClick={() => handleSearchResultSelect(result)}
-                    className={`w-full text-left px-3 py-2 hover:bg-blue-50 hover:text-blue-700 transition-colors ${
+                    className={`w-full text-left px-2 py-1.5 hover:bg-blue-50 hover:text-blue-700 transition-colors ${
                       isDarkMode 
                         ? 'text-gray-300 hover:bg-gray-600 hover:text-blue-400'
                         : 'text-gray-700'
                     } ${index !== searchResults.length - 1 ? 'border-b border-gray-200 dark:border-gray-600' : ''}`}
                   >
-                    <div className="flex items-start space-x-2">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${
+                    <div className="flex items-start space-x-1.5">
+                      <div className={`w-5 h-5 rounded-full flex items-center justify-center ${
                         isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-600'
                       }`}>
-                        📍
+                        <MapPin size={12} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">{result.display_name}</div>
-                        <div className={`text-xs ${
+                        <div className="text-xs font-medium truncate">{result.display_name}</div>
+                        <div className={`text-[10px] ${
                           isDarkMode ? 'text-gray-400' : 'text-gray-500'
                         }`}>
                           {formatCoordinates(result.lat, result.lon)}
                         </div>
                         {result.address && (
-                          <div className={`text-xs mt-1 ${
+                          <div className={`text-[10px] mt-0.5 ${
                             isDarkMode ? 'text-gray-500' : 'text-gray-400'
                           }`}>
                             {result.address.city || result.address.town || result.address.state || result.address.country || 'Việt Nam'}
@@ -838,16 +849,16 @@ export default function OpenStreetMapPicker({
             
             {/* No Results Message */}
             {showSearchResults && searchResults.length === 0 && searchQuery.trim() && !isSearching && (
-              <div className={`mt-2 p-3 text-center rounded-lg ${
+              <div className={`mt-1.5 p-2 text-center rounded-lg ${
                 isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-gray-50 border border-gray-200'
               }`}>
-                <div className={`text-sm ${
+                <div className={`text-xs flex flex-col items-center ${
                   isDarkMode ? 'text-gray-400' : 'text-gray-500'
                 }`}>
-                  <span className="block mb-1">🔍</span>
+                  <Search size={16} className="mb-0.5" />
                   Không tìm thấy địa điểm nào
                 </div>
-                <div className={`text-xs ${
+                <div className={`text-[10px] ${
                   isDarkMode ? 'text-gray-500' : 'text-gray-400'
                 }`}>
                   Thử tìm kiếm với từ khóa khác hoặc click trên bản đồ
@@ -858,8 +869,8 @@ export default function OpenStreetMapPicker({
         </div>
       )}
 
-      {/* Time Slot Warning - Only show if not read-only */}
-      {showTimeSlotWarning && !isReadOnly && (
+      {/* Time Slot Warning - Only show if not read-only and enforceActiveTimeSlots is true */}
+      {showTimeSlotWarning && !isReadOnly && enforceActiveTimeSlots && (
         <div className="w-full mb-4">
           <div className={`p-4 rounded-xl shadow-xl max-w-md mx-auto animate-pulse ${
             isDarkMode ? 'bg-yellow-900/20 border border-yellow-500/30' : 'bg-yellow-50/80 border border-yellow-200/50'
@@ -868,7 +879,7 @@ export default function OpenStreetMapPicker({
               <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
                 isDarkMode ? 'bg-yellow-500/20' : 'bg-yellow-100'
               }`}>
-                <span className="text-lg">⚠️</span>
+                <AlertCircle size={20} className={isDarkMode ? 'text-yellow-400' : 'text-yellow-600'} />
               </div>
               <div>
                 <p className={`text-sm font-semibold ${
@@ -892,12 +903,18 @@ export default function OpenStreetMapPicker({
         <div className="w-full mb-4">
           <div className={`p-4 rounded-xl shadow-xl max-w-md mx-auto ${isDarkMode ? 'bg-gray-800 border border-gray-600' : 'bg-white border border-gray-200'}`}>
             <div className="text-center mb-3">
-              <div className="text-2xl mb-2">🎯</div>
+              <div className="mb-2 flex justify-center">
+                <MapPin size={32} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} />
+              </div>
               <h3 className={`font-bold text-lg ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                 Xác nhận địa điểm
               </h3>
               <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                Địa điểm chung cho tất cả các buổi
+                {locationContext === 'perDay' 
+                  ? `Địa điểm cho ${dayLabel || 'ngày này'}`
+                  : locationContext === 'perSlot'
+                  ? `Địa điểm cho ${slotLabel || 'buổi này'}`
+                  : 'Địa điểm chung cho tất cả các buổi'}
               </p>
             </div>
             
@@ -913,15 +930,15 @@ export default function OpenStreetMapPicker({
             <div className="flex space-x-2">
               <button
                 onClick={handleConfirmLocation}
-                className="flex-1 bg-green-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-green-600 transition-colors"
+                className="flex-1 bg-green-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-green-600 transition-colors flex items-center justify-center gap-2"
               >
-                ✅ Chọn
+                <CheckCircle size={18} /> Chọn
               </button>
               <button
                 onClick={handleCancelLocation}
-                className="flex-1 bg-gray-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-gray-600 transition-colors"
+                className="flex-1 bg-gray-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-gray-600 transition-colors flex items-center justify-center gap-2"
               >
-                ❌ Hủy
+                <XCircle size={18} /> Hủy
               </button>
             </div>
           </div>
@@ -934,12 +951,16 @@ export default function OpenStreetMapPicker({
           <div className="bg-green-500 text-white px-6 py-4 rounded-xl shadow-xl max-w-md mx-auto animate-pulse">
             <div className="flex items-center space-x-3">
               <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
-                <span className="text-lg">✅</span>
+                <CheckCircle size={20} className="text-white" />
               </div>
               <div>
                 <div className="font-bold text-lg">Đã chọn địa điểm thành công!</div>
                 <div className="text-sm opacity-90">
-                  Địa điểm chung cho tất cả các buổi
+                  {locationContext === 'perDay' 
+                    ? `Địa điểm cho ${dayLabel || 'ngày này'}`
+                    : locationContext === 'perSlot'
+                    ? `Địa điểm cho ${slotLabel || 'buổi này'}`
+                    : 'Địa điểm chung cho tất cả các buổi'}
                 </div>
               </div>
             </div>
@@ -1025,7 +1046,7 @@ export default function OpenStreetMapPicker({
                        {/* Address */}
                        <div className="mb-3 text-left">
                          <div className="flex items-center space-x-2 mb-1">
-                           <span className="text-blue-500">📍</span>
+                           <MapPin size={16} className="text-blue-500" />
                            <span className="text-sm font-medium">Địa chỉ:</span>
                          </div>
                          <p className="text-sm text-gray-600 pl-6">{selectedLocation.address}</p>
@@ -1036,7 +1057,7 @@ export default function OpenStreetMapPicker({
                          <div className="mb-3">
                            <div className="flex items-center justify-between mb-2">
                              <div className="flex items-center space-x-2">
-                               <span className="text-green-500">📏</span>
+                               <Ruler size={16} className="text-green-500" />
                                <span className="text-sm font-medium">Bán kính:</span>
                              </div>
                              <span className="text-sm font-bold text-green-600">{selectedLocation.radius}m</span>
@@ -1063,7 +1084,7 @@ export default function OpenStreetMapPicker({
                        {!isReadOnly && (
                          <div className="p-2 rounded-lg bg-blue-50 border border-blue-200">
                            <div className="flex items-center space-x-2">
-                             <span className="text-blue-500">💡</span>
+                             <Lightbulb size={14} className="text-blue-500" />
                              <span className="text-xs text-blue-700">Kéo marker để di chuyển vị trí</span>
                            </div>
                          </div>
@@ -1113,7 +1134,7 @@ export default function OpenStreetMapPicker({
                       <div className="text-center min-w-[200px] p-3">
                         <div className="flex items-center space-x-2 mb-2">
                           <div className="w-6 h-6 rounded-lg bg-green-100 flex items-center justify-center">
-                            <span className="text-green-600 text-sm">📏</span>
+                            <Ruler size={14} className="text-green-600" />
                           </div>
                           <div>
                             <p className="font-semibold text-sm text-green-700">Tăng bán kính</p>
@@ -1174,7 +1195,7 @@ export default function OpenStreetMapPicker({
                       <div className="text-center min-w-[200px] p-3">
                         <div className="flex items-center space-x-2 mb-2">
                           <div className="w-6 h-6 rounded-lg bg-red-100 flex items-center justify-center">
-                            <span className="text-red-600 text-sm">📏</span>
+                            <Ruler size={14} className="text-red-600" />
                           </div>
                           <div>
                             <p className="font-semibold text-sm text-red-700">Giảm bán kính</p>
@@ -1279,7 +1300,7 @@ export default function OpenStreetMapPicker({
         {showSuccessMessage && (
           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-30 animate-pulse">
             <div className="flex items-center space-x-2">
-              <span>✅</span>
+              <CheckCircle size={18} className="text-white" />
               <span className="font-medium">Đã chọn địa điểm thành công!</span>
             </div>
           </div>
@@ -1299,10 +1320,7 @@ export default function OpenStreetMapPicker({
                    <div className={`w-24 h-24 rounded-full border-4 border-blue-500/70 animate-pulse`}></div>
                    <div className={`absolute inset-0 flex items-center justify-center`}>
                      <div className={`w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg`}>
-                       <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                       </svg>
+                       <MapPin size={24} className="text-white" />
                      </div>
                    </div>
                  </div>
@@ -1311,16 +1329,14 @@ export default function OpenStreetMapPicker({
                  <div className={`mt-6 text-center`}>
                    <div className={`inline-flex items-center space-x-3 px-6 py-3 rounded-2xl bg-white/90 backdrop-blur-md shadow-xl border border-white/20 animate-float`}>
                      <div className={`w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center`}>
-                       <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                       </svg>
+                       <Info size={16} className="text-white" />
                      </div>
                      <div className="text-left">
                        <p className="text-sm font-semibold text-gray-800">Click để chọn địa điểm</p>
                        <p className="text-xs text-gray-600">Hoặc tìm kiếm địa chỉ ở trên</p>
                        {(!activeTimeSlots || activeTimeSlots.length === 0 || !activeTimeSlots.some(slot => slot.isActive)) && (
-                         <p className="text-xs text-yellow-600 mt-1 font-medium">
-                           ⚠️ Cần chọn buổi trước
+                         <p className="text-xs text-yellow-600 mt-1 font-medium flex items-center gap-1">
+                           <AlertCircle size={12} /> Cần chọn buổi trước
                          </p>
                        )}
                      </div>
@@ -1333,9 +1349,7 @@ export default function OpenStreetMapPicker({
              <div className={`absolute top-4 left-4 pointer-events-auto`}>
                <div className={`flex items-center space-x-2 px-3 py-2 rounded-lg bg-white/90 backdrop-blur-md shadow-lg border border-white/20 corner-guide`}>
                  <div className={`w-6 h-6 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center`}>
-                   <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                   </svg>
+                   <Search size={12} className="text-white" />
                  </div>
                  <span className="text-xs font-medium text-gray-700">Tìm kiếm</span>
                </div>
@@ -1344,9 +1358,7 @@ export default function OpenStreetMapPicker({
              <div className={`absolute top-4 right-4 pointer-events-auto`}>
                <div className={`flex items-center space-x-2 px-3 py-2 rounded-lg bg-white/90 backdrop-blur-md shadow-lg border border-white/20 corner-guide`}>
                  <div className={`w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center`}>
-                   <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9v-9m0-9v9" />
-                   </svg>
+                   <ZoomIn size={12} className="text-white" />
                  </div>
                  <span className="text-xs font-medium text-gray-700">Zoom</span>
                </div>
@@ -1355,9 +1367,7 @@ export default function OpenStreetMapPicker({
              <div className={`absolute bottom-4 right-4 pointer-events-auto`}>
                <div className={`flex items-center space-x-2 px-3 py-2 rounded-lg bg-white/90 backdrop-blur-md shadow-lg border border-white/20 corner-guide`}>
                  <div className={`w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center`}>
-                   <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                   </svg>
+                   <Maximize2 size={12} className="text-white" />
                  </div>
                  <span className="text-xs font-medium text-gray-700">Resize</span>
                </div>
@@ -1384,9 +1394,7 @@ export default function OpenStreetMapPicker({
                   ? 'bg-gray-800/90 hover:bg-gray-700/90 border border-gray-600/50 text-gray-300 hover:text-white' 
                   : 'bg-white/90 hover:bg-gray-100/90 border border-gray-300/50 text-gray-600 hover:text-gray-800'
               } shadow-lg hover:shadow-xl backdrop-blur-sm`}>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <Info size={16} />
               </button>
               
               {/* Hover Guide */}
@@ -1397,33 +1405,33 @@ export default function OpenStreetMapPicker({
               }`}>
                 <div className="space-y-2 text-xs">
                   <div className={`flex items-center space-x-2 ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
-                    <span className="text-sm">📍</span>
-                                         <span><strong>Click</strong> để chọn địa điểm</span>
+                    <MapPin size={14} />
+                    <span><strong>Click</strong> để chọn địa điểm</span>
                   </div>
                   <div className={`flex items-center space-x-2 ${isDarkMode ? 'text-green-300' : 'text-green-600'}`}>
-                    <span className="text-sm">🎯</span>
+                    <Move size={14} />
                     <span><strong>Kéo marker</strong> để di chuyển</span>
                   </div>
                   <div className={`flex items-center space-x-2 ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
-                    <span className="text-sm">📏</span>
+                    <Ruler size={14} />
                     <span><strong>Click +/-</strong> để thay đổi bán kính</span>
                   </div>
                   <div className={`flex items-center space-x-2 ${isDarkMode ? 'text-purple-300' : 'text-purple-600'}`}>
-                    <span className="text-sm">🖱️</span>
+                    <MousePointer2 size={14} />
                     <span><strong>Click & kéo</strong> để di chuyển bản đồ</span>
                   </div>
                   <div className={`flex items-center space-x-2 ${isDarkMode ? 'text-orange-300' : 'text-orange-600'}`}>
-                    <span className="text-sm">🔍</span>
+                    <Search size={14} />
                     <span><strong>Nút +/-</strong> hoặc <strong>phím + / - / 0</strong> để zoom</span>
                   </div>
                   <div className={`flex items-center space-x-2 ${isDarkMode ? 'text-yellow-300' : 'text-yellow-600'}`}>
-                    <span className="text-sm">📏</span>
+                    <Ruler size={14} />
                     <span><strong>Kéo handle</strong> góc phải để resize</span>
                   </div>
                   <div className={`pt-2 border-t ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
                     <div className={`flex items-center space-x-2 ${isDarkMode ? 'text-yellow-300' : 'text-yellow-600'}`}>
-                      <span className="text-sm">💡</span>
-                                             <span><strong>Tip:</strong> Click để chọn ngay!</span>
+                      <Lightbulb size={14} />
+                      <span><strong>Tip:</strong> Click để chọn ngay!</span>
                     </div>
                   </div>
                 </div>
@@ -1470,14 +1478,14 @@ export default function OpenStreetMapPicker({
                   alert('Trình duyệt không hỗ trợ định vị địa lý.');
                 }
               }}
-              className={`w-8 h-8 rounded-lg flex items-center justify-center text-lg font-bold transition-all ${
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
                 isDarkMode 
                   ? 'bg-gray-800/80 hover:bg-gray-700/80 border border-gray-600' 
                   : 'bg-white/80 hover:bg-gray-100/80 border border-gray-300'
               }`}
               title="Vị trí hiện tại"
             >
-              📍
+              <MapPin size={18} />
             </button>
           <button
             onClick={() => {

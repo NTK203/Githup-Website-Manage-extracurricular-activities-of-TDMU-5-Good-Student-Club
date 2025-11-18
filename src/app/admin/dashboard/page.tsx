@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { Calendar } from 'lucide-react';
 import AdminNav from '@/components/admin/AdminNav';
 import Footer from '@/components/common/Footer';
 import DashboardStats from '@/components/dashboard/DashboardStats';
@@ -16,8 +17,13 @@ export default function AdminDashboard() {
   const [isDesktop, setIsDesktop] = useState(false);
 
   // Handler functions for activities
-  const handleEditActivity = (id: string) => {
-    window.location.href = `/admin/activities/create-single/${id}`;
+  const handleEditActivity = (id: string, type?: 'single_day' | 'multiple_days') => {
+    if (type === 'multiple_days') {
+      window.location.href = `/admin/activities/create-multiple/${id}`;
+    } else {
+      // Default to single_day or if type is not provided
+      window.location.href = `/admin/activities/create-single/${id}`;
+    }
   };
 
   const handleDeleteActivity = async (id: string) => {
@@ -136,7 +142,7 @@ export default function AdminDashboard() {
         <AdminNav />
         
         <main 
-          className="flex-1 transition-all duration-300 px-4 sm:px-5 lg:px-6 xl:px-8 py-6 sm:py-8 lg:py-10 overflow-x-hidden min-w-0"
+          className="flex-1 transition-all duration-300 px-2 sm:px-3 lg:px-4 py-3 sm:py-4 overflow-x-hidden min-w-0"
           style={{
             marginLeft: isDesktop ? (isSidebarOpen ? '288px' : '80px') : '0',
             width: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%',
@@ -144,41 +150,52 @@ export default function AdminDashboard() {
           }}
         >
           {/* Welcome Section */}
-          <div className="mb-6 sm:mb-8">
-            <div className={`rounded-xl ${isDarkMode ? 'bg-gray-800/50 border border-gray-700/50' : 'bg-white/60 border border-gray-200/50'} backdrop-blur-sm shadow-md p-5 sm:p-6 transition-all duration-300`}>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h1 className={`text-2xl sm:text-3xl font-bold mb-2 transition-colors duration-300 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    Chào mừng, <span className="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">{user?.name || 'Admin'}</span>! 👋
+          <div className="mb-3">
+            <div 
+              className={`rounded-lg ${isDarkMode ? 'bg-gray-800/50' : 'bg-white/60'} backdrop-blur-sm shadow-sm p-3 transition-all duration-300`}
+              style={{ border: '1px solid #1e40af' }}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="flex-1">
+                  <h1 className={`text-lg sm:text-xl font-bold mb-1 transition-colors duration-300 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    Chào mừng, <span className="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">{user?.name || 'Admin'}</span>
                   </h1>
-                  <p className={`text-sm sm:text-base transition-colors duration-300 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                  <p className={`text-[10px] sm:text-xs mb-1.5 transition-colors duration-300 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
                     Quản lý toàn bộ hệ thống CLB Sinh viên 5 Tốt TDMU
                   </p>
-                  <div className="mt-3 flex items-center gap-3">
-                    <div className={`px-3 py-1.5 rounded-lg ${isDarkMode ? 'bg-blue-500/20 border border-blue-500/30' : 'bg-blue-50/70 border border-blue-200/50'} transition-colors duration-300`}>
-                      <p className={`text-xs font-medium ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
-                        📅 {new Date().toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-3 sm:mt-0 hidden md:block">
-                  <div className={`w-16 h-16 rounded-xl ${isDarkMode ? 'bg-gradient-to-br from-blue-500/20 via-purple-500/20 to-pink-500/20' : 'bg-gradient-to-br from-blue-100/70 via-purple-100/70 to-pink-100/70'} border ${isDarkMode ? 'border-blue-400/30' : 'border-blue-200/50'} flex items-center justify-center text-3xl shadow-md`}>
-                    🎯
+                  <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg ${isDarkMode ? 'bg-blue-500/20 border border-blue-500/30' : 'bg-blue-50/70 border border-blue-200/50'} transition-colors duration-300`}>
+                    <Calendar size={10} className={`${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`} strokeWidth={1.5} />
+                    <span className={`text-[9px] font-medium ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
+                      {new Date().toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                    </span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Stats Cards */}
-          <div className="mb-6 sm:mb-8">
-            <DashboardStats isDarkMode={isDarkMode} />
-          </div>
-
-          {/* Quick Actions */}
-          <div className="mb-6 sm:mb-8">
-            <QuickActions isDarkMode={isDarkMode} />
+          {/* Stats Cards and Quick Actions */}
+          <div className="mb-4">
+            <div 
+              className={`rounded-xl p-4 ${
+                isDarkMode 
+                  ? 'bg-gray-800/40' 
+                  : 'bg-white/70'
+              } backdrop-blur-md shadow-lg transition-all duration-300`}
+              style={{ border: '1px solid rgba(30, 64, 175, 0.2)' }}
+            >
+              <div className="flex flex-col lg:flex-row gap-4">
+                {/* Quick Actions - Left */}
+                <div className="flex-shrink-0 lg:w-64">
+                  <QuickActions isDarkMode={isDarkMode} noBorder={true} />
+                </div>
+                
+                {/* Stats Cards - Right */}
+                <div className="flex-1 min-w-0">
+                  <DashboardStats isDarkMode={isDarkMode} noBorder={true} />
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Recent Activities */}

@@ -69,13 +69,28 @@ export async function PUT(
     console.log('PUT request body:', JSON.stringify(body, null, 2));
     console.log('Activity ID:', id);
     
-    // Validate required fields
-    if (!body.name || !body.description || !body.date || !body.responsiblePerson) {
+    // Validate required fields based on activity type
+    const isMultipleDays = body.type === 'multiple_days';
+    const missingFields: string[] = [];
+    
+    if (!body.name) missingFields.push('name');
+    if (!body.description) missingFields.push('description');
+    if (!body.responsiblePerson) missingFields.push('responsiblePerson');
+    
+    // For single_day, require date; for multiple_days, require startDate and endDate
+    if (isMultipleDays) {
+      if (!body.startDate) missingFields.push('startDate');
+      if (!body.endDate) missingFields.push('endDate');
+    } else {
+      if (!body.date) missingFields.push('date');
+    }
+    
+    if (missingFields.length > 0) {
       return NextResponse.json(
         { 
           success: false, 
           message: 'Missing required fields',
-          details: ['name', 'description', 'date', 'responsiblePerson'].filter(field => !body[field])
+          details: missingFields
         },
         { status: 400 }
       );
@@ -97,6 +112,31 @@ export async function PUT(
     // Participants are managed separately via /api/activities/[id]/participants
     const { participants, ...updateData } = body;
     console.log('Removed participants from update data to preserve approval status');
+    
+    // Convert date strings to Date objects
+    if (updateData.date && typeof updateData.date === 'string') {
+      updateData.date = new Date(updateData.date);
+    }
+    if (updateData.startDate && typeof updateData.startDate === 'string') {
+      updateData.startDate = new Date(updateData.startDate);
+    }
+    if (updateData.endDate && typeof updateData.endDate === 'string') {
+      updateData.endDate = new Date(updateData.endDate);
+    }
+    if (updateData.schedule && Array.isArray(updateData.schedule)) {
+      updateData.schedule = updateData.schedule.map((item: any) => ({
+        ...item,
+        date: item.date instanceof Date ? item.date : new Date(item.date)
+      }));
+    }
+    
+    // For multiple_days, don't set date field (it's optional and may cause validation issues)
+    if (updateData.type === 'multiple_days') {
+      // Only keep date if it was explicitly provided, otherwise remove it
+      if (!body.date) {
+        delete updateData.date;
+      }
+    }
     
     // Update the activity
     console.log('Updating activity with data:', JSON.stringify(updateData, null, 2));

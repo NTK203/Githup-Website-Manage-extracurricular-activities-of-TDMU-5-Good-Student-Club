@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
+import { Sunrise, Sun, Moon, Search, MapPin, AlertCircle, CheckCircle, XCircle, Ruler, Lightbulb, Tag, Clipboard, X } from 'lucide-react';
 
 // Dynamically import Leaflet components to avoid SSR issues
 const MapContainer = dynamic(
@@ -50,11 +51,25 @@ interface MultiTimeLocationPickerProps {
   isAdmin?: boolean; // true = có quyền chỉnh sửa, false = chỉ đọc
 }
 
+// Helper function to render time slot icon
+const renderTimeSlotIcon = (timeSlot: 'morning' | 'afternoon' | 'evening', size: number = 20) => {
+  switch (timeSlot) {
+    case 'morning':
+      return <Sunrise size={size} className="text-yellow-600 dark:text-yellow-400" />;
+    case 'afternoon':
+      return <Sun size={size} className="text-orange-600 dark:text-orange-400" />;
+    case 'evening':
+      return <Moon size={size} className="text-blue-600 dark:text-blue-400" />;
+    default:
+      return null;
+  }
+};
+
 const timeSlotConfig = {
   morning: {
     label: 'Buổi sáng',
     color: '#FFD700',
-    icon: '🌅',
+    icon: '🌅', // Keep for backward compatibility in HTML strings
     timeRange: '06:00 - 12:00',
     description: 'Hoạt động buổi sáng',
     bgColor: 'bg-yellow-50 dark:bg-yellow-900/20',
@@ -64,7 +79,7 @@ const timeSlotConfig = {
   afternoon: {
     label: 'Buổi chiều', 
     color: '#FF6B35',
-    icon: '☀️',
+    icon: '☀️', // Keep for backward compatibility in HTML strings
     timeRange: '12:00 - 18:00',
     description: 'Hoạt động buổi chiều',
     bgColor: 'bg-orange-50 dark:bg-orange-900/20',
@@ -74,7 +89,7 @@ const timeSlotConfig = {
   evening: {
     label: 'Buổi tối',
     color: '#4A90E2',
-    icon: '🌙',
+    icon: '🌙', // Keep for backward compatibility in HTML strings
     timeRange: '18:00 - 22:00',
     description: 'Hoạt động buổi tối',
     bgColor: 'bg-blue-50 dark:bg-blue-900/20',
@@ -1091,190 +1106,131 @@ export default function MultiTimeLocationPicker({
 
   return (
     <div className="space-y-4">
-      
-
-
-             {/* Search Bar - Improved Design */}
-       {(
-         <div className={`p-6 rounded-2xl ${isDarkMode ? 'bg-gray-800/50 border border-gray-700/50' : 'bg-white/80 border border-gray-200/50'} shadow-lg`}>
-           <div className="flex items-center mb-4">
-             <div className={`w-10 h-10 rounded-xl flex items-center justify-center mr-3 ${isDarkMode ? 'bg-green-500/20' : 'bg-green-100'}`}>
-               <span className="text-xl">🔍</span>
-             </div>
-             <div>
-               <h3 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                 Tìm kiếm địa điểm
-               </h3>
-               <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                 Đang tìm kiếm cho: <span className="font-semibold text-blue-600 dark:text-blue-400">{timeSlotConfig[activeTimeSlot].label}</span>
-                   {selectedTimeSlot && selectedTimeSlot === activeTimeSlot && (
-                     <span className="ml-2 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-2 py-1 rounded-full">
-                       🎯 Được chọn
-                     </span>
-                   )}
-                   {locations.find(loc => loc.timeSlot === activeTimeSlot) && (
-                     <span className="ml-2 text-xs bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 px-2 py-1 rounded-full">
-                       📍 Có địa điểm
-                     </span>
-                   )}
-                   <span className="ml-2 text-xs opacity-75">(🏷️ để ẩn/hiện tên buổi, ⬆️⬇️⬅️➡️ để thay đổi vị trí)</span>
-               </p>
-             </div>
-           </div>
-
+      {/* Search Bar - Compact */}
+      <div className="mb-3">
+        <div className="mb-2">
+          <label className={`block text-xs font-semibold mb-1.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+            Tìm kiếm địa điểm cho {timeSlotConfig[activeTimeSlot].label}
+          </label>
           <div className="relative">
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-              </div>
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={handleSearchChange}
-                onKeyDown={handleSearchKeyDown}
-                onBlur={(e) => {
-                  // Only reset isUserTyping if search query is empty
-                  // This allows user to click outside without losing their search
-                  // Small delay to allow clicking on search results
-                  const currentValue = e.target.value.trim();
-                  if (!currentValue) {
-                    setTimeout(() => {
-                      setIsUserTyping(false);
-                    }, 200);
-                  }
-                }}
-                disabled={!activeTimeSlots || activeTimeSlots.length === 0}
-                placeholder={!activeTimeSlots || activeTimeSlots.length === 0 ? 'Vui lòng chọn buổi trước khi tìm kiếm...' : `Tìm kiếm địa chỉ cho ${timeSlotConfig[activeTimeSlot].label}...`}
-                className={`w-full pl-12 ${searchQuery ? 'pr-32' : 'pr-12'} py-4 rounded-xl border-2 text-lg transition-all duration-300 ${
-                  !activeTimeSlots || activeTimeSlots.length === 0
-                    ? isDarkMode 
-                      ? 'bg-gray-600/30 border-gray-500/30 text-gray-400 cursor-not-allowed' 
-                      : 'bg-gray-100/50 border-gray-200/50 text-gray-400 cursor-not-allowed'
-                    : isDarkMode 
-                      ? 'bg-gray-700/50 border-gray-600/50 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20' 
-                      : 'bg-white/80 border-gray-300/50 text-gray-900 placeholder-gray-500 focus:border-blue-400 focus:ring-4 focus:ring-blue-500/20'
-                } focus:outline-none backdrop-blur-sm`}
-              />
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <Search className="w-4 h-4 text-gray-400" />
+            </div>
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={handleSearchChange}
+              onKeyDown={handleSearchKeyDown}
+              onBlur={(e) => {
+                const currentValue = e.target.value.trim();
+                if (!currentValue) {
+                  setTimeout(() => {
+                    setIsUserTyping(false);
+                  }, 200);
+                }
+              }}
+              disabled={!activeTimeSlots || activeTimeSlots.length === 0}
+              placeholder={!activeTimeSlots || activeTimeSlots.length === 0 ? 'Vui lòng chọn buổi trước...' : `Tìm kiếm địa chỉ cho ${timeSlotConfig[activeTimeSlot].label}...`}
+              className={`w-full pl-10 ${searchQuery ? 'pr-24' : 'pr-10'} py-2 rounded-lg border text-xs transition-all duration-300 ${
+                !activeTimeSlots || activeTimeSlots.length === 0
+                  ? isDarkMode 
+                    ? 'bg-gray-600/30 border-gray-500/30 text-gray-400 cursor-not-allowed' 
+                    : 'bg-gray-100/50 border-gray-200/50 text-gray-400 cursor-not-allowed'
+                  : isDarkMode 
+                    ? 'bg-gray-700/50 border-gray-600/50 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20' 
+                    : 'bg-white/80 border-gray-300/50 text-gray-900 placeholder-gray-500 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20'
+              } focus:outline-none`}
+            />
+            
+            {/* Right side buttons */}
+            <div className="absolute inset-y-0 right-0 pr-2 flex items-center gap-1.5">
+              {/* Clear button */}
+              {searchQuery && !isSearching && (activeTimeSlots && activeTimeSlots.length > 0) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const hasLocation = locations.find(loc => loc.timeSlot === activeTimeSlotRef.current);
+                    if (hasLocation) {
+                      handleClearCurrentLocation();
+                    } else {
+                      handleClearSearch();
+                    }
+                  }}
+                  className={`p-1 rounded transition-all duration-200 ${
+                    isDarkMode
+                      ? 'hover:bg-gray-600/50 text-gray-300 hover:text-white'
+                      : 'hover:bg-gray-200/50 text-gray-500 hover:text-gray-700'
+                  }`}
+                  title={locations.find(loc => loc.timeSlot === activeTimeSlotRef.current) ? 'Xóa địa điểm' : 'Xóa tìm kiếm'}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
               
-              {/* Right side buttons */}
-              <div className="absolute inset-y-0 right-0 pr-4 flex items-center gap-2">
-                {/* Clear button - show when there's text or a location */}
-                {searchQuery && !isSearching && (activeTimeSlots && activeTimeSlots.length > 0) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const hasLocation = locations.find(loc => loc.timeSlot === activeTimeSlotRef.current);
-                      if (hasLocation) {
-                        handleClearCurrentLocation();
-                      } else {
-                        handleClearSearch();
-                      }
-                    }}
-                    className={`p-1.5 rounded-lg transition-all duration-200 ${
-                      isDarkMode
-                        ? 'hover:bg-gray-600/50 text-gray-300 hover:text-white'
-                        : 'hover:bg-gray-200/50 text-gray-500 hover:text-gray-700'
-                    }`}
-                    title={locations.find(loc => loc.timeSlot === activeTimeSlotRef.current) ? 'Xóa địa điểm hiện tại' : 'Xóa tìm kiếm'}
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                )}
-                
-                {/* Search button - show when there's text and not searching */}
-                {searchQuery && !isSearching && (activeTimeSlots && activeTimeSlots.length > 0) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (searchQuery.trim()) {
-                        searchAddress(searchQuery);
-                      }
-                    }}
-                    className={`p-1.5 rounded-lg transition-all duration-200 ${
-                      isDarkMode
-                        ? 'hover:bg-blue-600/50 text-blue-300 hover:text-blue-200 bg-blue-500/20'
-                        : 'hover:bg-blue-500/50 text-blue-600 hover:text-blue-700 bg-blue-100/50'
-                    }`}
-                    title="Tìm kiếm"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                  </button>
-                )}
-                
-                {/* Loading spinner */}
-                {isSearching && (
-                  <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                )}
+              {/* Search button */}
+              {searchQuery && !isSearching && (activeTimeSlots && activeTimeSlots.length > 0) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (searchQuery.trim()) {
+                      searchAddress(searchQuery);
+                    }
+                  }}
+                  className={`p-1 rounded transition-all duration-200 ${
+                    isDarkMode
+                      ? 'hover:bg-blue-600/50 text-blue-300 hover:text-blue-200'
+                      : 'hover:bg-blue-500/50 text-blue-600 hover:text-blue-700'
+                  }`}
+                  title="Tìm kiếm"
+                >
+                  <Search className="w-3.5 h-3.5" />
+                </button>
+              )}
+              
+              {/* Loading spinner */}
+              {isSearching && (
+                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Active time slot indicator - Compact */}
+        {
+          !activeTimeSlots || activeTimeSlots.length === 0 ? (
+            <div className="mt-2">
+              <p className={`text-xs ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>
+                Vui lòng chọn buổi trước khi tìm kiếm
+              </p>
+            </div>
+          ) : (
+            <div className="mt-2">
+              <div className="flex items-center space-x-2">
+                {renderTimeSlotIcon(activeTimeSlot, 16)}
+                <div>
+                  <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    {timeSlotConfig[activeTimeSlot].label} ({timeSlotConfig[activeTimeSlot].timeRange})
+                  </p>
+                  {(() => {
+                    const unassignedSlots = activeTimeSlots.filter(slot => 
+                      slot !== activeTimeSlot && !locations.find(loc => loc.timeSlot === slot)
+                    );
+                    return unassignedSlots.length > 0 && (
+                      <p className={`text-[10px] ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                        Chưa có địa điểm: {unassignedSlots.map(slot => timeSlotConfig[slot].label).join(', ')}
+                      </p>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
+          )
+        }
+      </div>
 
-            {/* Active time slot indicator */}
-            {
-              !activeTimeSlots || activeTimeSlots.length === 0 ? (
-                <div className={`mt-3 p-4 rounded-xl ${isDarkMode ? 'bg-red-900/20 border border-red-500/30' : 'bg-red-50/80 border border-red-200/50'}`}>
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-lg ${isDarkMode ? 'bg-red-500/20' : 'bg-red-100'}`}>
-                      ⚠️
-                    </div>
-                    <div>
-                      <div className={`text-sm font-semibold ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>
-                        Chưa chọn buổi nào
-                      </div>
-                      <div className={`text-xs ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>
-                        Vui lòng quay lại phần "Các buổi" và chọn ít nhất một buổi
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className={`mt-3 p-3 rounded-xl ${timeSlotConfig[activeTimeSlot].bgColor} border ${timeSlotConfig[activeTimeSlot].borderColor}`}>
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-lg`}>
-                      {timeSlotConfig[activeTimeSlot].icon}
-                    </div>
-                    <div>
-                      <div className={`text-sm font-semibold ${timeSlotConfig[activeTimeSlot].textColor}`}>
-                        Đang chọn địa điểm cho: {timeSlotConfig[activeTimeSlot].label}
-                      </div>
-                      <div className={`text-xs ${timeSlotConfig[activeTimeSlot].textColor}`}>
-                        {timeSlotConfig[activeTimeSlot].timeRange}
-                      </div>
-                        {/* Show selected location if exists */}
-                        {locations.find(loc => loc.timeSlot === activeTimeSlot) && (
-                          <div className={`text-xs mt-1 ${timeSlotConfig[activeTimeSlot].textColor} opacity-75`}>
-                            📍 Đã chọn: {locations.find(loc => loc.timeSlot === activeTimeSlot)?.location.address}
-                            <span className="ml-1 font-semibold">
-                              ({locations.find(loc => loc.timeSlot === activeTimeSlot)?.radius}m)
-                            </span>
-                  </div>
-                        )}
-                        {/* Show available time slots without locations */}
-                        {activeTimeSlots && activeTimeSlots.length > 1 && (
-                          <div className={`text-xs mt-1 ${timeSlotConfig[activeTimeSlot].textColor} opacity-75`}>
-                            🔄 Các buổi chưa có địa điểm: {
-                              activeTimeSlots
-                                .filter(slot => !locations.find(loc => loc.timeSlot === slot))
-                                .map(slot => timeSlotConfig[slot].label)
-                                .join(', ')
-                            }
-                          </div>
-                        )}
-                     </div>
-                  </div>
-                </div>
-              )
-            }
-          </div>
-
-          {/* Search Results */}
-          {showSearchResults && searchResults.length > 0 && (
+      {/* Search Results */}
+      {showSearchResults && searchResults.length > 0 && (
             <div className={`mt-2 border rounded-lg max-h-48 overflow-y-auto ${
               isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
             }`}>
@@ -1289,10 +1245,10 @@ export default function MultiTimeLocationPicker({
                   } ${index !== searchResults.length - 1 ? 'border-b border-gray-200 dark:border-gray-600' : ''}`}
                 >
                   <div className="flex items-start space-x-2">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
                       isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-600'
                     }`}>
-                      📍
+                      <MapPin size={14} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium truncate">{result.display_name}</div>
@@ -1313,10 +1269,10 @@ export default function MultiTimeLocationPicker({
             <div className={`mt-2 p-3 text-center rounded-lg ${
               isDarkMode ? 'bg-gray-700 border border-gray-600' : 'bg-gray-50 border border-gray-200'
             }`}>
-              <div className={`text-sm ${
+              <div className={`text-sm flex flex-col items-center ${
                 isDarkMode ? 'text-gray-400' : 'text-gray-500'
               }`}>
-                <span className="block mb-1">🔍</span>
+                <Search size={20} className="mb-1" />
                 Không tìm thấy địa điểm nào
               </div>
               <div className={`text-xs ${
@@ -1326,8 +1282,6 @@ export default function MultiTimeLocationPicker({
               </div>
             </div>
           )}
-        </div>
-       )}
 
       {/* Notifications above map */}
       <div className="relative mb-4">
@@ -1369,15 +1323,15 @@ export default function MultiTimeLocationPicker({
               <div className="flex space-x-2">
                 <button
                   onClick={handleConfirmLocation}
-                  className="flex-1 bg-green-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-green-600 transition-colors"
+                  className="flex-1 bg-green-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-green-600 transition-colors flex items-center justify-center gap-2"
                 >
-                  ✅ Chọn
+                  <CheckCircle size={18} /> Chọn
                 </button>
                 <button
                   onClick={handleCancelLocation}
-                  className="flex-1 bg-gray-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-gray-600 transition-colors"
+                  className="flex-1 bg-gray-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-gray-600 transition-colors flex items-center justify-center gap-2"
                 >
-                  ❌ Hủy
+                  <XCircle size={18} /> Hủy
                 </button>
               </div>
             </div>
@@ -1390,7 +1344,7 @@ export default function MultiTimeLocationPicker({
             <div className="bg-green-500 text-white px-6 py-4 rounded-xl shadow-xl max-w-md mx-auto animate-pulse">
               <div className="flex items-center space-x-3">
                 <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
-                  <span className="text-lg">✅</span>
+                  <CheckCircle size={20} className="text-white" />
                 </div>
                 <div>
                   <div className="font-bold text-lg">Đã chọn địa điểm thành công!</div>
@@ -1487,8 +1441,8 @@ export default function MultiTimeLocationPicker({
                         {/* Header */}
                         <div className={`flex items-center justify-between p-4 border-b ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
                           <div className="flex items-center space-x-2">
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-lg ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'}`}>
-                              {timeSlotConfig[location.timeSlot].icon}
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'}`}>
+                              {renderTimeSlotIcon(location.timeSlot, 20)}
                             </div>
                             <div>
                               <h3 className={`font-bold text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
@@ -1507,7 +1461,7 @@ export default function MultiTimeLocationPicker({
                           {/* Address */}
                           <div className="space-y-1">
                             <div className="flex items-center space-x-2">
-                              <span className="text-blue-500">📍</span>
+                              <MapPin size={14} className="text-blue-500" />
                               <span className={`text-xs font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Địa chỉ:</span>
                             </div>
                             <p className={`text-xs leading-relaxed ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} pl-6`}>
@@ -1649,8 +1603,8 @@ export default function MultiTimeLocationPicker({
                         {/* Header */}
                         <div className={`flex items-center justify-between p-4 border-b ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
                           <div className="flex items-center space-x-2">
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-lg ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'}`}>
-                              {timeSlotConfig[location.timeSlot].icon}
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'}`}>
+                              {renderTimeSlotIcon(location.timeSlot, 20)}
                             </div>
                             <div>
                               <h3 className={`font-bold text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
@@ -1669,7 +1623,7 @@ export default function MultiTimeLocationPicker({
                           {/* Address */}
                           <div className="space-y-1">
                             <div className="flex items-center space-x-2">
-                              <span className="text-blue-500">📍</span>
+                              <MapPin size={14} className="text-blue-500" />
                               <span className={`text-xs font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Địa chỉ:</span>
                             </div>
                             <p className={`text-xs leading-relaxed ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} pl-6`}>

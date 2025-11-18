@@ -275,11 +275,18 @@ const activitySchema = new Schema<IActivity>({
   },
   date: {
     type: Date,
+    required: false, // Make it optional - will be validated based on type
     validate: {
       validator: function(v: Date) {
+        // For single_day, date is required
         if (this.type === 'single_day' && !v) {
           return false;
         }
+        // For multiple_days, date is optional
+        if (this.type === 'multiple_days' && !v) {
+          return true; // Allow missing date for multiple_days
+        }
+        // If date is provided, validate it
         if (v) {
           try {
             // Parse the activity date
@@ -306,26 +313,13 @@ const activitySchema = new Schema<IActivity>({
             // This means activity date can be today or any future date
             const isValid = activityDateUTC >= todayUTC;
             
-            // Debug logging
-            console.log('📅 Date validation:', {
-              activityDateISO: activityDate.toISOString(),
-              activityDateUTC: new Date(activityDateUTC).toISOString(),
-              todayUTC: new Date(todayUTC).toISOString(),
-              nowISO: now.toISOString(),
-              isValid,
-              comparison: `${activityDateUTC} >= ${todayUTC}`
-            });
-            
             // Reject only if activity date is before today
             if (!isValid) {
-              console.log('❌ Date validation failed: Activity date is in the past');
               return false;
             }
             
-            console.log('✅ Date validation passed: Activity date is today or in the future');
             return true;
           } catch (error) {
-            console.error('Error in date validation:', error);
             return false;
           }
         }

@@ -10,6 +10,50 @@ import Footer from '@/components/common/Footer';
 import { ITimeSlot, IParticipant, ActivityType, ParticipantRole } from '@/models/Activity';
 import dynamic from 'next/dynamic';
 import LoadingSpinner, { TimeSlotValidationLoading, LocationSelectionLoading, SearchLoading } from '@/components/common/LoadingSpinner';
+import {
+  Calendar,
+  CalendarRange,
+  Image as ImageIcon,
+  ImageUp,
+  FileText,
+  Users,
+  MapPin,
+  User,
+  FolderOpen,
+  StickyNote,
+  CheckCircle2,
+  XCircle,
+  Info,
+  Clock,
+  Sun,
+  Sunrise,
+  Moon,
+  Loader,
+  Globe,
+  Lock,
+  FileEdit,
+  RotateCw,
+  Trophy,
+  Pause,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  AlertCircle,
+  Crown,
+  UserCheck,
+  X,
+  Scissors,
+  ZoomIn,
+  ZoomOut,
+  Plus,
+  Minus,
+  Eye,
+  EyeOff,
+  Target,
+  Timer,
+  UserCircle
+} from 'lucide-react';
 
 // Dynamically import OpenStreetMapPicker with SSR disabled
 const OpenStreetMapPicker = dynamic(() => import('@/components/common/OpenStreetMapPicker'), {
@@ -965,7 +1009,11 @@ export default function CreateSingleActivityPage() {
         if (response.ok) {
           const data = await response.json();
           if (data.responsiblePersons && Array.isArray(data.responsiblePersons)) {
-            setResponsiblePersons(data.responsiblePersons);
+            // Filter chỉ lấy CLUB_MEMBER và CLUB_DEPUTY
+            const filtered = data.responsiblePersons.filter((person: any) => 
+              person.role === 'CLUB_MEMBER' || person.role === 'CLUB_DEPUTY'
+            );
+            setResponsiblePersons(filtered);
           } else {
             console.warn('⚠️ Invalid data format for responsible persons:', data);
             setResponsiblePersons([]);
@@ -1210,7 +1258,7 @@ export default function CreateSingleActivityPage() {
             <div className="mb-6">
                <div className="text-center mb-4">
                  <div className={`inline-flex items-center justify-center w-12 h-12 rounded-full mb-3 ${isDarkMode ? 'bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-500/30' : 'bg-gradient-to-r from-blue-100 to-purple-100 border border-blue-200'}`}>
-                  <span className="text-xl">📅</span>
+                  <Calendar className="w-6 h-6" />
                 </div>
                  <h1 className={`text-2xl font-bold mb-2 bg-gradient-to-r ${isDarkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent`}>
                     {isEditMode ? 'Chỉnh Sửa Hoạt Động' : 'Tạo Hoạt Động 1 Ngày'}
@@ -1238,27 +1286,22 @@ export default function CreateSingleActivityPage() {
             )}
 
             {/* Form */}
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-4">
               {/* 1. Ảnh mô tả hoạt động */}
-              <div className={`p-5 rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' : 'bg-gradient-to-br from-white/90 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'} shadow-lg hover:shadow-xl transition-all duration-300`}>
+              <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' : 'bg-gradient-to-br from-white/90 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'} shadow-lg hover:shadow-xl transition-all duration-300`}>
               
-              {/* Header với icon đẹp */}
-              <div className="flex items-center mb-5">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center mr-3 ${isDarkMode ? 'bg-gradient-to-br from-purple-500/30 to-pink-500/30 border border-purple-500/20' : 'bg-gradient-to-br from-purple-100 to-pink-100 border border-purple-200'}`}>
-                  <span className="text-lg">🖼️</span>
-                </div>
-                <div>
-                  <h2 className={`text-lg font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    1. Ảnh mô tả hoạt động
-                  </h2>
-                  <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                    Chọn ảnh đại diện cho hoạt động
-                  </p>
-                </div>
+              {/* Header */}
+              <div className="mb-3">
+                <h2 className={`text-sm font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  1. Ảnh mô tả hoạt động
+                </h2>
+                <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Chọn ảnh đại diện cho hoạt động
+                </p>
               </div>
 
               {/* Main Content Area - Một khung duy nhất */}
-              <div className={`relative overflow-hidden rounded-2xl ${
+              <div className={`relative overflow-hidden rounded-xl ${
                 isDarkMode 
                   ? 'bg-gradient-to-br from-gray-700/50 to-gray-800/50 border border-gray-600/50' 
                   : 'bg-gradient-to-br from-white/80 to-gray-50/50 border border-gray-200/50'
@@ -1273,38 +1316,38 @@ export default function CreateSingleActivityPage() {
 
                 {/* Trạng thái CHƯA có ảnh */}
                 {!selectedImage && !form.imageUrl && (
-                  <div className="p-8 text-center">
-                    <div className="space-y-4">
+                  <div className="p-4 text-center">
+                    <div className="space-y-2">
                       {/* Icon trung tâm */}
-                      <div className={`w-16 h-16 mx-auto rounded-2xl flex items-center justify-center ${
+                      <div className={`w-12 h-12 mx-auto rounded-xl flex items-center justify-center ${
                         isDarkMode 
                           ? 'bg-gradient-to-br from-purple-500/20 to-pink-500/20 border-2 border-purple-500/30' 
                           : 'bg-gradient-to-br from-purple-100 to-pink-100 border-2 border-purple-200'
                       }`}>
-                        <span className="text-2xl">📷</span>
+                        <ImageUp className="w-6 h-6" />
                       </div>
                       
                       {/* Tiêu đề mời gọi */}
-                      <div className="space-y-2">
-                        <h3 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                      <div className="space-y-1">
+                        <h3 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                           Tải ảnh mô tả hoạt động
                         </h3>
-                        <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                        <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
                           Kéo & thả ảnh vào đây hoặc click để chọn file
                         </p>
                       </div>
                       
                       {/* Thông tin hỗ trợ */}
-                      <div className={`p-3 rounded-lg ${
+                      <div className={`p-2 rounded-lg ${
                         isDarkMode 
                           ? 'bg-gray-600/30 border border-gray-500/30' 
                           : 'bg-gray-100/50 border border-gray-200/50'
                       }`}>
-                        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                        <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                           <span className="font-semibold">Hỗ trợ:</span> JPG, PNG, GIF • <span className="font-semibold">Tối đa:</span> 10MB
                         </p>
-                        <p className={`text-xs mt-1 ${isDarkMode ? 'text-purple-400' : 'text-purple-600'} font-medium`}>
-                          ✨ Ảnh sẽ được tải lên khi tạo hoạt động
+                        <p className={`text-[10px] mt-1 ${isDarkMode ? 'text-purple-400' : 'text-purple-600'} font-medium`}>
+                          Ảnh sẽ được tải lên khi tạo hoạt động
                         </p>
                       </div>
                     </div>
@@ -1322,7 +1365,7 @@ export default function CreateSingleActivityPage() {
                         <img 
                           src={imagePreview || form.imageUrl} 
                           alt="Preview" 
-                          className="w-full h-64 object-cover"
+                          className="w-full h-48 object-cover"
                         />
                         
                         {/* Overlay gradient cho text dễ đọc */}
@@ -1390,20 +1433,18 @@ export default function CreateSingleActivityPage() {
                     )}
                     
                     {/* Status indicator bên dưới ảnh */}
-                    <div className={`p-4 ${
+                    <div className={`p-2 ${
                       isDarkMode 
                         ? 'bg-gradient-to-r from-green-500/20 to-emerald-500/20 border-t border-green-500/30' 
                         : 'bg-gradient-to-r from-green-50 to-emerald-50 border-t border-green-200'
                     }`}>
-                      <div className="flex items-center justify-center space-x-3">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                      <div className="flex items-center justify-center space-x-2">
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
                           isDarkMode ? 'bg-green-500/20' : 'bg-green-100'
                         }`}>
-                          <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
+                          <CheckCircle2 className="w-3 h-3 text-green-500" />
                         </div>
-                        <span className={`text-sm font-medium ${isDarkMode ? 'text-green-300' : 'text-green-700'}`}>
+                        <span className={`text-xs font-medium ${isDarkMode ? 'text-green-300' : 'text-green-700'}`}>
                           Ảnh sẽ được tải lên khi tạo hoạt động
                         </span>
                       </div>
@@ -1414,21 +1455,16 @@ export default function CreateSingleActivityPage() {
             </div>
 
               {/* 2. Thông tin cơ bản */}
-              <div className={`p-5 rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' : 'bg-gradient-to-br from-white/90 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'} shadow-lg hover:shadow-xl transition-all duration-300`}>
+              <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' : 'bg-gradient-to-br from-white/90 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'} shadow-lg hover:shadow-xl transition-all duration-300`}>
                 
                 {/* Header */}
-                <div className="flex items-center mb-5">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center mr-3 ${isDarkMode ? 'bg-blue-600' : 'bg-blue-500'}`}>
-                    <span className="text-lg text-white">📋</span>
-                    </div>
-                    <div>
-                    <h2 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                      2. Thông tin cơ bản
-                      </h2>
-                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Điền đầy đủ thông tin cần thiết
-                      </p>
-                  </div>
+                <div className="mb-3">
+                  <h2 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    2. Thông tin cơ bản
+                  </h2>
+                  <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Điền đầy đủ thông tin cần thiết
+                  </p>
                 </div>
 
                 {/* Form Grid */}
@@ -1438,7 +1474,7 @@ export default function CreateSingleActivityPage() {
                     {/* Tên hoạt động */}
                     <div className={`p-4 rounded-xl ${isDarkMode ? 'bg-gray-700/50 border border-gray-600/50' : 'bg-white/80 border border-gray-200/50'} backdrop-blur-sm`}>
                       <label className={`block text-xs font-semibold mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                        <span className="text-blue-500 mr-1">📝</span>
+                        <FileText className="inline w-4 h-4 text-blue-500 mr-1" />
                         Tên hoạt động *
                       </label>
                       <input
@@ -1447,7 +1483,7 @@ export default function CreateSingleActivityPage() {
                         value={form.name}
                         onChange={handleChange}
                         required
-                        className={`w-full px-3 py-2.5 rounded-lg border text-base ${
+                        className={`w-full px-3 py-2 rounded-lg border text-xs ${
                           isDarkMode 
                             ? 'bg-gray-600/50 border-gray-500/50 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20' 
                             : 'bg-white/90 border-gray-300/50 text-gray-900 placeholder-gray-500 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20'
@@ -1457,9 +1493,9 @@ export default function CreateSingleActivityPage() {
                     </div>
 
                     {/* Ngày diễn ra */}
-                    <div className={`p-4 rounded-xl ${isDarkMode ? 'bg-gray-700/50 border border-gray-600/50' : 'bg-white/80 border border-gray-200/50'} backdrop-blur-sm`}>
-                      <label className={`block text-xs font-semibold mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                        <span className="text-green-500 mr-1">📅</span>
+                    <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-gray-700/50 border border-gray-600/50' : 'bg-white/80 border border-gray-200/50'} backdrop-blur-sm`}>
+                      <label className={`block text-[10px] font-semibold mb-1.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                        <Calendar className="inline w-3 h-3 text-green-500 mr-1" />
                         Ngày diễn ra *
                       </label>
                       <input
@@ -1469,7 +1505,7 @@ export default function CreateSingleActivityPage() {
                         onChange={handleChange}
                         required
                         min={getTodayDate()}
-                        className={`w-full px-3 py-2.5 rounded-lg border text-base ${
+                        className={`w-full px-3 py-2 rounded-lg border text-xs ${
                           isDarkMode 
                             ? 'bg-gray-600/50 border-gray-500/50 text-white focus:border-green-500 focus:ring-2 focus:ring-green-500/20' 
                             : 'bg-white/90 border-gray-300/50 text-gray-900 focus:border-green-400 focus:ring-2 focus:ring-green-500/20'
@@ -1484,9 +1520,9 @@ export default function CreateSingleActivityPage() {
                   {/* Row 2: Loại hoạt động và Số lượng tối đa */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {/* Loại hoạt động */}
-                    <div className={`p-4 rounded-xl ${isDarkMode ? 'bg-gray-700/50 border border-gray-600/50' : 'bg-white/80 border border-gray-200/50'} backdrop-blur-sm`}>
-                      <label className={`block text-xs font-semibold mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                        <span className="text-purple-500 mr-1">🌐</span>
+                    <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-gray-700/50 border border-gray-600/50' : 'bg-white/80 border border-gray-200/50'} backdrop-blur-sm`}>
+                      <label className={`block text-[10px] font-semibold mb-1.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                        <Globe className="inline w-3 h-3 text-purple-500 mr-1" />
                         Loại hoạt động *
                     </label>
                     <select
@@ -1494,14 +1530,14 @@ export default function CreateSingleActivityPage() {
                       value={form.visibility}
                       onChange={handleChange}
                       required
-                        className={`w-full px-3 py-2.5 rounded-lg border text-base ${
+                        className={`w-full px-3 py-2 rounded-lg border text-xs ${
                         isDarkMode 
                             ? 'bg-gray-600/50 border-gray-500/50 text-white focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20' 
                             : 'bg-white/90 border-gray-300/50 text-gray-900 focus:border-purple-400 focus:ring-2 focus:ring-purple-500/20'
                         } focus:outline-none transition-all duration-300 backdrop-blur-sm`}
                       >
-                        <option value="public">🌍 Public - Tất cả đều xem được</option>
-                        <option value="private">🔒 Private - Chỉ thành viên CLB</option>
+                        <option value="public">Public - Tất cả đều xem được</option>
+                        <option value="private">Private - Chỉ thành viên CLB</option>
                     </select>
                       <div className={`mt-2 p-2 rounded-lg ${
                         form.visibility === 'public' 
@@ -1509,9 +1545,11 @@ export default function CreateSingleActivityPage() {
                           : isDarkMode ? 'bg-blue-900/20 border border-blue-500/30' : 'bg-blue-50/80 border border-blue-200/50'
                       }`}>
                         <div className="flex items-center">
-                          <span className={`text-sm mr-2 ${form.visibility === 'public' ? 'text-green-500' : 'text-blue-500'}`}>
-                            {form.visibility === 'public' ? '🌍' : '🔒'}
-                          </span>
+                          {form.visibility === 'public' ? (
+                            <Globe className={`w-4 h-4 mr-2 text-green-500`} />
+                          ) : (
+                            <Lock className={`w-4 h-4 mr-2 text-blue-500`} />
+                          )}
                           <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                       {form.visibility === 'public' 
                         ? 'Tất cả người dùng đều có thể xem hoạt động này'
@@ -1523,9 +1561,9 @@ export default function CreateSingleActivityPage() {
                     </div>
 
                     {/* Số lượng tối đa */}
-                    <div className={`p-4 rounded-xl ${isDarkMode ? 'bg-gray-700/50 border border-gray-600/50' : 'bg-white/80 border border-gray-200/50'} backdrop-blur-sm`}>
-                      <label className={`block text-xs font-semibold mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                        <span className="text-pink-500 mr-1">👥</span>
+                    <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-gray-700/50 border border-gray-600/50' : 'bg-white/80 border border-gray-200/50'} backdrop-blur-sm`}>
+                      <label className={`block text-[10px] font-semibold mb-1.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                        <Users className="inline w-3 h-3 text-pink-500 mr-1" />
                         Số lượng tối đa
                       </label>
                       <input
@@ -1535,7 +1573,7 @@ export default function CreateSingleActivityPage() {
                         onChange={handleChange}
                         min="1"
                         max="1000"
-                        className={`w-full px-3 py-2.5 rounded-lg border text-base ${
+                        className={`w-full px-3 py-2 rounded-lg border text-xs ${
                           isDarkMode 
                             ? 'bg-gray-600/50 border-gray-500/50 text-white placeholder-gray-400 focus:border-pink-500 focus:ring-2 focus:ring-pink-500/20' 
                             : 'bg-white/90 border-gray-300/50 text-gray-900 placeholder-gray-500 focus:border-pink-400 focus:ring-2 focus:ring-pink-500/20'
@@ -1545,90 +1583,32 @@ export default function CreateSingleActivityPage() {
                     </div>
                   </div>
 
-                  {/* Row 3: Người phụ trách */}
-                  <div className={`p-4 rounded-xl ${isDarkMode ? 'bg-gray-700/50 border border-gray-600/50' : 'bg-white/80 border border-gray-200/50'} backdrop-blur-sm`}>
-                    <label className={`block text-xs font-semibold mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                      <span className="text-orange-500 mr-1">👤</span>
-                      Người phụ trách *
-                     </label>
+                  {/* Row 3: Trạng thái hoạt động */}
+                  <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-gray-700/50 border border-gray-600/50' : 'bg-white/80 border border-gray-200/50'} backdrop-blur-sm`}>
+                    <label className={`block text-[10px] font-semibold mb-1.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                      <CheckCircle2 className="inline w-3 h-3 text-indigo-500 mr-1" />
+                      Trạng thái hoạt động *
+                    </label>
                     <select
-                      name="responsiblePerson"
-                      value={form.responsiblePerson}
+                      name="status"
+                      value={form.status}
                       onChange={handleChange}
                       required
-                      className={`w-full px-3 py-2.5 rounded-lg border text-base ${
+                      className={`w-full px-3 py-2 rounded-lg border text-xs ${
                         isDarkMode 
-                          ? 'bg-gray-600/50 border-gray-500/50 text-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20' 
-                          : 'bg-white/90 border-gray-300/50 text-gray-900 focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20'
+                          ? 'bg-gray-600/50 border-gray-500/50 text-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20' 
+                          : 'bg-white/90 border-gray-300/50 text-gray-900 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20'
                       } focus:outline-none transition-all duration-300 backdrop-blur-sm`}
                     >
-                      <option value="">Chọn người phụ trách...</option>
-                       {loadingResponsiblePersons ? (
-                        <option value="" disabled>⏳ Đang tải danh sách...</option>
-                       ) : responsiblePersons.length === 0 ? (
-                        <option value="" disabled>❌ Không có người phụ trách nào</option>
-                       ) : (
-                         responsiblePersons.map((person, index) => (
-                           <option key={person._id || `person-${index}-${person.name || 'unknown'}`} value={person._id}>
-                            {person.name} ({getRoleDisplayName(person.role)}) - {getStatusDisplayName(person.status)}
-                           </option>
-                         ))
-                       )}
+                      <option value="draft">Nháp</option>
+                      <option value="published">Đã xuất bản</option>
                     </select>
-                    
-                    {/* Selected person details */}
-                    {form.responsiblePerson && (
-                      <div className="mt-3">
-                        {(() => {
-                          const selectedPerson = responsiblePersons.find(p => p._id === form.responsiblePerson);
-                          if (!selectedPerson) return null;
-                          
-                          return (
-                            <div className={`p-3 rounded-xl border ${isDarkMode ? 'bg-orange-900/20 border-orange-500/30' : 'bg-orange-50/80 border-orange-200/50'} backdrop-blur-sm`}>
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center space-x-3">
-                                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-orange-500/20' : 'bg-orange-100'}`}>
-                                    <span className="text-base font-bold text-orange-600">
-                                      {selectedPerson.name.charAt(0).toUpperCase()}
-                                    </span>
-                                  </div>
-                  <div>
-                                    <p className={`font-semibold text-base ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                      {selectedPerson.name}
-                                    </p>
-                                    <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                                      {getRoleDisplayName(selectedPerson.role)}
-                                    </p>
-                                  </div>
-                                </div>
-                                <div className="text-right">
-                                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                                    selectedPerson.status === 'active' 
-                                      ? isDarkMode ? 'bg-green-900/30 text-green-400 border border-green-500/30' : 'bg-green-100 text-green-800'
-                                      : selectedPerson.status === 'inactive'
-                                      ? isDarkMode ? 'bg-gray-700/50 text-gray-400 border border-gray-600/50' : 'bg-gray-100 text-gray-800'
-                                      : selectedPerson.status === 'suspended'
-                                      ? isDarkMode ? 'bg-red-900/30 text-red-400 border border-red-500/30' : 'bg-red-100 text-red-800'
-                                      : isDarkMode ? 'bg-yellow-900/30 text-yellow-400 border border-yellow-500/30' : 'bg-yellow-100 text-yellow-800'
-                                  }`}>
-                                    <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
-                                      selectedPerson.status === 'active' ? 'bg-green-400' : 'bg-gray-400'
-                                    }`}></span>
-                                    {getStatusDisplayName(selectedPerson.status)}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    )}
                   </div>
 
                   {/* Mô tả hoạt động */}
                   <div className={`p-4 rounded-xl ${isDarkMode ? 'bg-gray-700/50 border border-gray-600/50' : 'bg-white/80 border border-gray-200/50'} backdrop-blur-sm`}>
                     <label className={`block text-xs font-semibold mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                      <span className="text-pink-500 mr-1">📝</span>
+                      <FileText className="inline w-4 h-4 text-pink-500 mr-1" />
                       Mô tả hoạt động *
                     </label>
                     <textarea
@@ -1637,7 +1617,7 @@ export default function CreateSingleActivityPage() {
                       onChange={handleChange}
                       required
                       rows={4}
-                      className={`w-full px-3 py-2.5 rounded-lg border text-base ${
+                      className={`w-full px-3 py-2 rounded-lg border text-xs ${
                         isDarkMode 
                           ? 'bg-gray-600/50 border-gray-500/50 text-white placeholder-gray-400 focus:border-pink-500 focus:ring-2 focus:ring-pink-500/20' 
                           : 'bg-white/90 border-gray-300/50 text-gray-900 placeholder-gray-500 focus:border-pink-400 focus:ring-2 focus:ring-pink-500/20'
@@ -1649,197 +1629,134 @@ export default function CreateSingleActivityPage() {
               </div>
 
               {/* 3. Các buổi */}
-              <div className={`p-5 rounded-2xl ${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm border border-gray-700/50' : 'bg-white/80 backdrop-blur-sm border border-gray-200/50'} shadow-lg hover:shadow-xl transition-all duration-300`}>
-                <div className="flex items-center mb-4">
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center mr-3 ${isDarkMode ? 'bg-gradient-to-r from-blue-500/20 to-purple-500/20' : 'bg-gradient-to-r from-blue-100 to-purple-100'}`}>
-                    <span className="text-lg">🕐</span>
-                  </div>
-                  <h2 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    3. Các buổi (Sáng, Chiều, Tối)
-                  </h2>
-                </div>
-                
-                {/* Time slots overview */}
-                <div className={`mb-4 p-3 rounded-lg ${isDarkMode ? 'bg-blue-900/20 border border-blue-500/30' : 'bg-blue-50/80 border border-blue-200/50'} backdrop-blur-sm`}>
-                  <div className="flex items-center space-x-2 mb-2">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'}`}>
-                      <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    <h3 className={`font-semibold text-sm ${isDarkMode ? 'text-blue-400' : 'text-blue-700'}`}>
-                      Hướng dẫn quản lý thời gian
-                    </h3>
-                  </div>
-                  <p className={`text-xs ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
-                    Chọn các buổi bạn muốn tổ chức hoạt động và thiết lập thời gian cụ thể cho từng buổi. 
-                    Chỉ những buổi được kích hoạt mới được tính vào lịch trình hoạt động.
-                  </p>
-                </div>
+              <div className="mb-3">
+                <h2 className={`text-sm font-bold mb-3 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  3. Các buổi (Sáng, Chiều, Tối)
+                </h2>
 
 
                 
                 {/* Horizontal Layout for Time Slots */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                  {(() => { console.log('🕐 Rendering time slots:', timeSlots); return null; })()}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                   {timeSlots.filter((slot): slot is TimeSlot => slot != null && slot.id != null).map((slot, index) => {
                     const isActive = slot.isActive ?? false;
-                    // Ensure unique key even if slot.id might be duplicated
                     const uniqueKey = slot.id || `slot-${index}-${Date.now()}`;
                     return (
-                    <div key={uniqueKey} className={`relative overflow-hidden rounded-xl border-2 transition-all duration-300 ${
+                    <div key={uniqueKey} className={`border rounded-lg transition-all duration-300 ${
                       isActive
                         ? isDarkMode 
-                          ? 'bg-gradient-to-br from-blue-900/30 to-purple-900/30 border-blue-500/50 shadow-md' 
-                          : 'bg-gradient-to-br from-blue-50/80 to-purple-50/80 border-blue-400/50 shadow-md'
+                          ? 'border-blue-500/50' 
+                          : 'border-blue-400/50'
                         : isDarkMode 
-                          ? 'bg-gray-700/30 border-gray-600/50 hover:border-gray-500/50' 
-                          : 'bg-gray-50/60 border-gray-200/50 hover:border-gray-300/50'
-                    } backdrop-blur-sm hover:shadow-lg`}>
-                      
-                      {/* Active indicator */}
-                      {isActive && (
-                        <div className={`absolute top-0 right-0 w-0 h-0 border-l-[24px] border-l-transparent border-t-[24px] ${
-                          isDarkMode ? 'border-t-green-500' : 'border-t-green-400'
-                        }`}>
-                          <div className="absolute -top-5 -right-1">
-                            <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                            </svg>
-                          </div>
-                        </div>
-                      )}
-                      
-                      <div className="p-4">
+                          ? 'border-gray-600/50' 
+                          : 'border-gray-200/50'
+                    }`}>
+                      <div className="p-3">
                         {/* Header with icon and name */}
-                        <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center space-x-2">
-                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                              isActive
-                                ? isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
-                                : isDarkMode ? 'bg-gray-600/50' : 'bg-gray-200/50'
-                            } transition-all duration-300`}>
-                              <span className={`text-lg ${
-                                isActive 
-                                  ? isDarkMode ? 'text-blue-400' : 'text-blue-600'
-                                  : isDarkMode ? 'text-gray-400' : 'text-gray-500'
-                              }`}>
-                                {index === 0 ? '🌅' : index === 1 ? '☀️' : '🌙'}
-                              </span>
-                            </div>
-                            <div>
-                              <h3 className={`font-bold text-base ${
-                                isActive 
-                                  ? isDarkMode ? 'text-white' : 'text-gray-900'
-                                  : isDarkMode ? 'text-gray-400' : 'text-gray-500'
-                              } transition-all duration-300`}>
-                                {slot.name}
-                              </h3>
-                              <p className={`text-xs ${
-                                isActive 
-                                  ? isDarkMode ? 'text-blue-300' : 'text-blue-600'
-                                  : isDarkMode ? 'text-gray-500' : 'text-gray-400'
-                              }`}>
-                                {isActive ? 'Đang hoạt động' : 'Chưa kích hoạt'}
-                              </p>
-                            </div>
+                            {index === 0 ? <Sunrise className="w-4 h-4" /> : index === 1 ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                            <h3 className={`font-semibold text-xs ${
+                              isActive 
+                                ? isDarkMode ? 'text-white' : 'text-gray-900'
+                                : isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                            }`}>
+                              {slot.name}
+                            </h3>
                           </div>
                           
                           {/* Toggle switch */}
-                          <div className="flex items-center">
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={isActive}
-                                onChange={(e) => handleTimeSlotChange(slot.id, 'isActive', e.target.checked)}
-                                className="sr-only peer"
-                              />
-                              <div className={`relative w-10 h-5 rounded-full transition-all duration-300 ${
-                                isActive 
-                                  ? 'bg-blue-500 peer-focus:ring-2 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800' 
-                                  : 'bg-gray-300 peer-focus:ring-2 peer-focus:ring-gray-300 dark:peer-focus:ring-gray-800'
-                              } peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600`}>
-                              </div>
-                            </label>
-                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={isActive}
+                              onChange={(e) => handleTimeSlotChange(slot.id, 'isActive', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className={`relative w-9 h-5 rounded-full transition-all duration-300 ${
+                              isActive 
+                                ? 'bg-blue-500' 
+                                : 'bg-gray-300'
+                            } peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all`}>
+                            </div>
+                          </label>
                         </div>
                         
                         {/* Time inputs - Compact layout */}
-                        <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2 mb-2">
                           <div>
-                            <label className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                              Thời gian bắt đầu
+                            <label className={`block text-[10px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                              Bắt đầu
                             </label>
                             <input
                               type="time"
                               value={slot.startTime}
                               onChange={(e) => handleTimeSlotChange(slot.id, 'startTime', e.target.value)}
-                              className={`w-full px-2.5 py-2 rounded-lg border text-sm ${
+                              className={`w-full px-2 py-1.5 rounded border text-xs ${
                                 isDarkMode 
                                   ? 'bg-gray-600/50 border-gray-500/50 text-white focus:border-blue-500' 
                                   : 'bg-white/90 border-gray-300/50 text-gray-900 focus:border-blue-400'
-                              } focus:outline-none transition-all duration-300`}
+                              } focus:outline-none`}
                             />
                           </div>
                           <div>
-                            <label className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                              Thời gian kết thúc
+                            <label className={`block text-[10px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                              Kết thúc
                             </label>
                             <input
                               type="time"
                               value={slot.endTime}
                               onChange={(e) => handleTimeSlotChange(slot.id, 'endTime', e.target.value)}
-                              className={`w-full px-2.5 py-2 rounded-lg border text-sm ${
+                              className={`w-full px-2 py-1.5 rounded border text-xs ${
                                 isDarkMode 
                                   ? 'bg-gray-600/50 border-gray-500/50 text-white focus:border-blue-500' 
                                   : 'bg-white/90 border-gray-300/50 text-gray-900 focus:border-blue-400'
-                              } focus:outline-none transition-all duration-300`}
+                              } focus:outline-none`}
                             />
                           </div>
                         </div>
                         
                         {/* Activities description - Compact */}
-                        <div className="mt-3">
-                          <label className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                        <div className="mb-2">
+                          <label className={`block text-[10px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                             Mô tả hoạt động
                           </label>
                           <textarea
                             value={slot.activities}
                             onChange={(e) => handleTimeSlotChange(slot.id, 'activities', e.target.value)}
                             rows={2}
-                            className={`w-full px-2.5 py-2 rounded-lg border resize-none text-sm ${
+                            className={`w-full px-2 py-1.5 rounded border resize-none text-xs ${
                               isDarkMode 
                                 ? 'bg-gray-600/50 border-gray-500/50 text-white focus:border-blue-500' 
                                 : 'bg-white/90 border-gray-300/50 text-gray-900 focus:border-blue-400'
-                            } focus:outline-none transition-all duration-300`}
+                            } focus:outline-none`}
                             placeholder="Mô tả hoạt động..."
                           />
                         </div>
 
                         {/* Detailed Location - Compact - Show ONLY for multi-time */}
                         {useMultiTimeLocation && (
-                          <div className="mt-4">
-                            <label className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                              Địa điểm chi tiết cho {slot.name}
+                          <div className="mb-2">
+                            <label className={`block text-[10px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                              Địa điểm chi tiết
                             </label>
                             <input
                               type="text"
                               value={slot.detailedLocation}
                               onChange={(e) => handleTimeSlotChange(slot.id, 'detailedLocation', e.target.value)}
-                              className={`w-full px-3 py-2 rounded-lg border ${
+                              className={`w-full px-2 py-1.5 rounded border text-xs ${
                                 isDarkMode 
                                   ? 'bg-gray-600/50 border-gray-500/50 text-white focus:border-blue-500' 
                                   : 'bg-white/90 border-gray-300/50 text-gray-900 focus:border-blue-400'
-                              } focus:outline-none transition-all duration-300`}
-                              placeholder="VD: Dãy A1, Phòng 101, Sân trường..."
+                              } focus:outline-none`}
+                              placeholder="VD: Dãy A1, Phòng 101..."
                             />
                           </div>
                         )}
 
                         {/* Integrated Location Picker for Multi-time */}
                         {isActive && useMultiTimeLocation && (
-                          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
-                            {/* Time slot mapping */}
+                          <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
                             {(() => {
                               const timeSlotMap: { [key: string]: 'morning' | 'afternoon' | 'evening' } = {
                                 'Buổi Sáng': 'morning',
@@ -1851,335 +1768,105 @@ export default function CreateSingleActivityPage() {
                               const hasLocation = multiTimeLocations.find(loc => loc.timeSlot === currentTimeSlot);
                               
                               return (
-                                <div className="space-y-3">
-                                  {/* Enhanced Status indicator */}
-                                  <div className={`p-4 rounded-xl border-2 transition-all duration-300 ${
-                                    hasLocation 
-                                      ? isDarkMode ? 'bg-gradient-to-r from-green-900/20 to-green-800/20 border-green-500/50 shadow-lg' : 'bg-gradient-to-r from-green-50/90 to-green-100/90 border-green-400/50 shadow-lg'
-                                      : isSelected
-                                      ? isDarkMode ? 'bg-gradient-to-r from-blue-900/20 to-blue-800/20 border-blue-500/50 shadow-lg' : 'bg-gradient-to-r from-blue-50/90 to-blue-100/90 border-blue-400/50 shadow-lg'
-                                      : isDarkMode ? 'bg-gradient-to-r from-gray-700/30 to-gray-600/30 border-gray-600/50' : 'bg-gradient-to-r from-gray-50/80 to-gray-100/80 border-gray-300/50'
-                                  } hover:shadow-xl`}>
-                                    <div className="flex items-center justify-between">
-                                      <div className="flex items-center space-x-3">
-                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                                          hasLocation 
-                                            ? isDarkMode ? 'bg-green-500/20 border border-green-500/30' : 'bg-green-100 border border-green-300'
-                                            : isSelected
-                                            ? isDarkMode ? 'bg-blue-500/20 border border-blue-500/30' : 'bg-blue-100 border border-blue-300'
-                                            : isDarkMode ? 'bg-gray-600/50 border border-gray-500/50' : 'bg-gray-200 border border-gray-300'
-                                        }`}>
-                                          <span className={`text-lg ${
-                                            hasLocation ? 'text-green-500' : isSelected ? 'text-blue-500' : 'text-gray-400'
-                                          }`}>
-                                        {hasLocation ? '✅' : isSelected ? '🎯' : '📍'}
-                                      </span>
-                                        </div>
-                                        <div>
-                                          <div className={`text-sm font-bold ${
-                                        hasLocation ? (isDarkMode ? 'text-green-300' : 'text-green-700') 
-                                        : isSelected ? (isDarkMode ? 'text-blue-300' : 'text-blue-700')
-                                        : (isDarkMode ? 'text-gray-400' : 'text-gray-600')
+                                <div className="space-y-2">
+                                  {/* Status and buttons */}
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center space-x-1.5">
+                                      {hasLocation ? (
+                                        <CheckCircle2 className="w-3 h-3 text-green-500" />
+                                      ) : isSelected ? (
+                                        <Target className="w-3 h-3 text-blue-500" />
+                                      ) : (
+                                        <MapPin className="w-3 h-3 text-gray-400" />
+                                      )}
+                                      <span className={`text-[10px] ${
+                                        hasLocation ? (isDarkMode ? 'text-green-400' : 'text-green-600') 
+                                        : isSelected ? (isDarkMode ? 'text-blue-400' : 'text-blue-600')
+                                        : (isDarkMode ? 'text-gray-500' : 'text-gray-500')
                                       }`}>
-                                        {hasLocation ? 'Đã chọn địa điểm' : isSelected ? 'Đang chọn địa điểm...' : 'Chưa chọn địa điểm'}
-                                          </div>
-                                          <div className={`text-xs ${
-                                            hasLocation ? (isDarkMode ? 'text-green-400' : 'text-green-600') 
-                                            : isSelected ? (isDarkMode ? 'text-blue-400' : 'text-blue-600')
-                                            : (isDarkMode ? 'text-gray-500' : 'text-gray-500')
-                                          }`}>
-                                            {hasLocation ? 'Sẵn sàng cho hoạt động' : isSelected ? 'Đang thiết lập...' : 'Cần chọn địa điểm'}
-                                          </div>
-                                        </div>
+                                        {hasLocation ? 'Đã chọn' : isSelected ? 'Đang chọn...' : 'Chưa chọn'}
+                                      </span>
                                     </div>
-                                    {hasLocation && (
-                                        <div className={`px-3 py-1 rounded-full text-xs font-bold ${
-                                          isDarkMode ? 'bg-green-500/20 text-green-300 border border-green-500/30' : 'bg-green-100 text-green-700 border border-green-300'
-                                        }`}>
-                                          📏 {hasLocation.radius}m
-                                        </div>
+                                    
+                                    <div className="flex items-center space-x-1">
+                                      {!hasLocation ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleTimeSlotLocationSelect(currentTimeSlot)}
+                                          className={`px-2 py-1 rounded text-[10px] font-medium transition-all ${
+                                            isSelected
+                                              ? isDarkMode 
+                                                ? 'bg-blue-600 text-white' 
+                                                : 'bg-blue-500 text-white'
+                                              : isDarkMode 
+                                                ? 'bg-gray-600 text-white' 
+                                                : 'bg-gray-500 text-white'
+                                          }`}
+                                        >
+                                          <MapPin className="w-3 h-3" />
+                                        </button>
+                                      ) : (
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleTimeSlotLocationSelect(currentTimeSlot)}
+                                            className="px-2 py-1 rounded text-[10px] font-medium bg-blue-500 hover:bg-blue-600 text-white"
+                                          >
+                                            <FileEdit className="w-3 h-3" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setMultiTimeLocations(prev => prev.filter(loc => loc.timeSlot !== currentTimeSlot));
+                                            }}
+                                            className="px-2 py-1 rounded text-[10px] font-medium bg-red-500 hover:bg-red-600 text-white"
+                                          >
+                                            <X className="w-3 h-3" />
+                                          </button>
+                                        </>
                                       )}
                                     </div>
                                   </div>
 
-                                  {/* Action buttons */}
-                                  <div className="flex space-x-2">
-                                    {!hasLocation ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleTimeSlotLocationSelect(currentTimeSlot)}
-                                        className={`flex-1 px-3 py-2 rounded-lg font-medium transition-all duration-300 flex items-center justify-center space-x-2 ${
-                                          isSelected
-                                            ? isDarkMode 
-                                              ? 'bg-blue-600 hover:bg-blue-700 text-white' 
-                                              : 'bg-blue-500 hover:bg-blue-600 text-white'
-                                            : isDarkMode 
-                                              ? 'bg-gray-600 hover:bg-gray-500 text-white' 
-                                              : 'bg-gray-500 hover:bg-gray-600 text-white'
-                                        } hover:scale-105`}
-                                      >
-                                        <span className="text-sm">📍</span>
-                                        <span className="text-sm">
-                                          {isSelected ? 'Đang chọn...' : 'Chọn địa điểm'}
-                                        </span>
-                                      </button>
-                                    ) : (
-                                      <>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleTimeSlotLocationSelect(currentTimeSlot)}
-                                          className="flex-1 px-3 py-2 rounded-lg font-medium transition-all duration-300 flex items-center justify-center space-x-2 bg-blue-500 hover:bg-blue-600 text-white hover:scale-105"
-                                        >
-                                          <span className="text-sm">✏️</span>
-                                          <span className="text-sm">Sửa địa điểm</span>
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setMultiTimeLocations(prev => prev.filter(loc => loc.timeSlot !== currentTimeSlot));
-                                          }}
-                                          className="px-3 py-2 rounded-lg font-medium transition-all duration-300 bg-red-500 hover:bg-red-600 text-white hover:scale-105"
-                                          title="Xóa địa điểm"
-                                        >
-                                          🗑️
-                                        </button>
-                                      </>
-                                    )}
-                                  </div>
-
-                                  {/* Enhanced Location info */}
+                                  {/* Location info - Compact */}
                                   {hasLocation && (
-                                    <div className={`p-4 rounded-xl border-2 ${
-                                      isDarkMode ? 'bg-gray-800/50 border-gray-600/50' : 'bg-white/80 border-gray-200/50'
-                                    } shadow-lg hover:shadow-xl transition-all duration-300`}>
-                                      <div className="space-y-3">
-                                        {/* Location Header */}
-                                        <div className="flex items-center justify-between">
-                                          <div className="flex items-center space-x-2">
-                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                                              isDarkMode ? 'bg-green-500/20' : 'bg-green-100'
-                                            }`}>
-                                              <span className="text-sm">📍</span>
-                                    </div>
-                                            <span className={`text-sm font-semibold ${
-                                              isDarkMode ? 'text-green-300' : 'text-green-700'
-                                            }`}>
-                                              Địa điểm đã chọn
-                                            </span>
-                                </div>
-                                          <div className={`px-2 py-1 rounded-full text-xs font-bold ${
-                                            isDarkMode ? 'bg-green-500/20 text-green-300 border border-green-500/30' : 'bg-green-100 text-green-700 border border-green-200'
-                                          }`}>
-                                            {hasLocation.radius}m
-                          </div>
-                      </div>
-                                        
-                                        {/* Address */}
-                                        <div className={`p-3 rounded-lg ${
-                                          isDarkMode ? 'bg-gray-700/50 border border-gray-600/50' : 'bg-gray-50/80 border border-gray-200/50'
-                                        }`}>
-                                          <div className="flex items-start space-x-2">
-                                            <span className="text-blue-500 mt-0.5">🏠</span>
-                                            <div className="flex-1">
-                                              <div className={`text-xs font-medium ${
-                                                isDarkMode ? 'text-gray-300' : 'text-gray-700'
-                                              }`}>
-                                                Địa chỉ:
-                    </div>
-                                              <div className={`text-xs leading-relaxed ${
-                                                isDarkMode ? 'text-gray-400' : 'text-gray-600'
-                                              }`}>
-                                                {hasLocation.location.address}
-                </div>
-                        </div>
-                        </div>
-                      </div>
-                      
-                                        {/* Coordinates */}
-                                        <div className={`p-3 rounded-lg ${
-                                          isDarkMode ? 'bg-blue-900/20 border border-blue-500/30' : 'bg-blue-50/80 border border-blue-200/50'
-                                        }`}>
-                                          <div className="flex items-start space-x-2">
-                                            <span className="text-purple-500 mt-0.5">🎯</span>
-                                            <div className="flex-1">
-                                              <div className={`text-xs font-medium ${
-                                                isDarkMode ? 'text-blue-300' : 'text-blue-700'
-                                              }`}>
-                                                Tọa độ:
-                    </div>
-                                              <div className={`text-xs font-mono ${
-                                                isDarkMode ? 'text-blue-400' : 'text-blue-600'
-                                              }`}>
-                                                {hasLocation.location.lat.toFixed(6)}, {hasLocation.location.lng.toFixed(6)}
-                              </div>
-                                </div>
-                              </div>
-                            </div>
-                            
-                                        {/* Detailed Location Input for Multi-time ONLY */}
-                                        {useMultiTimeLocation && (
-                                          <div className={`p-3 rounded-lg ${
-                                            isDarkMode ? 'bg-purple-900/20 border border-purple-500/30' : 'bg-purple-50/80 border border-purple-200/50'
-                                          }`}>
-                                            <div className="space-y-2">
-                                              <div className="flex items-center space-x-2">
-                                                <span className="text-purple-500">📋</span>
-                                                <span className={`text-xs font-medium ${
-                                                  isDarkMode ? 'text-purple-300' : 'text-purple-700'
-                                                }`}>
-                                                  Địa điểm chi tiết cho {slot.name}:
-                                                </span>
-                                              </div>
-                                              <input
-                                                type="text"
-                                                value={slot.detailedLocation || ''}
-                                                onChange={(e) => handleTimeSlotChange(slot.id, 'detailedLocation', e.target.value)}
-                                                placeholder={`VD: Phòng ${index === 0 ? 'A101' : index === 1 ? 'B201' : 'C301'}, Dãy ${index === 0 ? 'A' : index === 1 ? 'B' : 'C'}...`}
-                                                className={`w-full px-3 py-2 rounded-lg border text-xs transition-all duration-300 ${
-                                                  isDarkMode 
-                                                    ? 'bg-gray-700/50 border-gray-600/50 text-white placeholder-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20' 
-                                                    : 'bg-white/90 border-gray-300/50 text-gray-900 placeholder-gray-500 focus:border-purple-400 focus:ring-2 focus:ring-purple-500/20'
-                                                } focus:outline-none backdrop-blur-sm`}
-                                              />
-                                            </div>
-                                          </div>
-                                        )}
+                                    <div className="space-y-1">
+                                      <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                        {hasLocation.location.address}
+                                      </p>
+                                      <div className="flex items-center space-x-2 text-[10px]">
+                                        <span className={isDarkMode ? 'text-gray-500' : 'text-gray-500'}>
+                                          {hasLocation.location.lat.toFixed(4)}, {hasLocation.location.lng.toFixed(4)}
+                                        </span>
+                                        <span className={isDarkMode ? 'text-gray-500' : 'text-gray-500'}>
+                                          • {hasLocation.radius}m
+                                        </span>
                                       </div>
-                              </div>
-                            )}
-                          </div>
-                        );
+                                    </div>
+                                  )}
+                                </div>
+                              );
                             })()}
                           </div>
                         )}
 
                         {/* Single Location Status for Single Location Mode */}
                         {isActive && !useMultiTimeLocation && locationData && (
-                          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
-                            <div className="space-y-3">
-                              {/* Enhanced Status indicator for single location */}
-                              <div className={`p-4 rounded-xl border-2 transition-all duration-300 ${
-                                isDarkMode ? 'bg-gradient-to-r from-green-900/20 to-green-800/20 border-green-500/50 shadow-lg' : 'bg-gradient-to-r from-green-50/90 to-green-100/90 border-green-400/50 shadow-lg'
-                              } hover:shadow-xl`}>
-
-
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center space-x-3">
-                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                                      isDarkMode ? 'bg-green-500/20 border border-green-500/30' : 'bg-green-100 border border-green-300'
-                                    }`}>
-                                      <span className="text-lg text-green-500">✅</span>
-                                    </div>
-                                    <div>
-                                      <div className={`text-sm font-bold ${isDarkMode ? 'text-green-300' : 'text-green-700'}`}>
-                                        Sử dụng địa điểm chung
-                                      </div>
-                                      <div className={`text-xs ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>
-                                        Áp dụng cho tất cả các buổi
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div className={`px-3 py-1 rounded-full text-xs font-bold ${
-                                    isDarkMode ? 'bg-green-500/20 text-green-300 border border-green-500/30' : 'bg-green-100 text-green-700 border border-green-300'
-                                  }`}>
-                                    📏 {locationData.radius}m
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Single Location Info */}
-                              <div className={`p-4 rounded-xl border-2 ${
-                                isDarkMode ? 'bg-gray-800/50 border-gray-600/50' : 'bg-white/80 border-gray-200/50'
-                              } shadow-lg hover:shadow-xl transition-all duration-300`}>
-                                <div className="space-y-3">
-                                  {/* Location Header */}
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center space-x-2">
-                                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                                        isDarkMode ? 'bg-green-500/20' : 'bg-green-100'
-                                      }`}>
-                                        <span className="text-sm">📍</span>
-                                      </div>
-                                      <span className={`text-sm font-semibold ${
-                                        isDarkMode ? 'text-green-300' : 'text-green-700'
-                                      }`}>
-                                        Địa điểm chung
-                                      </span>
-                                    </div>
-                                    <div className={`px-2 py-1 rounded-full text-xs font-bold ${
-                                      isDarkMode ? 'bg-green-500/20 text-green-300 border border-green-500/30' : 'bg-green-100 text-green-700 border border-green-200'
-                                    }`}>
-                                      {locationData.radius}m
-                                    </div>
-                                  </div>
-                                  
-                                  {/* Address */}
-                                  <div className={`p-3 rounded-lg ${
-                                    isDarkMode ? 'bg-gray-700/50 border border-gray-600/50' : 'bg-gray-50/80 border border-gray-200/50'
-                                  }`}>
-                                    <div className="flex items-start space-x-2">
-                                      <span className="text-blue-500 mt-0.5">🏠</span>
-                                      <div className="flex-1">
-                                        <div className={`text-xs font-medium ${
-                                          isDarkMode ? 'text-gray-300' : 'text-gray-700'
-                                        }`}>
-                                          Địa chỉ:
-                                        </div>
-                                        <div className={`text-xs leading-relaxed ${
-                                          isDarkMode ? 'text-gray-400' : 'text-gray-600'
-                                        }`}>
-                                          {(() => { console.log('📍 Rendering address:', locationData.address); return locationData.address; })()}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                  
-                                  {/* Coordinates */}
-                                  <div className={`p-3 rounded-lg ${
-                                    isDarkMode ? 'bg-blue-900/20 border border-blue-500/30' : 'bg-blue-50/80 border border-blue-200/50'
-                                  }`}>
-                                    <div className="flex items-start space-x-2">
-                                      <span className="text-purple-500 mt-0.5">🎯</span>
-                                      <div className="flex-1">
-                                        <div className={`text-xs font-medium ${
-                                          isDarkMode ? 'text-blue-300' : 'text-blue-700'
-                                        }`}>
-                                          Tọa độ:
-                                        </div>
-                                        <div className={`text-xs font-mono ${
-                                          isDarkMode ? 'text-blue-400' : 'text-blue-600'
-                                        }`}>
-                                          {(() => { console.log('📍 Rendering coordinates:', locationData.lat, locationData.lng); return `${locationData.lat.toFixed(6)}, ${locationData.lng.toFixed(6)}`; })()}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                  
-                                  {/* Detailed Location (if exists) */}
-                                  {form.detailedLocation && (
-                                    <div className={`p-3 rounded-lg ${
-                                      isDarkMode ? 'bg-purple-900/20 border border-purple-500/30' : 'bg-purple-50/80 border border-purple-200/50'
-                                    }`}>
-                                      <div className="flex items-start space-x-2">
-                                        <span className="text-purple-500 mt-0.5">📋</span>
-                                        <div className="flex-1">
-                                          <div className={`text-xs font-medium ${
-                                            isDarkMode ? 'text-purple-300' : 'text-purple-700'
-                                          }`}>
-                                            Địa điểm chi tiết:
-                                          </div>
-                                          <div className={`text-xs leading-relaxed ${
-                                            isDarkMode ? 'text-purple-400' : 'text-purple-600'
-                                          }`}>
-                                            {form.detailedLocation}
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
+                          <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center space-x-1.5">
+                                <CheckCircle2 className="w-3 h-3 text-green-500" />
+                                <span className={`text-[10px] ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>
+                                  Địa điểm chung
+                                </span>
+                                <span className={`text-[10px] ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                  • {locationData.radius}m
+                                </span>
                               </div>
                             </div>
+                            <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                              {locationData.address}
+                            </p>
                           </div>
                         )}
                       </div>
@@ -2187,6 +1874,7 @@ export default function CreateSingleActivityPage() {
                   );
                   })}
                 </div>
+              </div>
                 
                 {/* Clear All Locations Button - At the bottom */}
                 {useMultiTimeLocation && multiTimeLocations.length > 0 && (
@@ -2198,7 +1886,7 @@ export default function CreateSingleActivityPage() {
                           ? 'bg-green-500/20 text-green-300 border border-green-500/30' 
                           : 'bg-green-100 text-green-700 border border-green-200'
                       }`}>
-                        📍 {multiTimeLocations.length} địa điểm đã chọn
+                        <MapPin className="inline w-4 h-4 mr-1" /> {multiTimeLocations.length} địa điểm đã chọn
                       </div>
                       
                       {/* Clear All Button */}
@@ -2219,7 +1907,7 @@ export default function CreateSingleActivityPage() {
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
                           isDarkMode ? 'bg-red-500/20' : 'bg-white/20'
                         }`}>
-                          <span className="text-sm">🗑️</span>
+                          <X className="w-4 h-4" />
                         </div>
                         <span>Xóa tất cả địa điểm</span>
                         <div className={`w-2 h-2 rounded-full ${
@@ -2232,184 +1920,113 @@ export default function CreateSingleActivityPage() {
 
 
 
-                {/* Địa điểm chi tiết chung cho các buổi đã chọn - Chỉ hiển thị khi KHÔNG phải chế độ "Nhiều thời gian" */}
+                {/* Địa điểm chi tiết chung cho các buổi đã chọn - Chỉ hiển thị khi KHÔNG phải chế độ "Nhiều địa điểm" */}
                 {!useMultiTimeLocation && (
-                  <div className={`mt-6 relative overflow-hidden rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-purple-900/20 to-pink-900/20 border border-purple-500/30' : 'bg-gradient-to-br from-purple-50/80 to-pink-50/80 border border-purple-200/50'} backdrop-blur-sm shadow-xl hover:shadow-2xl transition-all duration-500`}>
-                    
-                    {/* Background Pattern */}
-                    <div className="absolute inset-0 opacity-5">
-                      <div className="absolute inset-0" style={{
-                        backgroundImage: `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23000000' fill-opacity='0.1'%3E%3Cpath d='M20 20c0 11.046-8.954 20-20 20s-20-8.954-20-20 8.954-20 20-20 20 8.954 20 20zm0 0c0-11.046 8.954-20 20-20s20 8.954 20 20-8.954 20-20 20-20-8.954-20-20z'/%3E%3C/g%3E%3C/svg%3E")`,
-                      }} />
+                  <div className="mt-4">
+                    <div className="mb-2">
+                      <label className={`block text-xs font-semibold mb-1.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                        Địa điểm chi tiết chung
+                      </label>
+                      <input
+                        type="text"
+                        name="detailedLocation"
+                        value={form.detailedLocation || ''}
+                        onChange={(e) => {
+                          // Cập nhật form
+                          handleChange(e);
+                          // Đồng thời cập nhật cho các buổi đã chọn (active)
+                          timeSlots.forEach((timeSlot) => {
+                            if (timeSlot != null && typeof timeSlot === 'object' && 'isActive' in timeSlot && timeSlot.isActive) {
+                              handleTimeSlotChange(timeSlot.id, 'detailedLocation', e.target.value);
+                            }
+                          });
+                        }}
+                        placeholder="VD: Dãy A1, Phòng 101, Sân trường..."
+                        className={`w-full px-3 py-2 rounded-lg border text-xs transition-all duration-300 ${
+                          isDarkMode 
+                            ? 'bg-gray-700/50 border-gray-600/50 text-white placeholder-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20' 
+                            : 'bg-white/90 border-gray-300/50 text-gray-900 placeholder-gray-500 focus:border-purple-400 focus:ring-2 focus:ring-purple-500/20'
+                        } focus:outline-none`}
+                      />
                     </div>
-                    
-                    <div className="relative p-6">
-                      <div className="flex items-center space-x-4 mb-4">
-                        <div className={`relative w-12 h-12 rounded-2xl flex items-center justify-center ${isDarkMode ? 'bg-gradient-to-br from-purple-500/40 to-pink-500/40 border border-purple-500/30' : 'bg-gradient-to-br from-purple-100 to-pink-100 border border-purple-300'} shadow-lg group-hover:scale-110 transition-transform duration-300`}>
-                          <span className="text-xl">📍</span>
-                          <div className={`absolute -top-1 -right-1 w-3 h-3 rounded-full ${isDarkMode ? 'bg-pink-400' : 'bg-pink-500'} animate-pulse`}></div>
-                        </div>
-                        <div>
-                          <h3 className={`text-lg font-bold mb-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                            Địa điểm chi tiết chung cho các buổi đã chọn
-                          </h3>
-                          <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                            Nhập địa điểm cụ thể chung cho các buổi đã kích hoạt (phòng, dãy, sân...)
-                          </p>
-                        </div>
-                      </div>
-                      
-                      <div className="relative">
-                        <input
-                          type="text"
-                          name="detailedLocation"
-                          value={form.detailedLocation || ''}
-                          onChange={(e) => {
-                            // Cập nhật form
-                            handleChange(e);
-                            // Đồng thời cập nhật cho các buổi đã chọn (active)
-                            timeSlots.forEach((timeSlot) => {
-                              if (timeSlot != null && typeof timeSlot === 'object' && 'isActive' in timeSlot && timeSlot.isActive) {
-                                handleTimeSlotChange(timeSlot.id, 'detailedLocation', e.target.value);
-                              }
-                            });
-                          }}
-                          placeholder="VD: Dãy A1, Phòng 101, Sân trường..."
-                          className={`w-full px-4 py-3 rounded-xl border-2 text-base transition-all duration-300 ${
-                            isDarkMode 
-                              ? 'bg-gray-700/50 border-gray-600/50 text-white placeholder-gray-400 focus:border-purple-500 focus:ring-4 focus:ring-purple-500/20' 
-                              : 'bg-white/90 border-gray-300/50 text-gray-900 placeholder-gray-500 focus:border-purple-400 focus:ring-4 focus:ring-purple-500/20'
-                          } focus:outline-none backdrop-blur-sm hover:shadow-lg`}
-                        />
-                        
-                        {/* Input Icon */}
-                        <div className={`absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 rounded-full ${isDarkMode ? 'bg-purple-500/20' : 'bg-purple-100'} flex items-center justify-center`}>
-                          <svg className="w-3 h-3 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        </div>
-                      </div>
-                      
-                      {/* Help Text */}
-                      <div className={`mt-3 p-3 rounded-xl ${isDarkMode ? 'bg-purple-900/20 border border-purple-500/30' : 'bg-purple-50/80 border border-purple-200/50'}`}>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-purple-500">💡</span>
-                          <p className={`text-xs ${isDarkMode ? 'text-purple-300' : 'text-purple-600'}`}>
-                            <strong>Gợi ý:</strong> Nhập chi tiết địa điểm chung để áp dụng cho các buổi đã kích hoạt
-                          </p>
-                        </div>
-                      </div>
 
-                      {/* Button Chọn địa điểm - Ngay sau phần Địa điểm chi tiết chung */}
-                      <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-600">
-                        <div className="text-center mb-4">
-                          <h4 className={`text-base font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-                            📍 Chọn địa điểm cho hoạt động
-                          </h4>
-                          <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mt-1`}>
-                            Nhấn nút bên dưới để chọn địa điểm trên bản đồ
-                          </p>
-                        </div>
-                        <div className="flex items-center justify-center space-x-4">
-                          {/* Select Location Button */}
+                    {/* Button Chọn địa điểm */}
+                    <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+                      <div className="flex items-center justify-center space-x-2">
+                        {/* Select Location Button */}
+                        <button
+                          onClick={() => {
+                            // Scroll to map section
+                            setTimeout(() => {
+                              const mapSection = document.getElementById('map-section');
+                              if (mapSection) {
+                                mapSection.scrollIntoView({ 
+                                  behavior: 'smooth', 
+                                  block: 'start' 
+                                });
+                              }
+                            }, 100);
+                          }}
+                          className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all duration-300 ${
+                            isDarkMode
+                              ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white border border-blue-500 shadow-md hover:shadow-lg'
+                              : 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white border border-blue-400 shadow-md hover:shadow-lg'
+                          } hover:scale-105 flex items-center space-x-2`}
+                          title="Chọn địa điểm"
+                        >
+                          <MapPin className="w-3 h-3" />
+                          <span>Chọn địa điểm</span>
+                        </button>
+
+                        {/* Delete Location Button - Only show when location is selected */}
+                        {locationData && (
                           <button
                             onClick={() => {
-                              // Scroll to map section
-                              setTimeout(() => {
-                                const mapSection = document.getElementById('map-section');
-                                if (mapSection) {
-                                  mapSection.scrollIntoView({ 
-                                    behavior: 'smooth', 
-                                    block: 'start' 
-                                  });
-                                }
-                              }, 100);
+                              // Xóa địa điểm chung
+                              setLocationData(null);
+                              // Reset form detailed location
+                              setForm(prev => ({
+                                ...prev,
+                                detailedLocation: ''
+                              }));
+                              // Reset detailed locations cho tất cả buổi
+                              setTimeSlots(prevSlots => prevSlots.map(slot => ({
+                                ...slot,
+                                detailedLocation: ''
+                              })));
+                              // Force re-render map components
+                              setLocationPickerKey(prev => prev + 1);
+                              // Hiển thị thông báo thành công
+                              alert('✅ Đã xóa địa điểm chung!\n\nCác thay đổi:\n• Xóa địa điểm trên bản đồ\n• Reset thanh tìm kiếm\n• Xóa địa điểm chi tiết của các buổi\n• Reset form địa điểm chi tiết');
                             }}
-                            className={`px-8 py-3 rounded-xl text-base font-bold transition-all duration-300 ${
+                            className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all duration-300 ${
                               isDarkMode
-                                ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white border-2 border-blue-500 shadow-lg hover:shadow-xl'
-                                : 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white border-2 border-blue-400 shadow-lg hover:shadow-xl'
-                            } hover:scale-105 flex items-center space-x-3 transform hover:-translate-y-0.5`}
-                            title="Chọn địa điểm"
+                                ? 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white border border-red-500 shadow-md hover:shadow-lg'
+                                : 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white border border-red-400 shadow-md hover:shadow-lg'
+                            } hover:scale-105 flex items-center space-x-2`}
+                            title="Xóa địa điểm chung"
                           >
-                            <div className={`w-7 h-7 rounded-full flex items-center justify-center ${
-                              isDarkMode ? 'bg-blue-500/20' : 'bg-white/20'
-                            }`}>
-                              <span className="text-lg">📍</span>
-                            </div>
-                            <span>Chọn địa điểm</span>
-                            <div className={`w-3 h-3 rounded-full ${
-                              isDarkMode ? 'bg-white/30' : 'bg-white/50'
-                            }`}></div>
+                            <X className="w-3 h-3" />
+                            <span>Xóa địa điểm</span>
                           </button>
-
-                          {/* Delete Location Button - Only show when location is selected */}
-                          {locationData && (
-                            <button
-                              onClick={() => {
-                                // Xóa địa điểm chung
-                                setLocationData(null);
-                                // Reset form detailed location
-                                setForm(prev => ({
-                                  ...prev,
-                                  detailedLocation: ''
-                                }));
-                                // Reset detailed locations cho tất cả buổi
-                                setTimeSlots(prevSlots => prevSlots.map(slot => ({
-                                  ...slot,
-                                  detailedLocation: ''
-                                })));
-                                // Force re-render map components
-                                setLocationPickerKey(prev => prev + 1);
-                                // Hiển thị thông báo thành công
-                                alert('✅ Đã xóa địa điểm chung!\n\nCác thay đổi:\n• Xóa địa điểm trên bản đồ\n• Reset thanh tìm kiếm\n• Xóa địa điểm chi tiết của các buổi\n• Reset form địa điểm chi tiết');
-                              }}
-                              className={`px-6 py-3 rounded-xl text-base font-bold transition-all duration-300 ${
-                                isDarkMode
-                                  ? 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white border-2 border-red-500 shadow-lg hover:shadow-xl'
-                                  : 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white border-2 border-red-400 shadow-lg hover:shadow-xl'
-                              } hover:scale-105 flex items-center space-x-3 transform hover:-translate-y-0.5`}
-                              title="Xóa địa điểm chung"
-                            >
-                              <div className={`w-7 h-7 rounded-full flex items-center justify-center ${
-                                isDarkMode ? 'bg-red-500/20' : 'bg-white/20'
-                              }`}>
-                                <span className="text-lg">🗑️</span>
-                              </div>
-                              <span>Xóa địa điểm chung</span>
-                              <div className={`w-3 h-3 rounded-full ${
-                                isDarkMode ? 'bg-white/30' : 'bg-white/50'
-                              }`}></div>
-                            </button>
-                          )}
-                        </div>
+                        )}
                       </div>
                     </div>
                   </div>
                 )}
 
-
-
-              </div>
-
               {/* 4. Địa điểm hoạt động */}
-              <div id="map-section" className={`relative overflow-hidden rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/90 via-gray-800/80 to-gray-900/90 border border-gray-700/50' : 'bg-gradient-to-br from-white/95 via-blue-50/30 to-purple-50/30 border border-gray-200/50'} shadow-lg hover:shadow-xl transition-all duration-300 backdrop-blur-xl`}>
+              <div id="map-section" className={`relative overflow-hidden rounded-xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/90 via-gray-800/80 to-gray-900/90 border border-gray-700/50' : 'bg-gradient-to-br from-white/95 via-blue-50/30 to-purple-50/30 border border-gray-200/50'} shadow-lg hover:shadow-xl transition-all duration-300 backdrop-blur-xl`}>
                 {/* Header Section */}
-                <div className="relative p-5">
-                  <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-                    <div className="flex items-center space-x-3">
-                      <div className={`relative w-10 h-10 rounded-xl flex items-center justify-center ${isDarkMode ? 'bg-gradient-to-br from-blue-500/30 to-purple-500/30 border border-blue-500/20' : 'bg-gradient-to-br from-blue-100 to-purple-100 border border-blue-200/50'} shadow-md`}>
-                        <span className="text-lg">📍</span>
-                        <div className={`absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full ${isDarkMode ? 'bg-green-400' : 'bg-green-500'} animate-pulse`}></div>
-                      </div>
-                      <div>
-                        <h2 className={`text-lg font-bold bg-gradient-to-r ${isDarkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent`}>
-                          4. Địa điểm hoạt động
-                        </h2>
-                        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mt-0.5`}>
-                          Chọn vị trí diễn ra hoạt động
-                        </p>
-                      </div>
+                <div className="relative p-3">
+                  <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
+                    <div>
+                      <h2 className={`text-sm font-bold bg-gradient-to-r ${isDarkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent`}>
+                        4. Địa điểm hoạt động
+                      </h2>
+                      <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mt-0.5`}>
+                        Chọn vị trí diễn ra hoạt động
+                      </p>
                     </div>
                     
                     {/* Modern Toggle Switch */}
@@ -2455,7 +2072,7 @@ export default function CreateSingleActivityPage() {
                           ? isDarkMode ? 'bg-green-500/20 text-green-300 border border-green-500/30' : 'bg-green-100 text-green-700 border border-green-200'
                           : isDarkMode ? 'text-gray-400' : 'text-gray-500'
                       }`}>
-                        Nhiều thời gian
+                        Nhiều địa điểm
                       </div>
                     </div>
                   </div>
@@ -2467,7 +2084,7 @@ export default function CreateSingleActivityPage() {
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-3">
                             <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isDarkMode ? 'bg-blue-500/20 border border-blue-500/30' : 'bg-blue-100 border border-blue-300'} shadow-md`}>
-                              <span className="text-lg">🎯</span>
+                              <Target className="w-5 h-5" />
                             </div>
                             <div>
                               <div className={`text-base font-semibold ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`}>
@@ -2503,7 +2120,7 @@ export default function CreateSingleActivityPage() {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-3">
                               <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isDarkMode ? 'bg-gray-700 border border-gray-500' : 'bg-gray-100 border border-gray-300'} shadow-md`}>
-                                <span className="text-lg">📍</span>
+                                <MapPin className="w-5 h-5" />
                               </div>
                               <div>
                                 <div className={`text-base font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
@@ -2566,69 +2183,16 @@ export default function CreateSingleActivityPage() {
 
 
 
-                     {/* Hướng dẫn chọn địa điểm - Modern Info Card */}
-                     <div className={`relative overflow-hidden rounded-2xl ${isDarkMode ? 'bg-gradient-to-r from-emerald-900/20 to-teal-900/20 border border-emerald-500/30' : 'bg-gradient-to-r from-emerald-50/80 to-teal-50/80 border border-emerald-200/50'} backdrop-blur-sm shadow-xl hover:shadow-2xl transition-all duration-500`}>
-                       
-                       {/* Background Pattern */}
-                       <div className="absolute inset-0 opacity-5">
-                         <div className="absolute inset-0" style={{
-                           backgroundImage: `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23000000' fill-opacity='0.1'%3E%3Cpath d='M20 20c0 11.046-8.954 20-20 20s-20-8.954-20-20 8.954-20 20-20 20 8.954 20 20zm0 0c0-11.046 8.954-20 20-20s20 8.954 20 20-8.954 20-20 20-20-8.954-20-20z'/%3E%3C/g%3E%3C/svg%3E")`,
-                         }} />
-                       </div>
-                       
-                       <div className="relative p-8">
-                         <div className="flex items-center space-x-4 mb-6">
-                           <div className={`relative w-16 h-16 rounded-2xl flex items-center justify-center ${isDarkMode ? 'bg-gradient-to-br from-emerald-500/40 to-teal-500/40 border border-emerald-500/30' : 'bg-gradient-to-br from-emerald-100 to-teal-100 border border-emerald-300'} shadow-lg group-hover:scale-110 transition-transform duration-300`}>
-                             <span className="text-2xl">💡</span>
-                             <div className={`absolute -top-1 -right-1 w-4 h-4 rounded-full ${isDarkMode ? 'bg-teal-400' : 'bg-teal-500'} animate-pulse`}></div>
-                           </div>
-                           <div>
-                             <h3 className={`text-xl font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                               Hướng dẫn chọn địa điểm
-                             </h3>
-                             <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                               {useMultiTimeLocation 
-                                 ? timeSlots.filter((s): s is TimeSlot => s != null && typeof s === 'object' && 'isActive' in s && s.isActive === true).length === 0
-                                   ? "⚠️ Vui lòng kích hoạt ít nhất một buổi trong phần 'Các buổi' trước khi chọn địa điểm"
-                                   : `Chọn địa điểm khác nhau cho ${timeSlots.filter((s): s is TimeSlot => s != null && typeof s === 'object' && 'isActive' in s && s.isActive === true).length} buổi đã kích hoạt bằng cách click vào bản đồ bên dưới`
-                                 : "Click vào bản đồ bên dưới để chọn địa điểm duy nhất cho hoạt động"
-                               }
-                             </p>
-                           </div>
-                         </div>
-                         
-                         {useMultiTimeLocation && timeSlots.filter((s): s is TimeSlot => s != null && typeof s === 'object' && 'isActive' in s && s.isActive === true).length === 0 && (
-                           <div className={`p-4 rounded-xl ${isDarkMode ? 'bg-red-900/20 border border-red-500/30' : 'bg-red-50/80 border border-red-200/50'}`}>
-                             <div className="flex items-center space-x-3">
-                               <span className="text-lg">⚠️</span>
-                               <span className={`text-sm ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>
-                                 Không thể chọn địa điểm khi chưa có buổi nào được kích hoạt
-                               </span>
-                             </div>
-                           </div>
-                         )}
-                         
-                         {/* Quick Tips */}
-                         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                           <div className={`p-4 rounded-xl ${isDarkMode ? 'bg-emerald-900/20 border border-emerald-500/30' : 'bg-emerald-50/80 border border-emerald-200/50'}`}>
-                             <div className="flex items-center space-x-3">
-                               <span className="text-emerald-500">🎯</span>
-                               <p className={`text-sm ${isDarkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>
-                                 <strong>Tip:</strong> Click vào bản đồ để chọn vị trí chính xác
-                               </p>
-                             </div>
-                           </div>
-                           
-                           <div className={`p-4 rounded-xl ${isDarkMode ? 'bg-teal-900/20 border border-teal-500/30' : 'bg-teal-50/80 border border-teal-200/50'}`}>
-                             <div className="flex items-center space-x-3">
-                               <span className="text-teal-500">🔍</span>
-                               <p className={`text-sm ${isDarkMode ? 'text-teal-300' : 'text-teal-700'}`}>
-                                 <strong>Tip:</strong> Sử dụng thanh tìm kiếm để tìm địa chỉ nhanh
-                               </p>
-                             </div>
-                           </div>
-                         </div>
-                       </div>
+                     {/* Hướng dẫn chọn địa điểm - Compact */}
+                     <div className="mb-3">
+                       <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                         {useMultiTimeLocation 
+                           ? timeSlots.filter((s): s is TimeSlot => s != null && typeof s === 'object' && 'isActive' in s && s.isActive === true).length === 0
+                             ? "Vui lòng kích hoạt ít nhất một buổi trong phần 'Các buổi' trước khi chọn địa điểm"
+                             : `Chọn địa điểm khác nhau cho ${timeSlots.filter((s): s is TimeSlot => s != null && typeof s === 'object' && 'isActive' in s && s.isActive === true).length} buổi đã kích hoạt`
+                           : "Click vào bản đồ để chọn địa điểm"
+                         }
+                       </p>
                      </div>
                    </div>
 
@@ -2719,474 +2283,168 @@ export default function CreateSingleActivityPage() {
                 </div>
               </div>
 
-              {/* 5. Trạng thái hoạt động */}
-              <div className={`p-5 rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' : 'bg-gradient-to-br from-white/90 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'} shadow-lg hover:shadow-xl transition-all duration-300`}>
-                {/* Header */}
-                <div className="flex items-center mb-4">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center mr-3 ${isDarkMode ? 'bg-gradient-to-br from-purple-500/30 to-pink-500/30 border border-purple-500/20' : 'bg-gradient-to-br from-purple-100 to-pink-100 border border-purple-200'}`}>
-                    <span className="text-lg">⚡</span>
-                    </div>
-                    <div>
-                    <h2 className={`text-lg font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                        5. Trạng thái hoạt động
-                      </h2>
-                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Chọn trạng thái phù hợp để quản lý hoạt động
-                      </p>
-                    </div>
-                  </div>
+              {/* 5. Người phụ trách */}
+              <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' : 'bg-gradient-to-br from-white/90 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'} shadow-lg hover:shadow-xl transition-all duration-300`}>
+                <div className="mb-3">
+                  <h2 className={`text-sm font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    5. Người phụ trách
+                  </h2>
+                  <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Chọn người phụ trách cho hoạt động
+                  </p>
+                </div>
+
+                <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-gray-700/50 border border-gray-600/50' : 'bg-white/80 border border-gray-200/50'} backdrop-blur-sm`}>
+                  <label className={`block text-[10px] font-semibold mb-1.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    <User className="inline w-3 h-3 text-orange-500 mr-1" />
+                    Người phụ trách *
+                  </label>
+                  <select
+                    name="responsiblePerson"
+                    value={form.responsiblePerson}
+                    onChange={handleChange}
+                    required
+                    className={`w-full px-3 py-2 rounded-lg border text-xs ${
+                      isDarkMode 
+                        ? 'bg-gray-600/50 border-gray-500/50 text-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20' 
+                        : 'bg-white/90 border-gray-300/50 text-gray-900 focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20'
+                    } focus:outline-none transition-all duration-300 backdrop-blur-sm`}
+                  >
+                    <option value="">Chọn người phụ trách...</option>
+                    {loadingResponsiblePersons ? (
+                      <option value="" disabled>Đang tải danh sách...</option>
+                    ) : responsiblePersons.length === 0 ? (
+                      <option value="" disabled>Không có người phụ trách nào</option>
+                    ) : (
+                      responsiblePersons.map((person, index) => (
+                        <option key={person._id || `person-${index}-${person.name || 'unknown'}`} value={person._id}>
+                          {person.name} ({getRoleDisplayName(person.role)}) - {getStatusDisplayName(person.status)}
+                        </option>
+                      ))
+                    )}
+                  </select>
                   
-                {/* Compact Status Selection - Horizontal Layout */}
-                <div className="space-y-3">
-                  {/* Status Options - Compact Buttons - Centered and Evenly Spaced */}
-                  <div className="flex flex-wrap justify-center gap-1.5 md:justify-between md:gap-2">
-                      {[
-                        { 
-                          value: 'draft', 
-                          label: 'Nháp', 
-                          icon: '📝', 
-                        color: isDarkMode ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/50' : 'bg-yellow-50 text-yellow-700 border-yellow-300',
-                        activeColor: isDarkMode ? 'bg-yellow-500/40 border-yellow-400 ring-2 ring-yellow-400/30' : 'bg-yellow-100 border-yellow-400 ring-2 ring-yellow-400/30'
-                        },
-                        { 
-                          value: 'published', 
-                          label: 'Đã xuất bản', 
-                          icon: '✅', 
-                        color: isDarkMode ? 'bg-green-500/20 text-green-300 border-green-500/50' : 'bg-green-50 text-green-700 border-green-300',
-                        activeColor: isDarkMode ? 'bg-green-500/40 border-green-400 ring-2 ring-green-400/30' : 'bg-green-100 border-green-400 ring-2 ring-green-400/30'
-                        },
-                        { 
-                          value: 'ongoing', 
-                          label: 'Đang diễn ra', 
-                          icon: '🔄', 
-                        color: isDarkMode ? 'bg-blue-500/20 text-blue-300 border-blue-500/50' : 'bg-blue-50 text-blue-700 border-blue-300',
-                        activeColor: isDarkMode ? 'bg-blue-500/40 border-blue-400 ring-2 ring-blue-400/30' : 'bg-blue-100 border-blue-400 ring-2 ring-blue-400/30'
-                        },
-                        { 
-                          value: 'completed', 
-                          label: 'Đã hoàn thành', 
-                          icon: '🏆', 
-                        color: isDarkMode ? 'bg-purple-500/20 text-purple-300 border-purple-500/50' : 'bg-purple-50 text-purple-700 border-purple-300',
-                        activeColor: isDarkMode ? 'bg-purple-500/40 border-purple-400 ring-2 ring-purple-400/30' : 'bg-purple-100 border-purple-400 ring-2 ring-purple-400/30'
-                        },
-                        { 
-                          value: 'cancelled', 
-                          label: 'Đã hủy', 
-                          icon: '❌', 
-                        color: isDarkMode ? 'bg-red-500/20 text-red-300 border-red-500/50' : 'bg-red-50 text-red-700 border-red-300',
-                        activeColor: isDarkMode ? 'bg-red-500/40 border-red-400 ring-2 ring-red-400/30' : 'bg-red-100 border-red-400 ring-2 ring-red-400/30'
-                        },
-                        { 
-                          value: 'postponed', 
-                          label: 'Tạm hoãn', 
-                          icon: '⏸️', 
-                        color: isDarkMode ? 'bg-amber-500/20 text-amber-300 border-amber-500/50' : 'bg-amber-50 text-amber-700 border-amber-300',
-                        activeColor: isDarkMode ? 'bg-amber-500/40 border-amber-400 ring-2 ring-amber-400/30' : 'bg-amber-100 border-amber-400 ring-2 ring-amber-400/30'
-                        }
-                      ].map((status) => (
-                      <button
-                          key={status.value}
-                        type="button"
-                          onClick={() => setForm(prev => ({ ...prev, status: status.value }))}
-                        className={`flex items-center justify-center space-x-2 px-5 py-2.5 rounded-lg border-2 transition-all duration-200 font-medium text-sm flex-1 md:flex-initial min-w-[140px] ${
-                            form.status === status.value
-                            ? `${status.activeColor} shadow-md scale-105`
-                            : `${status.color} hover:scale-105 hover:shadow-sm`
-                        }`}
-                      >
-                        <span className="text-base">{status.icon}</span>
-                        <span className="whitespace-nowrap">{status.label}</span>
-                          {form.status === status.value && (
-                          <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                              </svg>
-                          )}
-                      </button>
-                      ))}
-                  </div>
-                  
-                  {/* Selected Status Info - Compact */}
-                  {form.status && (
-                    <div className={`p-3 rounded-lg border ${
-                      form.status === 'draft' 
-                        ? isDarkMode ? 'bg-yellow-900/20 border-yellow-500/30' : 'bg-yellow-50/80 border-yellow-200/50'
-                        : form.status === 'published'
-                        ? isDarkMode ? 'bg-green-900/20 border-green-500/30' : 'bg-green-50/80 border-green-200/50'
-                        : form.status === 'ongoing'
-                        ? isDarkMode ? 'bg-blue-900/20 border-blue-500/30' : 'bg-blue-50/80 border-blue-200/50'
-                        : form.status === 'completed'
-                        ? isDarkMode ? 'bg-purple-900/20 border-purple-500/30' : 'bg-purple-50/80 border-purple-200/50'
-                        : form.status === 'cancelled'
-                        ? isDarkMode ? 'bg-red-900/20 border-red-500/30' : 'bg-red-50/80 border-red-200/50'
-                        : isDarkMode ? 'bg-amber-900/20 border-amber-500/30' : 'bg-amber-50/80 border-amber-200/50'
-                    }`}>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-sm">
-                          {form.status === 'draft' ? '📝' : 
-                           form.status === 'published' ? '✅' : 
-                           form.status === 'ongoing' ? '🔄' : 
-                           form.status === 'completed' ? '🏆' : 
-                           form.status === 'cancelled' ? '❌' : '⏸️'}
-                        </span>
-                        <p className={`text-xs font-medium ${
-                          form.status === 'draft' 
-                            ? isDarkMode ? 'text-yellow-300' : 'text-yellow-700'
-                            : form.status === 'published'
-                            ? isDarkMode ? 'text-green-300' : 'text-green-700'
-                            : form.status === 'ongoing'
-                            ? isDarkMode ? 'text-blue-300' : 'text-blue-700'
-                            : form.status === 'completed'
-                            ? isDarkMode ? 'text-purple-300' : 'text-purple-700'
-                            : form.status === 'cancelled'
-                            ? isDarkMode ? 'text-red-300' : 'text-red-700'
-                            : isDarkMode ? 'text-amber-300' : 'text-amber-700'
-                        }`}>
-                          {form.status === 'draft' ? 'Nháp - Chưa hoàn thiện, có thể chỉnh sửa' : 
-                           form.status === 'published' ? 'Đã xuất bản - Đã công khai, mọi người có thể xem' : 
-                           form.status === 'ongoing' ? 'Đang diễn ra - Hoạt động đang được thực hiện' : 
-                           form.status === 'completed' ? 'Đã hoàn thành - Hoạt động đã kết thúc thành công' : 
-                           form.status === 'cancelled' ? 'Đã hủy - Đã hủy bỏ, không còn hiệu lực' : 
-                           'Tạm hoãn - Tạm thời hoãn lại, sẽ thông báo sau'}
-                        </p>
-                      </div>
+                  {/* Selected person details */}
+                  {form.responsiblePerson && (
+                    <div className="mt-3">
+                      {(() => {
+                        const selectedPerson = responsiblePersons.find(p => p._id === form.responsiblePerson);
+                        if (!selectedPerson) return null;
+                        
+                        return (
+                          <div className={`p-3 rounded-xl border ${isDarkMode ? 'bg-orange-900/20 border-orange-500/30' : 'bg-orange-50/80 border-orange-200/50'} backdrop-blur-sm`}>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-3">
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-orange-500/20' : 'bg-orange-100'}`}>
+                                  <span className="text-base font-bold text-orange-600">
+                                    {selectedPerson.name.charAt(0).toUpperCase()}
+                                  </span>
+                                </div>
+                                <div>
+                                  <p className={`font-semibold text-base ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                                    {selectedPerson.name}
+                                  </p>
+                                  <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                                    {getRoleDisplayName(selectedPerson.role)}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                  selectedPerson.status === 'active' 
+                                    ? isDarkMode ? 'bg-green-900/30 text-green-400 border border-green-500/30' : 'bg-green-100 text-green-800'
+                                    : selectedPerson.status === 'inactive'
+                                    ? isDarkMode ? 'bg-gray-700/50 text-gray-400 border border-gray-600/50' : 'bg-gray-100 text-gray-800'
+                                    : selectedPerson.status === 'suspended'
+                                    ? isDarkMode ? 'bg-red-900/30 text-red-400 border border-red-500/30' : 'bg-red-100 text-red-800'
+                                    : isDarkMode ? 'bg-yellow-900/30 text-yellow-400 border border-yellow-500/30' : 'bg-yellow-100 text-yellow-800'
+                                }`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
+                                    selectedPerson.status === 'active' ? 'bg-green-400' : 'bg-gray-400'
+                                  }`}></span>
+                                  {getStatusDisplayName(selectedPerson.status)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* 6. Quản lý các vai trò */}
-              <div className={`p-5 rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' : 'bg-gradient-to-br from-white/90 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'} shadow-lg hover:shadow-xl transition-all duration-300`}>
-                <div className="flex items-center mb-5">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center mr-3 ${isDarkMode ? 'bg-gradient-to-br from-green-500/30 to-emerald-500/30 border border-green-500/20' : 'bg-gradient-to-br from-green-100 to-emerald-100 border border-green-200'}`}>
-                    <span className="text-lg">👥</span>
-                  </div>
-                  <div>
-                    <h2 className={`text-lg font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                      6. Quản lý các vai trò
-                    </h2>
-                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Thêm và phân quyền cho các thành viên tham gia hoạt động
-                    </p>
-                  </div>
-                </div>
-                
-                {/* Search and filter section */}
-                <div className="mb-4">
-                  <div className="flex flex-col md:flex-row gap-3">
-                    <div className="flex-1">
-                      <input
-                        type="text"
-                        placeholder="Tìm kiếm thành viên CLB và Ủy Viên BCH..."
-                        className={`w-full px-3 py-2.5 rounded-xl border text-sm ${
-                          isDarkMode 
-                            ? 'bg-gray-600/50 border-gray-500/50 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20' 
-                            : 'bg-white/80 border-gray-300/50 text-gray-900 placeholder-gray-500 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20'
-                        } focus:outline-none transition-all duration-300 backdrop-blur-sm`}
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                      />
-                    </div>
-                                         <button
-                       type="button"
-                       onClick={handleSearch}
-                       className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 ${
-                         isDarkMode 
-                           ? 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white' 
-                           : 'bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white'
-                       } hover:scale-105 hover:shadow-md`}
-                     >
-                       <div className="flex items-center">
-                         <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                         </svg>
-                         Tìm kiếm
-                       </div>
-                     </button>
-                  </div>
+              {/* 6. Danh sách thành viên đã đăng ký */}
+              <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' : 'bg-gradient-to-br from-white/90 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'} shadow-lg hover:shadow-xl transition-all duration-300`}>
+                <div className="mb-3">
+                  <h2 className={`text-sm font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    6. Danh sách thành viên đã đăng ký
+                  </h2>
+                  <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Xem danh sách các thành viên đã đăng ký tham gia hoạt động
+                  </p>
                 </div>
 
-                {/* Loading state */}
-                {loading && (
-                  <div className={`text-center py-8 rounded-2xl border-2 border-dashed ${
+                {participants.length === 0 ? (
+                  <div className={`text-center py-8 rounded-xl border-2 border-dashed ${
                     isDarkMode ? 'border-gray-600 bg-gray-700/30' : 'border-gray-300 bg-gray-50/50'
                   }`}>
-                    <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4 ${
-                      isDarkMode ? 'bg-gray-600/50' : 'bg-gray-200/50'
-                    }`}>
-                      <svg className="w-8 h-8 text-blue-500 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                    </div>
-                    <p className={`text-lg font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                      Đang tải danh sách thành viên CLB và Ủy Viên BCH...
+                    <Users className={`w-12 h-12 mx-auto mb-3 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
+                    <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Chưa có thành viên nào đăng ký tham gia
                     </p>
                   </div>
-                )}
-
-                {/* Club students list */}
-                {!loading && (
-                  <div>
-                    <h3 className={`text-xl font-bold mb-6 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                      Danh sách thành viên CLB (CLUB_STUDENT + CLUB_MEMBER)
-                    </h3>
-                    {clubStudents.length === 0 ? (
-                      <div className={`text-center py-12 rounded-2xl border-2 border-dashed ${
-                        isDarkMode ? 'border-gray-600 bg-gray-700/30' : 'border-gray-300 bg-gray-50/50'
+                ) : (
+                  <div className="space-y-2">
+                    {participants.map((participant) => (
+                      <div key={participant.id} className={`flex items-center justify-between p-3 rounded-lg border ${
+                        isDarkMode ? 'bg-gray-700/50 border-gray-600/50' : 'bg-white/80 border-gray-200/50'
                       }`}>
-                        <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4 ${
-                          isDarkMode ? 'bg-gray-600/50' : 'bg-gray-200/50'
-                        }`}>
-                          <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                          </svg>
+                        <div className="flex items-center space-x-3">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                            isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
+                          }`}>
+                            <span className={`text-xs font-bold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
+                              {participant.name.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          <div>
+                            <p className={`text-xs font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                              {participant.name}
+                            </p>
+                            <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                              {participant.email}
+                            </p>
+                          </div>
                         </div>
-                        <p className={`text-lg font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                          Không tìm thấy thành viên CLB hoặc Ủy Viên BCH nào
-                        </p>
-                        <p className={`text-sm ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                          {searchTerm ? 'Thử tìm kiếm với từ khóa khác' : 'Nhấn "Tìm kiếm" để tải danh sách'}
-                        </p>
+                        <span className={`px-2 py-1 rounded text-[10px] font-medium ${
+                          participant.role === 'Trưởng Nhóm'
+                            ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+                            : participant.role === 'Phó Trưởng Nhóm'
+                            ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
+                            : participant.role === 'Thành Viên Ban Tổ Chức'
+                            ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300'
+                            : participant.role === 'Người Giám Sát'
+                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                            : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                        }`}>
+                          {participant.role}
+                        </span>
                       </div>
-                                         ) : (
-                       <div>
-                         {/* Club students list with scroll */}
-                         <div className="max-h-96 overflow-y-auto space-y-3 pr-2">
-                           {clubStudents.map((student, index) => (
-                             <div key={student._id || `student-${index}-${student.studentId || student.email || 'unknown'}`} className={`flex items-center justify-between p-4 rounded-2xl border ${
-                               isDarkMode ? 'bg-gray-700/50 border-gray-600/50' : 'bg-gray-50/80 border-gray-200/50'
-                             } backdrop-blur-sm hover:shadow-lg transition-all duration-300`}>
-                               <div className="flex items-center space-x-3">
-                                 <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                                   isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
-                                 }`}>
-                                   <span className="text-lg font-bold text-blue-600">
-                                     {student.name.charAt(0).toUpperCase()}
-                                   </span>
-                                 </div>
-                                 <div>
-                                   <p className={`font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                     {student.name}
-                                   </p>
-                                   <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                     {student.email} • {student.studentId}
-                                   </p>
-                                   {student.faculty && (
-                                     <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                                       {student.faculty}
-                                     </p>
-                                   )}
-                                   <div className="flex items-center mt-1 space-x-2">
-                                     <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                                       student.role === 'CLUB_MEMBER'
-                                         ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
-                                         : 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300'
-                                     }`}>
-                                       <span className={`w-2 h-2 rounded-full mr-1 ${
-                                         student.role === 'CLUB_MEMBER' ? 'bg-blue-400' : 'bg-purple-400'
-                                       }`}></span>
-                                       {getRoleDisplayName(student.role)}
-                                     </span>
-                                     <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                                       student.isClubMember 
-                                         ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-                                         : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
-                                     }`}>
-                                       <span className={`w-2 h-2 rounded-full mr-1 ${
-                                         student.isClubMember ? 'bg-green-400' : 'bg-yellow-400'
-                                       }`}></span>
-                                       {student.isClubMember ? 'Thành viên tích cực' : 'Thành viên CLB'}
-                                     </span>
-                                   </div>
-                                 </div>
-                               </div>
-                               <button
-                                 type="button"
-                                 onClick={() => handleAddClubStudent(student)}
-                                 className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-300 ${
-                                   isDarkMode 
-                                     ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white' 
-                                     : 'bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white'
-                                 } hover:scale-105 hover:shadow-lg`}
-                               >
-                                 Thêm vào hoạt động
-                               </button>
-                             </div>
-                           ))}
-                         </div>
-
-                         {/* Pagination */}
-                         {totalPages > 1 && (
-                           <div className="mt-6 flex items-center justify-between">
-                             <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                               Hiển thị {clubStudents.length} trong tổng số {totalCount} thành viên
-                             </div>
-                             <div className="flex items-center space-x-2">
-                               <button
-                                 type="button"
-                                 onClick={() => handlePageChange(currentPage - 1)}
-                                 disabled={currentPage === 1}
-                                 className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${
-                                   currentPage === 1
-                                     ? 'bg-gray-300 text-gray-500 cursor-not-allowed dark:bg-gray-700 dark:text-gray-400'
-                                     : isDarkMode
-                                       ? 'bg-gray-600 hover:bg-gray-500 text-white'
-                                       : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
-                                 }`}
-                               >
-                                 Trước
-                               </button>
-                               
-                               <div className="flex items-center space-x-1">
-                                 {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                                   const page = Math.max(1, Math.min(totalPages - 4, currentPage - 2)) + i;
-                                   if (page > totalPages) return null;
-                                   
-                                   return (
-                                     <button
-                                       key={page}
-                                       type="button"
-                                       onClick={() => handlePageChange(page)}
-                                       className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${
-                                         page === currentPage
-                                           ? isDarkMode
-                                             ? 'bg-blue-600 text-white'
-                                             : 'bg-blue-500 text-white'
-                                           : isDarkMode
-                                             ? 'bg-gray-600 hover:bg-gray-500 text-white'
-                                             : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
-                                       }`}
-                                     >
-                                       {page}
-                                     </button>
-                                   );
-                                 })}
-                               </div>
-                               
-                               <button
-                                 type="button"
-                                 onClick={() => handlePageChange(currentPage + 1)}
-                                 disabled={currentPage === totalPages}
-                                 className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${
-                                   currentPage === totalPages
-                                     ? 'bg-gray-300 text-gray-500 cursor-not-allowed dark:bg-gray-700 dark:text-gray-400'
-                                     : isDarkMode
-                                       ? 'bg-gray-600 hover:bg-gray-500 text-white'
-                                       : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
-                                 }`}
-                               >
-                                 Sau
-                               </button>
-                             </div>
-                           </div>
-                         )}
-                       </div>
-                     )}
+                    ))}
                   </div>
                 )}
-
-                {/* Selected participants list */}
-                <div className="mt-8">
-                  <h3 className={`text-xl font-bold mb-6 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    Danh sách người tham gia đã chọn
-                  </h3>
-                  {participants.length === 0 ? (
-                    <div className={`text-center py-8 rounded-2xl border-2 border-dashed ${
-                      isDarkMode ? 'border-gray-600 bg-gray-700/30' : 'border-gray-300 bg-gray-50/50'
-                    }`}>
-                      <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4 ${
-                        isDarkMode ? 'bg-gray-600/50' : 'bg-gray-200/50'
-                      }`}>
-                        <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                        </svg>
-                      </div>
-                      <p className={`text-lg font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                        Chưa có người tham gia nào
-                      </p>
-                      <p className={`text-sm ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                        Chọn thành viên từ danh sách trên để thêm vào hoạt động
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {participants.map((participant) => (
-                        <div key={participant.id} className={`flex items-center justify-between p-4 rounded-2xl border ${
-                          isDarkMode ? 'bg-gray-700/50 border-gray-600/50' : 'bg-gray-50/80 border-gray-200/50'
-                        } backdrop-blur-sm hover:shadow-lg transition-all duration-300`}>
-                                                     <div className="flex items-center space-x-3">
-                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                               isDarkMode ? 'bg-green-500/20' : 'bg-green-100'
-                             }`}>
-                               <span className="text-lg font-bold text-green-600">
-                                 {participant.name.charAt(0).toUpperCase()}
-                               </span>
-                             </div>
-                             <div>
-                               <p className={`font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                 {participant.name}
-                               </p>
-                               <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                 {participant.email}
-                               </p>
-                                                                <div className="flex items-center mt-1">
-                                   <select
-                                     value={participant.role}
-                                     onChange={(e) => handleChangeParticipantRole(participant.id, e.target.value as ParticipantRole)}
-                                     className={`px-2 py-1 rounded-lg text-xs font-medium border transition-all duration-300 ${
-                                       participant.role === 'Trưởng Nhóm'
-                                         ? 'bg-red-100 text-red-800 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-600'
-                                         : participant.role === 'Phó Trưởng Nhóm'
-                                         ? 'bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-600'
-                                         : participant.role === 'Thành Viên Ban Tổ Chức'
-                                         ? 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-600'
-                                         : participant.role === 'Người Giám Sát'
-                                         ? 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-600'
-                                         : 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-600'
-                                     } focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
-                                   >
-                                     <option value="Trưởng Nhóm">👑 Trưởng Nhóm</option>
-                                     <option value="Phó Trưởng Nhóm">👨‍💼 Phó Trưởng Nhóm</option>
-                                     <option value="Thành Viên Ban Tổ Chức">📋 Thành Viên Ban Tổ Chức</option>
-                                     <option value="Người Tham Gia">👥 Người Tham Gia</option>
-                                     <option value="Người Giám Sát">👁️ Người Giám Sát</option>
-                                   </select>
-                                 </div>
-                             </div>
-                           </div>
-                           <button
-                             type="button"
-                             onClick={() => handleRemoveParticipant(participant.id)}
-                             className={`p-2 rounded-xl transition-all duration-300 ${
-                               isDarkMode 
-                                 ? 'text-red-400 hover:text-red-300 hover:bg-red-500/20' 
-                                 : 'text-red-500 hover:text-red-600 hover:bg-red-50'
-                             }`}
-                           >
-                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                             </svg>
-                           </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
               </div>
 
               {/* 7. Ghi chú bổ sung */}
-              <div className={`p-5 rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' : 'bg-gradient-to-br from-white/90 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'} shadow-lg hover:shadow-xl transition-all duration-300`}>
-                <div className="flex items-center mb-5">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center mr-3 ${isDarkMode ? 'bg-gradient-to-br from-blue-500/30 to-indigo-500/30 border border-blue-500/20' : 'bg-gradient-to-br from-blue-100 to-indigo-100 border border-blue-200'}`}>
-                    <span className="text-lg">📝</span>
-                  </div>
-                  <div>
-                    <h2 className={`text-lg font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                      7. Ghi chú bổ sung
-                    </h2>
-                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Thêm thông tin chi tiết hoặc yêu cầu đặc biệt cho hoạt động
-                    </p>
-                  </div>
+              <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' : 'bg-gradient-to-br from-white/90 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'} shadow-lg hover:shadow-xl transition-all duration-300`}>
+                <div className="mb-3">
+                  <h2 className={`text-sm font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    7. Ghi chú bổ sung
+                  </h2>
+                  <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Thêm thông tin chi tiết hoặc yêu cầu đặc biệt cho hoạt động
+                  </p>
                 </div>
                 
                 {/* Button Section */}
@@ -3198,7 +2456,7 @@ export default function CreateSingleActivityPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className={`text-base font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                        📝 Ghi chú bổ sung
+                        <StickyNote className="inline w-4 h-4 mr-1" /> Ghi chú bổ sung
                       </h3>
                       <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
                         Thêm thông tin chi tiết hoặc yêu cầu đặc biệt cho hoạt động
@@ -3287,7 +2545,7 @@ export default function CreateSingleActivityPage() {
                         isDarkMode ? 'bg-green-900/20 border border-green-500/30' : 'bg-green-50/80 border border-green-200/50'
                       }`}>
                         <h5 className={`font-medium text-sm mb-2 ${isDarkMode ? 'text-green-400' : 'text-green-700'}`}>
-                          ✅ Lưu ý:
+                          <CheckCircle2 className="inline w-4 h-4 mr-1" /> Lưu ý:
                         </h5>
                         <ul className={`text-xs space-y-1 ${isDarkMode ? 'text-green-300' : 'text-green-600'}`}>
                           <li>• Ghi chú sẽ hiển thị cho người tham gia</li>
@@ -3299,554 +2557,6 @@ export default function CreateSingleActivityPage() {
                     </div>
                   </div>
                 )}
-              </div>
-
-              {/* 8. Tổng quan lịch trình */}
-              <div className={`p-5 rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' : 'bg-gradient-to-br from-white/90 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'} shadow-lg hover:shadow-xl transition-all duration-300`}>
-                <div className="flex items-center mb-5">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center mr-3 ${isDarkMode ? 'bg-gradient-to-br from-purple-500/30 to-pink-500/30 border border-purple-500/20' : 'bg-gradient-to-br from-purple-100 to-pink-100 border border-purple-200'}`}>
-                    <span className="text-lg">📊</span>
-                  </div>
-                  <div>
-                    <h2 className={`text-lg font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                      8. Tổng quan lịch trình
-                    </h2>
-                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Xem lại và kiểm tra toàn bộ thông tin hoạt động trước khi tạo
-                    </p>
-                  </div>
-                </div>
-                  
-                  {/* Schedule Overview Cards */}
-                  <div className="mb-4">
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                      {/* Total Sessions */}
-                    <div className={`p-3 rounded-lg border ${
-                        isDarkMode ? 'bg-blue-900/20 border-blue-500/30' : 'bg-blue-50/80 border-blue-200/50'
-                      } backdrop-blur-sm`}>
-                        <div className="flex items-center justify-between">
-                <div>
-                          <p className={`text-xs font-medium ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
-                              Tổng số buổi
-                            </p>
-                          <p className={`text-xl font-bold ${isDarkMode ? 'text-blue-400' : 'text-blue-700'}`}>
-                              {timeSlots.filter((s): s is TimeSlot => s != null && typeof s === 'object' && 'isActive' in s && s.isActive === true).length}
-                            </p>
-                          </div>
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                            isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
-                          }`}>
-                          <span className="text-sm">📅</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Total Duration */}
-                    <div className={`p-3 rounded-lg border ${
-                        isDarkMode ? 'bg-green-900/20 border-green-500/30' : 'bg-green-50/80 border-green-200/50'
-                      } backdrop-blur-sm`}>
-                        <div className="flex items-center justify-between">
-                          <div>
-                          <p className={`text-xs font-medium ${isDarkMode ? 'text-green-300' : 'text-green-600'}`}>
-                              Tổng thời gian
-                            </p>
-                          <p className={`text-xl font-bold ${isDarkMode ? 'text-green-400' : 'text-green-700'}`}>
-                              {(() => {
-                                const activeSlots = timeSlots.filter((s): s is TimeSlot => s != null && typeof s === 'object' && 'isActive' in s && s.isActive === true);
-                                if (activeSlots.length === 0) return '0h';
-                                
-                                const totalMinutes = activeSlots.reduce((total, slot) => {
-                                  const start = new Date(`2000-01-01T${slot.startTime}`);
-                                  const end = new Date(`2000-01-01T${slot.endTime}`);
-                                  const diffMs = end.getTime() - start.getTime();
-                                  return total + (diffMs / (1000 * 60));
-                                }, 0);
-                                
-                                const hours = Math.floor(totalMinutes / 60);
-                                const minutes = Math.round(totalMinutes % 60);
-                                return `${hours}h${minutes > 0 ? ` ${minutes}m` : ''}`;
-                              })()}
-                            </p>
-                          </div>
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                            isDarkMode ? 'bg-green-500/20' : 'bg-green-100'
-                          }`}>
-                          <span className="text-sm">⏱️</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Participants */}
-                    <div className={`p-3 rounded-lg border ${
-                        isDarkMode ? 'bg-purple-900/20 border-purple-500/30' : 'bg-purple-50/80 border-purple-200/50'
-                      } backdrop-blur-sm`}>
-                        <div className="flex items-center justify-between">
-                          <div>
-                          <p className={`text-xs font-medium ${isDarkMode ? 'text-purple-300' : 'text-purple-600'}`}>
-                              Người tham gia
-                            </p>
-                          <p className={`text-xl font-bold ${isDarkMode ? 'text-purple-400' : 'text-purple-700'}`}>
-                              {participants.length}
-                            </p>
-                          </div>
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                            isDarkMode ? 'bg-purple-500/20' : 'bg-purple-100'
-                          }`}>
-                          <span className="text-sm">👥</span>
-                          </div>
-                        </div>
-                      </div>
-
-                    {/* Max Participants */}
-                    <div className={`p-3 rounded-lg border ${
-                      isDarkMode ? 'bg-orange-900/20 border-orange-500/30' : 'bg-orange-50/80 border-orange-200/50'
-                    } backdrop-blur-sm`}>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className={`text-xs font-medium ${isDarkMode ? 'text-orange-300' : 'text-orange-600'}`}>
-                            Sức chứa tối đa
-                          </p>
-                          <p className={`text-xl font-bold ${isDarkMode ? 'text-orange-400' : 'text-orange-700'}`}>
-                            {form.maxParticipants || '∞'}
-                          </p>
-                        </div>
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                          isDarkMode ? 'bg-orange-500/20' : 'bg-orange-100'
-                        }`}>
-                          <span className="text-sm">🎯</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Activity Information Cards */}
-                <div className="mb-6">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {/* Activity Date */}
-                    <div className={`p-3 rounded-lg border ${
-                      isDarkMode ? 'bg-indigo-900/20 border-indigo-500/30' : 'bg-indigo-50/80 border-indigo-200/50'
-                    } backdrop-blur-sm`}>
-                      <div className="flex items-center space-x-2">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                          isDarkMode ? 'bg-indigo-500/20' : 'bg-indigo-100'
-                        }`}>
-                          <span className="text-sm">📅</span>
-                        </div>
-                        <div>
-                          <p className={`text-xs font-medium ${isDarkMode ? 'text-indigo-300' : 'text-indigo-600'}`}>
-                            Ngày diễn ra
-                          </p>
-                          <p className={`text-sm font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-700'}`}>
-                            {form.date ? new Date(form.date).toLocaleDateString('vi-VN', {
-                              weekday: 'short',
-                              year: 'numeric',
-                              month: 'short',
-                              day: 'numeric'
-                            }) : 'Chưa chọn'}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Activity Status */}
-                    <div className={`p-3 rounded-lg border ${
-                      isDarkMode ? 'bg-pink-900/20 border-pink-500/30' : 'bg-pink-50/80 border-pink-200/50'
-                    } backdrop-blur-sm`}>
-                      <div className="flex items-center space-x-2">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                          isDarkMode ? 'bg-pink-500/20' : 'bg-pink-100'
-                        }`}>
-                          <span className="text-sm">🏷️</span>
-                        </div>
-                        <div>
-                          <p className={`text-xs font-medium ${isDarkMode ? 'text-pink-300' : 'text-pink-600'}`}>
-                            Trạng thái
-                          </p>
-                          <p className={`text-sm font-bold ${isDarkMode ? 'text-pink-400' : 'text-pink-700'}`}>
-                            {form.status === 'draft' ? '📝 Nháp' : 
-                             form.status === 'published' ? '✅ Đã xuất bản' : 
-                             form.status === 'ongoing' ? '🔄 Đang diễn ra' : 
-                             form.status === 'completed' ? '🏆 Đã hoàn thành' : 
-                             form.status === 'cancelled' ? '❌ Đã hủy' : '⏸️ Tạm hoãn'}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Activity Visibility */}
-                    <div className={`p-3 rounded-lg border ${
-                      isDarkMode ? 'bg-teal-900/20 border-teal-500/30' : 'bg-teal-50/80 border-teal-200/50'
-                    } backdrop-blur-sm`}>
-                      <div className="flex items-center space-x-2">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                          isDarkMode ? 'bg-teal-500/20' : 'bg-teal-100'
-                        }`}>
-                          <span className="text-sm">👁️</span>
-                        </div>
-                        <div>
-                          <p className={`text-xs font-medium ${isDarkMode ? 'text-teal-300' : 'text-teal-600'}`}>
-                            Quyền truy cập
-                          </p>
-                          <p className={`text-sm font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-700'}`}>
-                            {form.visibility === 'public' ? '🌐 Công khai' : '🔒 Riêng tư'}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Activity Details */}
-                <div className="mb-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {/* Responsible Person */}
-                    <div className={`p-3 rounded-lg border ${
-                      isDarkMode ? 'bg-amber-900/20 border-amber-500/30' : 'bg-amber-50/80 border-amber-200/50'
-                    } backdrop-blur-sm`}>
-                      <div className="flex items-center space-x-2 mb-2">
-                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-amber-500/20' : 'bg-amber-100'}`}>
-                          <span className="text-sm">👤</span>
-                        </div>
-                        <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-700'}`}>
-                          Người phụ trách
-                        </h3>
-                      </div>
-                      {form.responsiblePerson ? (
-                        <div className="flex items-center space-x-2">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                            isDarkMode ? 'bg-amber-500/20' : 'bg-amber-100'
-                          }`}>
-                            <span className="text-sm font-bold text-amber-600">
-                              {responsiblePersons.find(p => p._id === form.responsiblePerson)?.name?.charAt(0).toUpperCase() || '?'}
-                            </span>
-                          </div>
-                          <div>
-                            <p className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                              {responsiblePersons.find(p => p._id === form.responsiblePerson)?.name || 'Không tìm thấy'}
-                            </p>
-                            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                              {responsiblePersons.find(p => p._id === form.responsiblePerson)?.email || ''}
-                            </p>
-                            <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                              {getRoleDisplayName(responsiblePersons.find(p => p._id === form.responsiblePerson)?.role || '')}
-                            </p>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className={`text-xs italic ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                          Chưa chọn người phụ trách
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Main Location */}
-                    <div className={`p-3 rounded-lg border ${
-                      isDarkMode ? 'bg-emerald-900/20 border-emerald-500/30' : 'bg-emerald-50/80 border-emerald-200/50'
-                    } backdrop-blur-sm`}>
-                      <div className="flex items-center space-x-2 mb-2">
-                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-emerald-500/20' : 'bg-emerald-100'}`}>
-                          <span className="text-sm">📍</span>
-                        </div>
-                        <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
-                          Địa điểm chính
-                        </h3>
-                      </div>
-                      {form.location ? (
-                        <div>
-                          <p className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                            {form.location}
-                          </p>
-                          {form.detailedLocation && (
-                            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mt-1`}>
-                              {form.detailedLocation}
-                            </p>
-                          )}
-                          {locationData && (
-                            <div className="mt-1">
-                              <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                                📍 {locationData.address}
-                              </p>
-                              <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                                🎯 Bán kính: {locationData.radius}m
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <p className={`text-xs italic ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                          Chưa chọn địa điểm
-                        </p>
-                      )}
-                    </div>
-                    </div>
-                  </div>
-
-                  {/* 📋 Tổng quan lịch trình hoạt động */}
-                  <div className="mb-6">
-                    <div className={`p-4 rounded-xl ${isDarkMode ? 'bg-purple-900/20 border border-purple-500/30' : 'bg-purple-50/80 border border-purple-200/50'} backdrop-blur-sm`}>
-                      <div className="flex items-center space-x-3 mb-4">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-purple-500/20' : 'bg-purple-100'}`}>
-                          <span className="text-lg">📋</span>
-                        </div>
-                        <h3 className={`font-semibold ${isDarkMode ? 'text-purple-400' : 'text-purple-700'}`}>
-                          Tổng quan lịch trình hoạt động
-                        </h3>
-                      </div>
-                      
-                      <div className="space-y-3">
-                        {timeSlots.filter((slot): slot is TimeSlot => slot != null && slot.id != null).map((slot, index) => {
-                          const isActive = slot.isActive ?? false;
-                          const timeSlotKey = getTimeSlotKey(index);
-                          const location = useMultiTimeLocation 
-                            ? multiTimeLocations.find(loc => loc.timeSlot === timeSlotKey)
-                            : locationData;
-                          // Ensure unique key even if slot.id might be duplicated
-                          const uniqueKey = slot.id || `slot-overview-${index}-${Date.now()}`;
-                          return (
-                            <div
-                              key={uniqueKey}
-                              className={`p-3 rounded-lg border-2 transition-all duration-300 ${
-                                isActive
-                                  ? location
-                                    ? 'border-green-500 bg-green-50/80 dark:bg-green-900/20'
-                                    : 'border-yellow-500 bg-yellow-50/80 dark:bg-yellow-900/20'
-                                  : 'border-gray-300 dark:border-gray-600 bg-gray-50/80 dark:bg-gray-800/50'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center space-x-3">
-                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-lg ${
-                                    isActive
-                                      ? location
-                                        ? 'bg-green-100 dark:bg-green-800/30'
-                                        : 'bg-yellow-100 dark:bg-yellow-800/30'
-                                      : 'bg-gray-100 dark:bg-gray-700/50'
-                                  }`}>
-                                    {index === 0 ? '🌅' : index === 1 ? '☀️' : '🌙'}
-                                  </div>
-                                  <div>
-                                    <div className={`font-semibold text-sm ${
-                                      isActive
-                                        ? location
-                                          ? 'text-green-700 dark:text-green-300'
-                                          : 'text-yellow-700 dark:text-yellow-300'
-                                        : 'text-gray-500 dark:text-gray-400'
-                                    }`}>
-                                      {slot.name} ({slot.startTime} - {slot.endTime})
-                                    </div>
-                                    <div className={`text-xs ${
-                                      isActive
-                                        ? location
-                                          ? 'text-green-600 dark:text-green-400'
-                                          : 'text-yellow-600 dark:text-yellow-400'
-                                        : 'text-gray-400 dark:text-gray-500'
-                                    }`}>
-                                      {isActive 
-                                        ? location 
-                                          ? '✅ Đã chọn địa điểm' 
-                                          : '⚠️ Chưa chọn địa điểm'
-                                        : '❌ Chưa kích hoạt'
-                                      }
-                                    </div>
-                                  </div>
-                                </div>
-                                
-                                {isActive && location && (
-                                  <div className="text-right">
-                                    <div className={`text-xs font-semibold text-blue-600 dark:text-blue-400`}>
-                                      {location.radius}m
-                                    </div>
-                                    <div className={`text-xs text-gray-500 dark:text-gray-400 truncate max-w-32`}>
-                                      {location.location?.address || 'Không có địa chỉ'}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Detailed Schedule Timeline */}
-                  <div className="mb-6">
-                    <h3 className={`text-lg font-semibold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                      Chi tiết lịch trình
-                    </h3>
-                    
-                    {timeSlots.filter((s): s is TimeSlot => s != null && typeof s === 'object' && 'isActive' in s && s.isActive === true).length === 0 ? (
-                      <div className={`text-center py-8 rounded-xl border-2 border-dashed ${
-                        isDarkMode ? 'border-gray-600 bg-gray-700/30' : 'border-gray-300 bg-gray-50/50'
-                      }`}>
-                        <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4 ${
-                          isDarkMode ? 'bg-gray-600/50' : 'bg-gray-200/50'
-                        }`}>
-                          <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        </div>
-                        <p className={`text-lg font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                          Chưa có buổi nào được kích hoạt
-                        </p>
-                        <p className={`text-sm ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                          Vui lòng kích hoạt ít nhất một buổi trong phần &quot;Các buổi&quot;
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {timeSlots.filter((s): s is TimeSlot => s != null && typeof s === 'object' && 'isActive' in s && s.isActive === true).map((slot, index) => {
-                          // Ensure unique key even if slot.id might be duplicated
-                          const uniqueKey = slot.id || `slot-timeline-${index}-${Date.now()}`;
-                          return (
-                            <div key={uniqueKey} className={`relative p-4 rounded-xl border-2 ${
-                            isDarkMode ? 'bg-gray-700/30 border-gray-600/50' : 'bg-gray-50/50 border-gray-200/50'
-                          } backdrop-blur-sm`}>
-                            {/* Timeline connector */}
-                            {index < timeSlots.filter((s): s is TimeSlot => s != null && typeof s === 'object' && 'isActive' in s && s.isActive === true).length - 1 && (
-                              <div className={`absolute left-6 top-12 w-0.5 h-8 ${
-                                isDarkMode ? 'bg-gray-600' : 'bg-gray-300'
-                              }`}></div>
-                            )}
-                            
-                            <div className="flex items-start space-x-4">
-                              {/* Time indicator */}
-                              <div className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 ${
-                                isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
-                              }`}>
-                                <span className="text-lg">
-                                  {index === 0 ? '🌅' : index === 1 ? '☀️' : '🌙'}
-                                </span>
-                              </div>
-                              
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between mb-2">
-                                  <h4 className={`font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                    {slot.name}
-                                  </h4>
-                                  <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-                                    isDarkMode ? 'bg-blue-900/30 text-blue-300 border border-blue-500/30' : 'bg-blue-100 text-blue-700'
-                                  }`}>
-                                    {slot.startTime} - {slot.endTime}
-                                  </div>
-                                </div>
-                                
-                                {slot.activities ? (
-                                  <div className={`p-3 rounded-lg ${
-                                    isDarkMode ? 'bg-gray-600/30 border border-gray-500/30' : 'bg-white/80 border border-gray-200/50'
-                                  }`}>
-                                    <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                      {slot.activities}
-                                    </p>
-                                  </div>
-                                ) : (
-                                  <p className={`text-sm italic ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                    Chưa có mô tả hoạt động
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                {/* Activity Description & Notes */}
-                <div className="mb-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {/* Activity Description */}
-                    <div className={`p-3 rounded-lg border ${
-                      isDarkMode ? 'bg-cyan-900/20 border-cyan-500/30' : 'bg-cyan-50/80 border-cyan-200/50'
-                    } backdrop-blur-sm`}>
-                      <div className="flex items-center space-x-2 mb-2">
-                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-cyan-500/20' : 'bg-cyan-100'}`}>
-                          <span className="text-sm">📝</span>
-                        </div>
-                        <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-cyan-400' : 'text-cyan-700'}`}>
-                          Mô tả hoạt động
-                        </h3>
-                      </div>
-                      {form.description ? (
-                        <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} leading-relaxed`}>
-                          {form.description}
-                        </p>
-                      ) : (
-                        <p className={`text-xs italic ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                          Chưa có mô tả hoạt động
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Additional Notes */}
-                    <div className={`p-3 rounded-lg border ${
-                      isDarkMode ? 'bg-violet-900/20 border-violet-500/30' : 'bg-violet-50/80 border-violet-200/50'
-                    } backdrop-blur-sm`}>
-                      <div className="flex items-center space-x-2 mb-2">
-                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-violet-500/20' : 'bg-violet-100'}`}>
-                          <span className="text-sm">📋</span>
-                        </div>
-                        <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-violet-400' : 'text-violet-700'}`}>
-                          Ghi chú bổ sung
-                        </h3>
-                      </div>
-                      {form.overview ? (
-                        <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} leading-relaxed`}>
-                          {form.overview}
-                        </p>
-                      ) : (
-                        <p className={`text-xs italic ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                          Chưa có ghi chú bổ sung
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                  {/* Schedule Summary */}
-                  <div className={`p-4 rounded-xl ${
-                    isDarkMode ? 'bg-gray-700/30 border border-gray-600/50' : 'bg-gray-50/50 border border-gray-200/50'
-                  }`}>
-                    <div className="flex items-center space-x-3 mb-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
-                      }`}>
-                        <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                        </svg>
-                      </div>
-                      <h4 className={`font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                        Tóm tắt lịch trình
-                      </h4>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                          <span className="font-medium">Buổi sáng:</span> {timeSlots[0].isActive ? `${timeSlots[0].startTime} - ${timeSlots[0].endTime}` : 'Không hoạt động'}
-                        </p>
-                        <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                          <span className="font-medium">Buổi chiều:</span> {timeSlots[1].isActive ? `${timeSlots[1].startTime} - ${timeSlots[1].endTime}` : 'Không hoạt động'}
-                        </p>
-                        <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                          <span className="font-medium">Buổi tối:</span> {timeSlots[2].isActive ? `${timeSlots[2].startTime} - ${timeSlots[2].endTime}` : 'Không hoạt động'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                          <span className="font-medium">Trạng thái:</span> {form.status === 'draft' ? 'Nháp' : form.status === 'published' ? 'Đã xuất bản' : form.status === 'ongoing' ? 'Đang diễn ra' : form.status === 'completed' ? 'Đã hoàn thành' : form.status === 'cancelled' ? 'Đã hủy' : 'Tạm hoãn'}
-                        </p>
-                        <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                          <span className="font-medium">Quyền truy cập:</span> {form.visibility === 'public' ? 'Công khai' : 'Riêng tư'}
-                        </p>
-                        <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                          <span className="font-medium">Địa điểm:</span> {form.location || 'Chưa cập nhật'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
               </div>
 
               {/* Submit Button */}
@@ -3873,12 +2583,7 @@ export default function CreateSingleActivityPage() {
                        Đang tạo hoạt động...
                     </div>
                   ) : (
-                     <div className="flex items-center">
-                       <svg className="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                       </svg>
-                       {isEditMode ? 'Cập nhật hoạt động' : 'Tạo hoạt động 1 ngày'}
-                     </div>
+                    <span>{isEditMode ? 'Cập nhật hoạt động' : 'Tạo hoạt động 1 ngày'}</span>
                   )}
                 </button>
               </div>

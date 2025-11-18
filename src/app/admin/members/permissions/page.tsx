@@ -7,6 +7,8 @@ import AdminNav from '@/components/admin/AdminNav';
 import Footer from '@/components/common/Footer';
 import ProtectedRoute from '@/components/common/ProtectedRoute';
 import Image from 'next/image';
+import { Loader, Users, Shield, Crown, UserCog, GraduationCap, Ban, Lock, Trash2 } from 'lucide-react';
+import PaginationBar from '@/components/common/PaginationBar';
 
 interface ClubMember {
   _id: string;
@@ -62,6 +64,9 @@ export default function MemberPermissionsPage() {
   const [showPermissions, setShowPermissions] = useState(false);
   const [roleFilter, setRoleFilter] = useState('ALL');
   const [showRemovedMembers, setShowRemovedMembers] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [membersPerPage, setMembersPerPage] = useState(10);
+  const [totalMembers, setTotalMembers] = useState(0);
   
   // Stats states - separate from filtered data
   const [totalStats, setTotalStats] = useState({
@@ -147,7 +152,7 @@ export default function MemberPermissionsPage() {
   // Load members data
   useEffect(() => {
     loadMembers();
-  }, [roleFilter, showRemovedMembers]);
+  }, [roleFilter, showRemovedMembers, currentPage, membersPerPage]);
 
   // Load total stats on component mount
   useEffect(() => {
@@ -172,6 +177,10 @@ export default function MemberPermissionsPage() {
       if (showRemovedMembers) {
         params.append('status', 'REMOVED');
       }
+      
+      // Add pagination parameters
+      params.append('page', currentPage.toString());
+      params.append('limit', membersPerPage.toString());
 
       // Load admin users from users table (only if roleFilter is ALL or ADMIN and not showing removed members)
       let adminUsers: any[] = [];
@@ -218,6 +227,9 @@ export default function MemberPermissionsPage() {
         index === self.findIndex(m => m.userId?._id === member.userId?._id)
       );
 
+      // Get total count from pagination if available, otherwise use length
+      const total = membershipsData.data.pagination?.totalCount || uniqueMembers.length;
+      setTotalMembers(total);
       setMembers(uniqueMembers);
     } catch (error) {
       console.error('Error loading members:', error);
@@ -441,36 +453,75 @@ export default function MemberPermissionsPage() {
     }
   };
 
-     const getRoleBadge = (role: string) => {
-     const roleConfig = {
-       // Vai trò mới
-       SUPER_ADMIN: { color: 'bg-purple-100 text-purple-800', text: 'Quản Trị Hệ Thống' },
-       CLUB_LEADER: { color: 'bg-red-100 text-red-800', text: 'Chủ Nhiệm CLB' },
-       CLUB_DEPUTY: { color: 'bg-orange-100 text-orange-800', text: 'Phó Chủ Nhiệm' },
-       CLUB_MEMBER: { color: 'bg-blue-100 text-blue-800', text: 'Ủy Viên BCH' },
-       CLUB_STUDENT: { color: 'bg-gray-100 text-gray-800', text: 'Thành Viên CLB' },
-       // Vai trò cũ (để tương thích ngược)
-       ADMIN: { color: 'bg-purple-100 text-purple-800', text: 'Quản Trị Hệ Thống' },
-       OFFICER: { color: 'bg-blue-100 text-blue-800', text: 'Ban Chấp Hành' },
-       STUDENT: { color: 'bg-gray-100 text-gray-800', text: 'Thành Viên CLB' }
-     };
-     const config = roleConfig[role as keyof typeof roleConfig];
-     
-     // Fallback nếu không tìm thấy config
-     if (!config) {
-       return (
-         <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">
-           {role || 'Không xác định'}
-         </span>
-       );
-     }
-     
-     return (
-       <span className={`px-2 py-1 text-xs font-medium rounded-full ${config.color}`}>
-         {config.text}
-       </span>
-     );
-   };
+  const getRoleBadge = (role: string | undefined | null) => {
+    // Handle undefined, null, or empty string
+    if (!role || role.trim() === '') {
+      return (
+        <div className={`w-full min-w-[120px] px-2.5 py-1.5 text-xs font-semibold rounded-lg border text-center flex items-center justify-center ${isDarkMode ? 'border-gray-600 text-gray-300 bg-gray-800/30' : 'border-gray-300 text-gray-700 bg-transparent'} shadow-sm`}>
+          Không xác định
+        </div>
+      );
+    }
+
+    const roleConfig = {
+      SUPER_ADMIN: { 
+        textColor: isDarkMode ? 'text-purple-400' : 'text-purple-600', 
+        border: isDarkMode ? 'border-purple-500/50' : 'border-purple-300', 
+        label: 'Quản Trị Hệ Thống' 
+      },
+      CLUB_LEADER: { 
+        textColor: isDarkMode ? 'text-red-400' : 'text-red-600', 
+        border: isDarkMode ? 'border-red-500/50' : 'border-red-300', 
+        label: 'Chủ Nhiệm CLB' 
+      },
+      CLUB_DEPUTY: { 
+        textColor: isDarkMode ? 'text-orange-400' : 'text-orange-600', 
+        border: isDarkMode ? 'border-orange-500/50' : 'border-orange-300', 
+        label: 'Phó Chủ Nhiệm' 
+      },
+      CLUB_MEMBER: { 
+        textColor: isDarkMode ? 'text-blue-400' : 'text-blue-600', 
+        border: isDarkMode ? 'border-blue-500/50' : 'border-blue-300', 
+        label: 'Ủy Viên BCH' 
+      },
+      CLUB_STUDENT: { 
+        textColor: isDarkMode ? 'text-emerald-400' : 'text-emerald-600', 
+        border: isDarkMode ? 'border-emerald-500/50' : 'border-emerald-300', 
+        label: 'Thành Viên CLB' 
+      },
+      STUDENT: { 
+        textColor: isDarkMode ? 'text-gray-400' : 'text-gray-600', 
+        border: isDarkMode ? 'border-gray-500/50' : 'border-gray-300', 
+        label: 'Thành Viên CLB' 
+      },
+      // Vai trò cũ (để tương thích ngược)
+      ADMIN: { 
+        textColor: isDarkMode ? 'text-purple-400' : 'text-purple-600', 
+        border: isDarkMode ? 'border-purple-500/50' : 'border-purple-300', 
+        label: 'Quản Trị Hệ Thống' 
+      },
+      OFFICER: { 
+        textColor: isDarkMode ? 'text-blue-400' : 'text-blue-600', 
+        border: isDarkMode ? 'border-blue-500/50' : 'border-blue-300', 
+        label: 'Ban Chấp Hành' 
+      }
+    };
+    
+    const config = roleConfig[role as keyof typeof roleConfig];
+    if (!config) {
+      console.warn(`Unknown role: ${role}`);
+      return (
+        <div className={`w-full min-w-[120px] px-2.5 py-1.5 text-xs font-semibold rounded-lg border text-center flex items-center justify-center ${isDarkMode ? 'border-gray-600 text-gray-300 bg-gray-800/30' : 'border-gray-300 text-gray-700 bg-transparent'} shadow-sm`}>
+          {role || 'Không xác định'}
+        </div>
+      );
+    }
+    return (
+      <div className={`w-full min-w-[120px] px-2.5 py-1.5 text-xs font-semibold rounded-lg border shadow-sm text-center flex items-center justify-center ${config.border} ${config.textColor} ${isDarkMode ? 'bg-gray-800/30' : 'bg-transparent'}`}>
+        {config.label}
+      </div>
+    );
+  };
 
   const getInitials = (name: string) => {
     return name
@@ -575,7 +626,7 @@ export default function MemberPermissionsPage() {
                       : 'border-gray-300 text-gray-700 hover:bg-gray-50'
                   }`}
                 >
-                  <span>🔐</span>
+                  <Lock size={16} strokeWidth={1.5} />
                   <span>{showPermissions ? 'Ẩn' : 'Xem'} quyền hạn</span>
                 </button>
                 <button
@@ -586,7 +637,7 @@ export default function MemberPermissionsPage() {
                       : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
                   }`}
                 >
-                  <span>🚫</span>
+                  <Ban size={16} strokeWidth={1.5} />
                   <span>{showRemovedMembers ? 'Ẩn' : 'Xem'} thành viên đã xóa</span>
                 </button>
                                  <button
@@ -619,78 +670,64 @@ export default function MemberPermissionsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <span className="text-blue-600 text-xl">👥</span>
-                </div>
-                <div className="ml-4">
-                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Tổng thành viên</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.total}</p>
+                <Users size={20} className={`${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} strokeWidth={1.5} />
+                <div className="ml-3">
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Tổng thành viên</p>
+                  <p className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.total}</p>
                 </div>
               </div>
             </div>
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
-                <div className="p-2 bg-purple-100 rounded-lg">
-                  <span className="text-purple-600 text-xl">⚡</span>
-                </div>
-                <div className="ml-4">
-                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Quản Trị Hệ Thống</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.admins}</p>
+                <Shield size={20} className={`${isDarkMode ? 'text-purple-400' : 'text-purple-600'}`} strokeWidth={1.5} />
+                <div className="ml-3">
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Quản Trị Hệ Thống</p>
+                  <p className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.admins}</p>
                 </div>
               </div>
             </div>
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
-                <div className="p-2 bg-red-100 rounded-lg">
-                  <span className="text-red-600 text-xl">👑</span>
-                </div>
-                <div className="ml-4">
-                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Chủ Nhiệm CLB</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.leaders}</p>
+                <Crown size={20} className={`${isDarkMode ? 'text-red-400' : 'text-red-600'}`} strokeWidth={1.5} />
+                <div className="ml-3">
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Chủ Nhiệm CLB</p>
+                  <p className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.leaders}</p>
                 </div>
               </div>
             </div>
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
-                <div className="p-2 bg-orange-100 rounded-lg">
-                  <span className="text-orange-600 text-xl">👨‍💼</span>
-                </div>
-                <div className="ml-4">
-                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Phó Chủ Nhiệm</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.deputies}</p>
+                <UserCog size={20} className={`${isDarkMode ? 'text-orange-400' : 'text-orange-600'}`} strokeWidth={1.5} />
+                <div className="ml-3">
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Phó Chủ Nhiệm</p>
+                  <p className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.deputies}</p>
                 </div>
               </div>
             </div>
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <span className="text-blue-600 text-xl">👥</span>
-                </div>
-                <div className="ml-4">
-                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Ủy Viên BCH</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.members}</p>
+                <Users size={20} className={`${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} strokeWidth={1.5} />
+                <div className="ml-3">
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Ủy Viên BCH</p>
+                  <p className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.members}</p>
                 </div>
               </div>
             </div>
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
-                <div className="p-2 bg-gray-100 rounded-lg">
-                  <span className="text-gray-600 text-xl">🎓</span>
-                </div>
-                <div className="ml-4">
-                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Thành Viên CLB</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.students}</p>
+                <GraduationCap size={20} className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} strokeWidth={1.5} />
+                <div className="ml-3">
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Thành Viên CLB</p>
+                  <p className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.students}</p>
                 </div>
               </div>
             </div>
             <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-4 shadow-sm`}>
               <div className="flex items-center">
-                <div className="p-2 bg-orange-100 rounded-lg">
-                  <span className="text-orange-600 text-xl">🚫</span>
-                </div>
-                <div className="ml-4">
-                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Đã bị xóa</p>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.removed}</p>
+                <Ban size={20} className={`${isDarkMode ? 'text-orange-400' : 'text-orange-600'}`} strokeWidth={1.5} />
+                <div className="ml-3">
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Đã bị xóa</p>
+                  <p className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{totalStats.removed}</p>
                 </div>
               </div>
             </div>
@@ -742,174 +779,215 @@ export default function MemberPermissionsPage() {
           <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border shadow-sm overflow-hidden`}>
             {loading ? (
               <div className="p-8 text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                <Loader size={48} className="animate-spin text-blue-600 mx-auto mb-4" strokeWidth={1.5} />
                 <p className={`mt-4 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Đang tải dữ liệu...</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className={`${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
-                    <tr>
-                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
+              <>
+                {/* Pagination - Top */}
+                {!loading && totalMembers > 0 && (
+                  <div className="px-6 py-3 border-b border-gray-200 dark:border-gray-700">
+                    <PaginationBar
+                      totalItems={totalMembers}
+                      currentPage={currentPage}
+                      itemsPerPage={membersPerPage}
+                      onPageChange={(page) => setCurrentPage(page)}
+                      onItemsPerPageChange={(newItemsPerPage) => {
+                        setMembersPerPage(newItemsPerPage);
+                        setCurrentPage(1);
+                      }}
+                      itemLabel="thành viên"
+                      isDarkMode={isDarkMode}
+                      itemsPerPageOptions={[5, 10, 20, 50, 100]}
+                    />
+                  </div>
+                )}
+                <div className="overflow-x-auto">
+                <table className={`min-w-full border-collapse border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                  <thead>
+                    <tr className="bg-blue-600">
+                      <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider border border-blue-700 text-white`}>
                         Thành viên
                       </th>
-                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
+                      <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider border border-blue-700 text-white`}>
                         Thông tin
                       </th>
-                                              <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
-                          Vai trò hiện tại
-                        </th>
-                        <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
-                          {showRemovedMembers ? 'Vai trò' : 'Thay đổi vai trò'}
-                        </th>
-                        <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
-                          {showRemovedMembers ? 'Thông tin xóa' : 'Trạng thái & Hành động'}
-                        </th>
+                      <th className={`px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider border border-blue-700 text-white`}>
+                        Vai trò hiện tại
+                      </th>
+                      <th className={`px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider border border-blue-700 text-white`}>
+                        {showRemovedMembers ? 'Vai trò' : 'Thay đổi vai trò'}
+                      </th>
+                      <th className={`px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider border border-blue-700 text-white w-32`}>
+                        {showRemovedMembers ? 'Thông tin xóa' : 'Trạng thái & Hành động'}
+                      </th>
                     </tr>
                   </thead>
-                  <tbody className={`${isDarkMode ? 'bg-gray-800 divide-gray-700' : 'bg-white divide-gray-200'}`}>
+                  <tbody className={`${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
                     {members.map((member) => (
                       <tr key={member._id} className={`${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-50'} transition-colors duration-200`}>
-                                                 <td className="px-6 py-4 whitespace-nowrap">
-                           <div className="flex items-center">
-                             <div className="flex-shrink-0 h-12 w-12">
-                               {member.userId?.avatarUrl ? (
-                                 <Image
-                                   src={member.userId.avatarUrl}
-                                   alt={member.userId.name || 'User'}
-                                   width={48}
-                                   height={48}
-                                   className="h-12 w-12 rounded-full object-cover"
-                                 />
-                               ) : (
-                                 <div className="h-12 w-12 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center">
-                                   <span className="text-white text-sm font-bold">
-                                     {getInitials(member.userId?.name || 'U')}
-                                   </span>
-                                 </div>
-                               )}
-                             </div>
-                             <div className="ml-4">
-                               <div className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                 {member.userId?.name || 'Không có tên'}
-                               </div>
-                               <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                 {member.userId?.studentId || 'Không có MSSV'}
-                               </div>
-                             </div>
-                           </div>
-                         </td>
-                         <td className="px-6 py-4 whitespace-nowrap">
-                           <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-900'}`}>
-                             <div>{member.userId?.email || 'Không có email'}</div>
-                             <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                               {member.userId?.phone || 'Không có số điện thoại'}
-                             </div>
-                             <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                               {member.userId?.class || 'Chưa cập nhật'} - {member.userId?.faculty || 'Chưa cập nhật'}
-                             </div>
-                           </div>
-                         </td>
-                         <td className="px-6 py-4 whitespace-nowrap">
-                           {getRoleBadge(member.userId?.role || 'STUDENT')}
-                         </td>
-                         <td className="px-6 py-4 whitespace-nowrap">
-                           {showRemovedMembers ? (
-                             // Show role info for removed members (read-only)
-                             <div>
-                               {getRoleBadge(member.userId?.role || 'STUDENT')}
-                             </div>
-                           ) : (
-                             // Show role selector for active members
-                             <div className="flex items-center space-x-2">
-                               <select
-                                 value={member.userId?.role || 'CLUB_STUDENT'}
-                                 onChange={(e) => updateMemberRole(member.userId?._id || '', e.target.value)}
-                                 disabled={updatingRole === member.userId?._id}
-                                 className={`px-3 py-1 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
-                                   isDarkMode 
-                                     ? 'bg-gray-700 border-gray-600 text-white' 
-                                     : 'bg-white border-gray-300 text-gray-900'
-                                 } ${updatingRole === member.userId?._id ? 'opacity-50 cursor-not-allowed' : ''}`}
-                               >
-                                 <option value="CLUB_STUDENT">Thành Viên CLB</option>
-                                 <option value="CLUB_MEMBER">Ủy Viên BCH</option>
-                                 <option value="CLUB_DEPUTY">Phó Chủ Nhiệm</option>
-                                 <option value="CLUB_LEADER">Chủ Nhiệm CLB</option>
-                                 <option value="SUPER_ADMIN">Quản Trị Hệ Thống</option>
-                               </select>
-                               {updatingRole === member.userId?._id && (
-                                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                               )}
-                             </div>
-                           )}
-                         </td>
-                         <td className="px-6 py-4 whitespace-nowrap">
-                           {showRemovedMembers ? (
-                             // Show removal information for removed members
-                             <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-900'}`}>
-                               <div className="mb-2">
-                                 <span className={`px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-800`}>
-                                   Đã xóa
-                                 </span>
-                               </div>
-                               <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                 <div>Xóa lúc: {new Date(member.removedAt || '').toLocaleString('vi-VN')}</div>
-                                 <div>Lý do: {member.removalReason || 'Không có'}</div>
-                                 {member.removedBy && (
-                                   <div>Xóa bởi: {member.removedBy.name || 'Không xác định'}</div>
-                                 )}
-                               </div>
-                             </div>
-                           ) : (
-                             // Show normal status and actions for active members
-                             <div className="flex items-center space-x-2">
-                               {member.status === 'ACTIVE' && member.userId?.role !== 'SUPER_ADMIN' && (
-                                 <button
-                                   onClick={() => openRemoveModal(member)}
-                                   disabled={removingMember === member._id}
-                                   className={`px-3 py-1 text-sm border rounded-lg transition-colors duration-200 ${
-                                     isDarkMode 
-                                       ? 'border-red-600 text-red-400 hover:bg-red-900 hover:text-red-300' 
-                                       : 'border-red-300 text-red-600 hover:bg-red-50'
-                                   }`}
-                                   title="Xóa khỏi câu lạc bộ"
-                                 >
-                                   {removingMember === member._id ? (
-                                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600"></div>
-                                   ) : (
-                                     '🗑️ Xóa'
-                                   )}
-                                 </button>
-                               )}
-                               {member.status === 'ACTIVE' && member.userId?.role === 'SUPER_ADMIN' && (
-                                 <span className="px-3 py-1 text-sm rounded-lg bg-green-100 text-green-800">
-                                   Tài khoản hệ thống
-                                 </span>
-                               )}
-                               {member.status !== 'ACTIVE' && (
-                                 <span className={`px-3 py-1 text-sm rounded-lg ${
-                                                                  member.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
-                                 member.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
-                                 member.status === 'REMOVED' ? 'bg-gray-100 text-gray-800' :
-                                 member.status === 'INACTIVE' ? 'bg-gray-100 text-gray-800' :
-                                 'bg-gray-100 text-gray-800'
-                                 }`}>
-                                                                  {member.status === 'PENDING' ? 'Chờ duyệt' :
-                                 member.status === 'REJECTED' ? 'Đã từ chối' :
-                                 member.status === 'REMOVED' ? 'Đã xóa' :
-                                 member.status === 'INACTIVE' ? 'Không hoạt động' :
-                                 'Không xác định'}
-                                 </span>
-                               )}
-                             </div>
-                           )}
-                         </td>
+                        <td className={`px-4 py-3 whitespace-nowrap border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0 h-10 w-10">
+                              {member.userId?.avatarUrl ? (
+                                <Image
+                                  src={member.userId.avatarUrl}
+                                  alt={member.userId.name || 'User'}
+                                  width={40}
+                                  height={40}
+                                  className="h-10 w-10 rounded-full object-cover"
+                                />
+                              ) : (
+                                <div className="h-10 w-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center">
+                                  <span className="text-white text-xs font-bold">
+                                    {getInitials(member.userId?.name || 'U')}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="ml-3">
+                              <div className={`text-xs font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                                {member.userId?.name || 'Không có tên'}
+                              </div>
+                              <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                {member.userId?.studentId || 'Không có MSSV'}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className={`px-4 py-3 whitespace-nowrap border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                          <div className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-900'}`}>
+                            <div>{member.userId?.email || 'Không có email'}</div>
+                            <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                              {member.userId?.phone || 'Không có số điện thoại'}
+                            </div>
+                            <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                              {member.userId?.class || 'Chưa cập nhật'} - {member.userId?.faculty || 'Chưa cập nhật'}
+                            </div>
+                          </div>
+                        </td>
+                        <td className={`px-4 py-3 whitespace-nowrap border text-center ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                          <div className="flex justify-center w-full max-w-[140px] mx-auto">
+                            {getRoleBadge(member.userId?.role || 'STUDENT')}
+                          </div>
+                        </td>
+                        <td className={`px-4 py-3 whitespace-nowrap border text-center ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                          {showRemovedMembers ? (
+                            // Show role info for removed members (read-only)
+                            <div className="flex justify-center w-full max-w-[140px] mx-auto">
+                              {getRoleBadge(member.userId?.role || 'STUDENT')}
+                            </div>
+                          ) : (
+                            // Show role selector for active members
+                            <div className="flex items-center justify-center space-x-2">
+                              <select
+                                value={member.userId?.role || 'CLUB_STUDENT'}
+                                onChange={(e) => updateMemberRole(member.userId?._id || '', e.target.value)}
+                                disabled={updatingRole === member.userId?._id}
+                                className={`px-2 py-1 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+                                  isDarkMode 
+                                    ? 'bg-gray-700 border-gray-600 text-white' 
+                                    : 'bg-white border-gray-300 text-gray-900'
+                                } ${updatingRole === member.userId?._id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              >
+                                <option value="CLUB_STUDENT">Thành Viên CLB</option>
+                                <option value="CLUB_MEMBER">Ủy Viên BCH</option>
+                                <option value="CLUB_DEPUTY">Phó Chủ Nhiệm</option>
+                                <option value="CLUB_LEADER">Chủ Nhiệm CLB</option>
+                                <option value="SUPER_ADMIN">Quản Trị Hệ Thống</option>
+                              </select>
+                              {updatingRole === member.userId?._id && (
+                                <Loader size={14} className="animate-spin text-blue-600" strokeWidth={1.5} />
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td className={`px-3 py-3 whitespace-nowrap border text-center w-32 ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                          {showRemovedMembers ? (
+                            // Show removal information for removed members
+                            <div className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-900'}`}>
+                              <div className="mb-2 flex justify-center">
+                                <span className={`px-1.5 py-0.5 text-xs font-medium rounded-full bg-orange-100 text-orange-800`}>
+                                  Đã xóa
+                                </span>
+                              </div>
+                              <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                <div className="truncate" title={new Date(member.removedAt || '').toLocaleString('vi-VN')}>
+                                  {new Date(member.removedAt || '').toLocaleDateString('vi-VN')}
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            // Show normal status and actions for active members
+                            <div className="flex flex-col items-center justify-center gap-1.5">
+                              {member.status === 'ACTIVE' && member.userId?.role !== 'SUPER_ADMIN' && (
+                                <button
+                                  onClick={() => openRemoveModal(member)}
+                                  disabled={removingMember === member._id}
+                                  className={`px-2 py-1 text-xs border rounded-lg transition-colors duration-200 flex items-center justify-center gap-1 ${
+                                    isDarkMode 
+                                      ? 'border-red-600 text-red-400 hover:bg-red-900 hover:text-red-300' 
+                                      : 'border-red-300 text-red-600 hover:bg-red-50'
+                                  }`}
+                                  title="Xóa khỏi câu lạc bộ"
+                                >
+                                  {removingMember === member._id ? (
+                                    <Loader size={14} className="animate-spin text-red-600" strokeWidth={1.5} />
+                                  ) : (
+                                    <>
+                                      <Trash2 size={14} strokeWidth={1.5} />
+                                      <span>Xóa</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                              {member.status === 'ACTIVE' && member.userId?.role === 'SUPER_ADMIN' && (
+                                <span className="px-1.5 py-0.5 text-xs rounded-lg bg-green-100 text-green-800">
+                                  Tài khoản hệ thống
+                                </span>
+                              )}
+                              {member.status !== 'ACTIVE' && (
+                                <span className={`px-1.5 py-0.5 text-xs rounded-lg ${
+                                  member.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
+                                  member.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
+                                  member.status === 'REMOVED' ? 'bg-gray-100 text-gray-800' :
+                                  member.status === 'INACTIVE' ? 'bg-gray-100 text-gray-800' :
+                                  'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {member.status === 'PENDING' ? 'Chờ duyệt' :
+                                  member.status === 'REJECTED' ? 'Đã từ chối' :
+                                  member.status === 'REMOVED' ? 'Đã xóa' :
+                                  member.status === 'INACTIVE' ? 'Không hoạt động' :
+                                  'Không xác định'}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              {/* Pagination - Bottom */}
+              {!loading && totalMembers > 0 && (
+                <div className="px-6 py-3 border-t border-gray-200 dark:border-gray-700">
+                  <PaginationBar
+                    totalItems={totalMembers}
+                    currentPage={currentPage}
+                    itemsPerPage={membersPerPage}
+                    onPageChange={(page) => setCurrentPage(page)}
+                    onItemsPerPageChange={(newItemsPerPage) => {
+                      setMembersPerPage(newItemsPerPage);
+                      setCurrentPage(1);
+                    }}
+                    itemLabel="thành viên"
+                    isDarkMode={isDarkMode}
+                    itemsPerPageOptions={[5, 10, 20, 50, 100]}
+                  />
+                </div>
+              )}
+            </>
             )}
           </div>
         </main>

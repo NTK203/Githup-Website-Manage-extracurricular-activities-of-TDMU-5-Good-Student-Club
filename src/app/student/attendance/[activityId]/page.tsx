@@ -7,6 +7,28 @@ import StudentNav from '@/components/student/StudentNav';
 import Footer from '@/components/common/Footer';
 import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Clock,
+  MapPin,
+  Calendar,
+  Camera,
+  X,
+  User,
+  AlertCircle,
+  CheckCircle,
+  AlertTriangle,
+  Download,
+  Trash2,
+  Loader2,
+  Map,
+  Navigation,
+  Image as ImageIcon,
+  FileText,
+  UserCircle,
+  Timer
+} from 'lucide-react';
 
 // Dynamically import Leaflet components to avoid SSR issues
 const MapContainer = dynamic(
@@ -1967,34 +1989,26 @@ export default function StudentAttendancePage() {
             onClick={() => router.back()}
             className={`mb-4 flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
               isDarkMode 
-                ? 'text-gray-300 hover:text-white hover:bg-gray-800/50 border border-gray-700' 
-                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50 border border-gray-200'
+                ? 'text-gray-300 hover:text-white border border-gray-700' 
+                : 'text-gray-600 hover:text-gray-900 border border-gray-200'
             }`}
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
+            <ArrowLeft className="w-4 h-4" />
             <span>Quay lại</span>
           </button>
 
           {/* Compact Header Card */}
           <div className={`relative overflow-hidden rounded-2xl ${
             isDarkMode 
-              ? 'bg-gradient-to-br from-gray-800 to-gray-900 border border-gray-700' 
-              : 'bg-gradient-to-br from-white to-gray-50 border border-gray-200'
-          } shadow-xl`}>
+              ? 'border border-gray-700' 
+              : 'border border-gray-200'
+          }`}>
             <div className="relative p-5 sm:p-6">
               <div className="flex items-start justify-between gap-4 mb-4">
                 <div className="flex items-center gap-3 flex-1">
-                  <div className={`p-2.5 rounded-xl ${
-                      isDarkMode 
-                        ? 'bg-gradient-to-br from-blue-600 to-purple-600' 
-                        : 'bg-gradient-to-br from-blue-500 to-purple-500'
-                  } shadow-md`}>
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
+                  <CheckCircle2 className={`w-5 h-5 ${
+                    isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                  }`} />
                   <div className="flex-1 min-w-0">
                     <h1 className={`text-xl sm:text-2xl font-bold mb-1 truncate ${
                         isDarkMode ? 'text-white' : 'text-gray-900'
@@ -2005,18 +2019,13 @@ export default function StudentAttendancePage() {
                       <div className={`flex items-center gap-1.5 ${
                         isDarkMode ? 'text-gray-400' : 'text-gray-600'
                       }`}>
-                        <svg className="w-3.5 h-3.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  <span className="font-medium">{activity.date}</span>
-                </div>
+                        <Calendar className="w-3.5 h-3.5" />
+                        <span className="font-medium">{activity.date}</span>
+                      </div>
                       <div className={`flex items-center gap-1.5 ${
                         isDarkMode ? 'text-gray-400' : 'text-gray-600'
                       }`}>
-                        <svg className="w-3.5 h-3.5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
+                        <MapPin className="w-3.5 h-3.5" />
                         <span className="font-medium truncate">{activity.location}</span>
                       </div>
                     </div>
@@ -2031,46 +2040,38 @@ export default function StudentAttendancePage() {
         {(successMessage || error) && !showSuccessModal && (
           <div className="mb-4">
             {successMessage && (
-              <div className={`p-3 rounded-lg border shadow-sm ${isDarkMode ? 'bg-green-500/10 border-green-500/30' : 'bg-green-50 border-green-200'}`}>
+              <div className={`p-3 rounded-lg border ${isDarkMode ? 'border-green-500/30' : 'border-green-200'}`}>
                 <div className="flex items-center gap-2">
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                    isDarkMode ? 'bg-green-500/20' : 'bg-green-100'
-                  }`}>
-                    <span className="text-xs">✅</span>
-                  </div>
+                  <CheckCircle className={`w-5 h-5 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
                   <p className={`text-sm font-medium flex-1 ${isDarkMode ? 'text-green-300' : 'text-green-700'}`}>
                     {successMessage}
                   </p>
                   <button
                     onClick={() => setSuccessMessage(null)}
-                    className={`w-5 h-5 rounded flex items-center justify-center text-xs transition-all ${
-                      isDarkMode ? 'hover:bg-green-500/20 text-green-400' : 'hover:bg-green-100 text-green-600'
+                    className={`transition-all ${
+                      isDarkMode ? 'text-green-400 hover:text-green-300' : 'text-green-600 hover:text-green-700'
                     }`}
                   >
-                    ✕
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
               </div>
             )}
 
             {error && (
-              <div className={`p-3 rounded-lg border shadow-sm ${isDarkMode ? 'bg-red-500/10 border-red-500/30' : 'bg-red-50 border-red-200'}`}>
+              <div className={`p-3 rounded-lg border ${isDarkMode ? 'border-red-500/30' : 'border-red-200'}`}>
                 <div className="flex items-center gap-2">
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                    isDarkMode ? 'bg-red-500/20' : 'bg-red-100'
-                  }`}>
-                    <span className="text-xs">⚠️</span>
-                  </div>
+                  <AlertCircle className={`w-5 h-5 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />
                   <p className={`text-sm font-medium flex-1 ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>
                     {error}
                   </p>
                   <button
                     onClick={() => setError(null)}
-                    className={`w-5 h-5 rounded flex items-center justify-center text-xs transition-all ${
-                      isDarkMode ? 'hover:bg-red-500/20 text-red-400' : 'hover:bg-red-100 text-red-600'
+                    className={`transition-all ${
+                      isDarkMode ? 'text-red-400 hover:text-red-300' : 'text-red-600 hover:text-red-700'
                     }`}
                   >
-                    ✕
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -2083,24 +2084,20 @@ export default function StudentAttendancePage() {
           {/* Dashboard Header - Glassmorphism Style */}
           <div className={`relative overflow-hidden rounded-3xl ${
             isDarkMode 
-              ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' 
-              : 'bg-gradient-to-br from-white/80 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'
-          } shadow-2xl`}>
-            {/* Animated Background */}
-            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-pink-500/10 animate-pulse"></div>
-            
+              ? 'border border-gray-700/50' 
+              : 'border border-gray-200/50'
+          }`}>
             <div className="relative p-6 sm:p-8 lg:p-10">
               {/* Header Info */}
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-8">
                 <div className="flex items-center gap-4">
-                  <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 shadow-lg flex items-center justify-center text-3xl`}>
-                    📍
-                  </div>
+                  <MapPin className={`w-8 h-8 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
                   <div>
                     <h1 className={`text-2xl lg:text-3xl font-bold mb-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                      Điểm danh thông minh
+                      Điểm danh 
                     </h1>
-                    <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    <p className={`text-sm flex items-center gap-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      <Clock className="w-4 h-4" />
                       {formattedTime} • {formattedDate}
                     </p>
                   </div>
@@ -2108,31 +2105,51 @@ export default function StudentAttendancePage() {
                 
                 {/* Status Badges */}
                 <div className="flex flex-wrap items-center gap-3">
-                  <div className={`px-4 py-2 rounded-xl ${
+                  <div className={`px-4 py-2 rounded-xl border ${
                     isAllCompleted
-                      ? isDarkMode ? 'bg-green-500/20 border border-green-500/30' : 'bg-green-100 border border-green-200'
-                      : isDarkMode ? 'bg-gray-700/50 border border-gray-600' : 'bg-gray-100 border border-gray-200'
+                      ? isDarkMode ? 'border-green-500/30' : 'border-green-200'
+                      : isDarkMode ? 'border-gray-600' : 'border-gray-200'
                   }`}>
-                    <span className={`text-sm font-bold ${
+                    <span className={`text-sm font-bold flex items-center gap-2 ${
                       isAllCompleted
                         ? isDarkMode ? 'text-green-300' : 'text-green-700'
                         : isDarkMode ? 'text-gray-400' : 'text-gray-600'
                     }`}>
-                      {isAllCompleted ? '✅ Đã điểm danh' : '⏸️ Chưa điểm danh'}
+                      {isAllCompleted ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          Đã điểm danh
+                        </>
+                      ) : (
+                        <>
+                          <Timer className="w-4 h-4" />
+                          Chưa điểm danh
+                        </>
+                      )}
                     </span>
                   </div>
                   {locationStatus && (
-                    <div className={`px-4 py-2 rounded-xl ${
+                    <div className={`px-4 py-2 rounded-xl border ${
                       locationStatus.valid
-                        ? isDarkMode ? 'bg-green-500/20 border border-green-500/30' : 'bg-green-100 border border-green-200'
-                        : isDarkMode ? 'bg-red-500/20 border border-red-500/30' : 'bg-red-100 border border-red-200'
+                        ? isDarkMode ? 'border-green-500/30' : 'border-green-200'
+                        : isDarkMode ? 'border-red-500/30' : 'border-red-200'
                     }`}>
-                      <span className={`text-sm font-bold ${
+                      <span className={`text-sm font-bold flex items-center gap-2 ${
                         locationStatus.valid
                           ? isDarkMode ? 'text-green-300' : 'text-green-700'
                           : isDarkMode ? 'text-red-300' : 'text-red-700'
                       }`}>
-                        {locationStatus.valid ? '✅ Vị trí hợp lệ' : '⚠️ Vị trí không hợp lệ'}
+                        {locationStatus.valid ? (
+                          <>
+                            <CheckCircle2 className="w-4 h-4" />
+                            Vị trí hợp lệ
+                          </>
+                        ) : (
+                          <>
+                            <AlertTriangle className="w-4 h-4" />
+                            Vị trí không hợp lệ
+                          </>
+                        )}
                       </span>
                     </div>
                   )}
@@ -2183,22 +2200,22 @@ export default function StudentAttendancePage() {
                   <div className={`mb-6 p-4 rounded-xl border-2 ${
                     isCompleted
                       ? isDarkMode 
-                        ? 'bg-gradient-to-r from-green-500/20 via-emerald-500/20 to-teal-500/20 border-green-500/40' 
-                        : 'bg-gradient-to-r from-green-50 via-emerald-50 to-teal-50 border-green-300'
+                        ? 'border-green-500/40' 
+                        : 'border-green-300'
                       : isDarkMode 
-                        ? 'bg-gradient-to-r from-blue-500/20 via-cyan-500/20 to-sky-500/20 border-blue-500/40' 
-                        : 'bg-gradient-to-r from-blue-50 via-cyan-50 to-sky-50 border-blue-300'
+                        ? 'border-blue-500/40' 
+                        : 'border-blue-300'
                   }`}>
                     <div className="flex items-center gap-3">
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                        isCompleted
-                          ? isDarkMode ? 'bg-green-500/30' : 'bg-green-100'
-                          : isDarkMode ? 'bg-blue-500/30' : 'bg-blue-100'
-                      }`}>
-                        <span className="text-2xl">
-                          {isCompleted ? '✅' : '📊'}
-                        </span>
-                      </div>
+                      {isCompleted ? (
+                        <CheckCircle2 className={`w-6 h-6 ${
+                          isDarkMode ? 'text-green-400' : 'text-green-600'
+                        }`} />
+                      ) : (
+                        <Timer className={`w-6 h-6 ${
+                          isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                        }`} />
+                      )}
                       <div className="flex-1">
                         <h3 className={`text-sm font-semibold mb-1 ${
                           isDarkMode ? 'text-gray-300' : 'text-gray-700'
@@ -2306,85 +2323,86 @@ export default function StudentAttendancePage() {
                     // Color scheme
                     const slotDesign = {
                       'Buổi Sáng': {
-                        bg: isDarkMode ? 'bg-gradient-to-br from-yellow-900/30 via-orange-900/20 to-amber-900/30' : 'bg-gradient-to-br from-yellow-50 via-orange-50 to-amber-50',
                         border: isDarkMode ? 'border-yellow-500/40' : 'border-yellow-300',
-                        icon: '🌅',
-                        iconBg: 'from-yellow-400 to-orange-500',
+                        icon: Clock,
+                        iconColor: isDarkMode ? 'text-yellow-400' : 'text-yellow-600',
                         text: isDarkMode ? 'text-yellow-200' : 'text-yellow-800',
                         accent: isDarkMode ? 'text-yellow-300' : 'text-yellow-600'
                       },
                       'Buổi Chiều': {
-                        bg: isDarkMode ? 'bg-gradient-to-br from-blue-900/30 via-cyan-900/20 to-sky-900/30' : 'bg-gradient-to-br from-blue-50 via-cyan-50 to-sky-50',
                         border: isDarkMode ? 'border-blue-500/40' : 'border-blue-300',
-                        icon: '☀️',
-                        iconBg: 'from-blue-400 to-cyan-500',
+                        icon: Clock,
+                        iconColor: isDarkMode ? 'text-blue-400' : 'text-blue-600',
                         text: isDarkMode ? 'text-blue-200' : 'text-blue-800',
                         accent: isDarkMode ? 'text-blue-300' : 'text-blue-600'
                       },
                       'Buổi Tối': {
-                        bg: isDarkMode ? 'bg-gradient-to-br from-purple-900/30 via-indigo-900/20 to-violet-900/30' : 'bg-gradient-to-br from-purple-50 via-indigo-50 to-violet-50',
                         border: isDarkMode ? 'border-purple-500/40' : 'border-purple-300',
-                        icon: '🌙',
-                        iconBg: 'from-purple-400 to-indigo-500',
+                        icon: Clock,
+                        iconColor: isDarkMode ? 'text-purple-400' : 'text-purple-600',
                         text: isDarkMode ? 'text-purple-200' : 'text-purple-800',
                         accent: isDarkMode ? 'text-purple-300' : 'text-purple-600'
                       }
                     };
                     
                     const design = slotDesign[slot.name as keyof typeof slotDesign] || slotDesign['Buổi Sáng'];
+                    const SlotIcon = design.icon;
                     
                     return (
                       <div 
                         key={idx} 
-                        className={`group relative overflow-hidden rounded-2xl border-2 backdrop-blur-xl transition-all duration-300 hover:scale-[1.01] hover:shadow-xl ${
-                          design.bg
-                        } ${design.border} ${
+                        className={`group relative overflow-hidden rounded-2xl border-2 transition-all duration-300 hover:scale-[1.01] ${
+                          design.border
+                        } ${
                           isDarkMode ? 'shadow-lg' : 'shadow-md'
                         }`}
                       >
-                        {/* Animated Background Gradient */}
-                        <div className="absolute inset-0 bg-gradient-to-br opacity-40 group-hover:opacity-60 transition-opacity duration-300"></div>
-                        <div className="absolute top-0 right-0 w-48 h-48 bg-gradient-to-br from-white/10 to-transparent rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
-                        <div className="absolute bottom-0 left-0 w-32 h-32 bg-gradient-to-tr from-white/10 to-transparent rounded-full blur-xl translate-y-1/2 -translate-x-1/2"></div>
-                        
                         <div className="relative p-4 lg:p-5">
                           {/* Header Section */}
                           <div className="flex items-start justify-between mb-4">
                             <div className="flex items-center gap-3 flex-1">
-                              <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${design.iconBg} shadow-lg flex items-center justify-center text-2xl transform group-hover:scale-105 transition-transform duration-300`}>
-                                {design.icon}
-                              </div>
+                              <SlotIcon className={`w-6 h-6 ${design.iconColor}`} />
                               <div className="flex-1">
                                 <h3 className={`text-lg lg:text-xl font-bold mb-1.5 ${design.text}`}>
                                   {slot.name}
                                 </h3>
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                  <div className={`px-3 py-1.5 rounded-lg backdrop-blur-sm ${
-                                    isDarkMode ? 'bg-black/20' : 'bg-white/60'
+                                  <div className={`px-3 py-1.5 rounded-lg border ${
+                                    isDarkMode ? 'border-gray-700' : 'border-gray-200'
                                   }`}>
-                                    <span className={`text-xs font-semibold ${design.accent}`}>
-                                      🕐 {slot.startTime} - {slot.endTime}
+                                    <span className={`text-xs font-semibold flex items-center gap-1 ${design.accent}`}>
+                                      <Clock className="w-3 h-3" />
+                                      {slot.startTime} - {slot.endTime}
                                     </span>
                                   </div>
                                   {isDuringSlot && (
-                                    <span className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
-                                      isDarkMode ? 'bg-green-500/30 text-green-300' : 'bg-green-100 text-green-700'
+                                    <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
+                                      isDarkMode ? 'border-green-500/30 text-green-300' : 'border-green-200 text-green-700'
                                     }`}>
-                                      ⚡ Đang diễn ra
+                                      <span className="flex items-center gap-1">
+                                        <CheckCircle2 className="w-3 h-3" />
+                                        Đang diễn ra
+                                      </span>
                                     </span>
                                   )}
                                   {isBeforeSlot && (
-                                    <span className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
-                                      isDarkMode ? 'bg-gray-700/50 text-gray-400' : 'bg-gray-100 text-gray-600'
+                                    <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
+                                      isDarkMode ? 'border-gray-600 text-gray-400' : 'border-gray-200 text-gray-600'
                                     }`}>
-                                      ⏰ Sắp tới
+                                      <span className="flex items-center gap-1">
+                                        <Timer className="w-3 h-3" />
+                                        Sắp tới
+                                      </span>
                                     </span>
                                   )}
                                   {isAfterSlot && (
-                                    <span className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
-                                      isDarkMode ? 'bg-gray-700/50 text-gray-500' : 'bg-gray-100 text-gray-500'
+                                    <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
+                                      isDarkMode ? 'border-gray-600 text-gray-500' : 'border-gray-200 text-gray-500'
                                     }`}>
-                                      ✅ Đã kết thúc
+                                      <span className="flex items-center gap-1">
+                                        <CheckCircle2 className="w-3 h-3" />
+                                        Đã kết thúc
+                                      </span>
                                     </span>
                                   )}
                                 </div>
@@ -2394,13 +2412,11 @@ export default function StudentAttendancePage() {
                           
                           {/* Location Info - Compact Design */}
                           {(slotLocation || activity.locationData) && (
-                            <div className={`mb-4 p-3 rounded-xl backdrop-blur-sm border ${
-                              isDarkMode ? 'bg-black/20 border-white/10' : 'bg-white/60 border-gray-200/50'
+                            <div className={`mb-4 p-3 rounded-xl border ${
+                              isDarkMode ? 'border-gray-700' : 'border-gray-200'
                             }`}>
                               <div className="flex items-start gap-2.5">
-                                <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${design.iconBg} flex items-center justify-center text-sm flex-shrink-0`}>
-                                  📍
-                                </div>
+                                <MapPin className={`w-5 h-5 ${design.iconColor} flex-shrink-0`} />
                                 <div className="flex-1 min-w-0">
                                   <p className={`text-xs font-bold mb-0.5 ${design.accent}`}>
                                     Vị trí điểm danh
@@ -2413,8 +2429,9 @@ export default function StudentAttendancePage() {
                                       'Chưa có thông tin')}
                                   </p>
                                   {(slotLocation?.radius || activity.locationData?.radius) && (
-                                    <p className={`text-xs mt-0.5 font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                      📏 {(slotLocation?.radius || activity.locationData?.radius)}m
+                                    <p className={`text-xs mt-0.5 font-medium flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                      <Navigation className="w-3 h-3" />
+                                      {(slotLocation?.radius || activity.locationData?.radius)}m
                                     </p>
                                   )}
                                 </div>
@@ -2452,23 +2469,32 @@ export default function StudentAttendancePage() {
                                     </div>
                                   )}
                                   {slotStatus.start ? (
-                                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                      ✅ Đã điểm danh
+                                    <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      Đã điểm danh
                                     </p>
                                   ) : canCheckInStart ? (
                                     <button
                                       onClick={() => handleSlotCheckIn(slot.name, 'start')}
                                       disabled={isCheckingIn}
-                                      className={`w-full px-3 py-2 rounded-lg text-xs font-bold transition-all transform hover:scale-105 ${
+                                      className={`w-full px-3 py-2 rounded-lg text-xs font-bold transition-all transform hover:scale-105 flex items-center justify-center gap-2 ${
                                         isDarkMode 
-                                          ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white hover:shadow-md' 
-                                          : 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white hover:shadow-md'
+                                          ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                                          : 'bg-blue-600 text-white hover:bg-blue-700'
                                       } ${isCheckingIn ? 'opacity-50' : ''}`}
                                     >
-                                      {isCheckingIn ? '...' : '📸 Điểm danh'}
+                                      {isCheckingIn ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                      ) : (
+                                        <>
+                                          <Camera className="w-4 h-4" />
+                                          Điểm danh
+                                        </>
+                                      )}
                                     </button>
                                   ) : (
-                                    <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                    <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                      <Timer className="w-3 h-3" />
                                       Chưa đến thời gian
                                     </p>
                                   )}
@@ -2504,23 +2530,32 @@ export default function StudentAttendancePage() {
                                     </div>
                                   )}
                                   {slotStatus.end ? (
-                                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                      ✅ Đã điểm danh
+                                    <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      Đã điểm danh
                                     </p>
                                   ) : canCheckInEnd ? (
                                     <button
                                       onClick={() => handleSlotCheckIn(slot.name, 'end')}
                                       disabled={isCheckingIn}
-                                      className={`w-full px-3 py-2 rounded-lg text-xs font-bold transition-all transform hover:scale-105 ${
+                                      className={`w-full px-3 py-2 rounded-lg text-xs font-bold transition-all transform hover:scale-105 flex items-center justify-center gap-2 ${
                                         isDarkMode 
-                                          ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white hover:shadow-md' 
-                                          : 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white hover:shadow-md'
+                                          ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                                          : 'bg-blue-600 text-white hover:bg-blue-700'
                                       } ${isCheckingIn ? 'opacity-50' : ''}`}
                                     >
-                                      {isCheckingIn ? '...' : '📸 Điểm danh'}
+                                      {isCheckingIn ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                      ) : (
+                                        <>
+                                          <Camera className="w-4 h-4" />
+                                          Điểm danh
+                                        </>
+                                      )}
                                     </button>
                                   ) : (
-                                    <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                    <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                      <Timer className="w-3 h-3" />
                                       Chưa đến thời gian
                                     </p>
                                   )}
@@ -2534,9 +2569,7 @@ export default function StudentAttendancePage() {
                             borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
                           }}>
                             <div className="flex items-center gap-2 mb-3">
-                              <div className={`w-6 h-6 rounded-lg bg-gradient-to-br ${design.iconBg} flex items-center justify-center text-xs`}>
-                                📸
-                              </div>
+                              <ImageIcon className={`w-5 h-5 ${design.iconColor}`} />
                               <p className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                                 Chi tiết điểm danh
                               </p>
@@ -2555,18 +2588,21 @@ export default function StudentAttendancePage() {
                                     }`}>
                                       <div className="flex items-center justify-between mb-2">
                                         <div className="flex-1">
-                                          <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                            🌅 Đầu buổi
+                                          <p className={`text-xs font-bold flex items-center gap-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                                            <Clock className="w-3 h-3" />
+                                            Đầu buổi
                                           </p>
                                           {(() => {
                                             const startWindow = getCheckInTimeWindow(slot, 'start');
                                             return startWindow ? (
                                               <div className="mt-0.5 space-y-0.5">
-                                                <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                  ⏰ Đúng giờ: {startWindow.onTimeStart} - {startWindow.onTimeEnd}
+                                                <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                  <CheckCircle2 className="w-3 h-3" />
+                                                  Đúng giờ: {startWindow.onTimeStart} - {startWindow.onTimeEnd}
                                                 </p>
-                                                <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-                                                  ⏳ Trễ: {startWindow.lateStart} - {startWindow.lateEnd}
+                                                <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                                  <Timer className="w-3 h-3" />
+                                                  Trễ: {startWindow.lateStart} - {startWindow.lateEnd}
                                                 </p>
                                               </div>
                                             ) : null;
@@ -2584,35 +2620,31 @@ export default function StudentAttendancePage() {
                                               {lateEarlyInfo && startRecord.status !== 'rejected' && (
                                                 <>
                                                   {lateEarlyInfo.isOnTime ? (
-                                                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs shadow-sm transition-all duration-200 ${
+                                                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
                                                       isDarkMode 
-                                                        ? 'bg-gradient-to-r from-green-500/20 via-emerald-500/20 to-teal-500/20 text-green-300 border border-green-500/40 backdrop-blur-sm' 
-                                                        : 'bg-gradient-to-r from-green-50 via-emerald-50 to-teal-50 text-green-700 border border-green-300/60 backdrop-blur-sm'
+                                                        ? 'text-green-300 border-green-500/40' 
+                                                        : 'text-green-700 border-green-300/60'
                                                     }`}>
-                                                      <div className={`w-4 h-4 rounded-full flex items-center justify-center ${
-                                                        isDarkMode ? 'bg-green-500/30' : 'bg-green-200'
-                                                      }`}>
-                                                        <span className="text-xs">✅</span>
-                                                      </div>
+                                                      <CheckCircle2 className={`w-4 h-4 ${
+                                                        isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                      }`} />
                                                       <span className="font-bold">Đúng giờ</span>
                                                     </div>
                                                   ) : (
-                                                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs shadow-sm transition-all duration-200 ${
+                                                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
                                                       lateEarlyInfo.isEarly
                                                         ? isDarkMode 
-                                                          ? 'bg-gradient-to-r from-blue-500/20 via-cyan-500/20 to-sky-500/20 text-blue-300 border border-blue-500/40 backdrop-blur-sm' 
-                                                          : 'bg-gradient-to-r from-blue-50 via-cyan-50 to-sky-50 text-blue-700 border border-blue-300/60 backdrop-blur-sm'
+                                                          ? 'text-blue-300 border-blue-500/40' 
+                                                          : 'text-blue-700 border-blue-300/60'
                                                         : isDarkMode 
-                                                          ? 'bg-gradient-to-r from-pink-500/20 via-rose-500/20 to-orange-500/20 text-pink-300 border border-pink-500/40 backdrop-blur-sm' 
-                                                          : 'bg-gradient-to-r from-pink-50 via-rose-50 to-orange-50 text-pink-700 border border-pink-300/60 backdrop-blur-sm'
+                                                          ? 'text-pink-300 border-pink-500/40' 
+                                                          : 'text-pink-700 border-pink-300/60'
                                                     }`}>
-                                                      <div className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                                                      <Clock className={`w-4 h-4 ${
                                                         lateEarlyInfo.isEarly
-                                                          ? isDarkMode ? 'bg-blue-500/30' : 'bg-blue-200'
-                                                          : isDarkMode ? 'bg-pink-500/30' : 'bg-pink-200'
-                                                      }`}>
-                                                        <span className="text-xs">⏰</span>
-                                                      </div>
+                                                          ? isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                                                          : isDarkMode ? 'text-pink-400' : 'text-pink-600'
+                                                      }`} />
                                                       <span className="font-bold">
                                                         {lateEarlyInfo.isEarly ? 'Sớm' : 'Trễ'} {lateEarlyInfo.minutes !== undefined ? formatMinutesToHours(lateEarlyInfo.minutes) : ''}
                                                       </span>
@@ -2621,24 +2653,24 @@ export default function StudentAttendancePage() {
                                                 </>
                                               )}
                                               {startRecord.status !== 'rejected' && (
-                                                <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs shadow-sm transition-all duration-200 ${
+                                                <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
                                                   startRecord.status === 'approved'
                                                     ? isDarkMode 
-                                                      ? 'bg-gradient-to-r from-green-500/20 via-emerald-500/20 to-teal-500/20 text-green-300 border border-green-500/40 backdrop-blur-sm' 
-                                                      : 'bg-gradient-to-r from-green-50 via-emerald-50 to-teal-50 text-green-700 border border-green-300/60 backdrop-blur-sm'
+                                                      ? 'text-green-300 border-green-500/40' 
+                                                      : 'text-green-700 border-green-300/60'
                                                     : isDarkMode 
-                                                      ? 'bg-gradient-to-r from-amber-500/20 via-yellow-500/20 to-orange-500/20 text-amber-300 border border-amber-500/40 backdrop-blur-sm' 
-                                                      : 'bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 text-amber-700 border border-amber-300/60 backdrop-blur-sm'
+                                                      ? 'text-amber-300 border-amber-500/40' 
+                                                      : 'text-amber-700 border-amber-300/60'
                                                 }`}>
-                                                  <div className={`w-4 h-4 rounded-full flex items-center justify-center ${
-                                                    startRecord.status === 'approved'
-                                                      ? isDarkMode ? 'bg-green-500/30' : 'bg-green-200'
-                                                      : isDarkMode ? 'bg-amber-500/30' : 'bg-amber-200'
-                                                  }`}>
-                                                    <span className="text-xs">
-                                                      {startRecord.status === 'approved' ? '✅' : '⏳'}
-                                                    </span>
-                                                  </div>
+                                                  {startRecord.status === 'approved' ? (
+                                                    <CheckCircle2 className={`w-4 h-4 ${
+                                                      isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                    }`} />
+                                                  ) : (
+                                                    <Timer className={`w-4 h-4 ${
+                                                      isDarkMode ? 'text-amber-400' : 'text-amber-600'
+                                                    }`} />
+                                                  )}
                                                   <span className="font-bold">
                                                     {startRecord.status === 'approved' ? 'Đã xác nhận' : 'Chờ xác nhận'}
                                                   </span>
@@ -2670,17 +2702,18 @@ export default function StudentAttendancePage() {
                                             }`}
                                         />
                                           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-2 pointer-events-none">
-                                            <div className="px-3 py-1.5 rounded-lg bg-white/90 backdrop-blur-sm pointer-events-auto">
-                                              <p className="text-xs font-bold text-gray-900">🔍 Xem ảnh</p>
+                                            <div className="px-3 py-1.5 rounded-lg bg-white/90 backdrop-blur-sm pointer-events-auto flex items-center gap-1">
+                                              <ImageIcon className="w-3 h-3 text-gray-900" />
+                                              <p className="text-xs font-bold text-gray-900">Xem ảnh</p>
                                             </div>
                                           </div>
                                         </div>
                                       ) : (
                                         <div className={`w-full h-32 rounded-xl border-2 flex items-center justify-center ${
-                                          isDarkMode ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-100 border-gray-300'
+                                          isDarkMode ? 'border-gray-600' : 'border-gray-300'
                                         }`}>
                                           <div className="text-center">
-                                            <p className={`text-2xl mb-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>📷</p>
+                                            <ImageIcon className={`w-8 h-8 mx-auto mb-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
                                           <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                             Không có ảnh
                                           </p>
@@ -2690,19 +2723,16 @@ export default function StudentAttendancePage() {
                                       
                                       {/* Timestamp - Ngày giờ chụp ảnh */}
                                       <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${
-                                        isDarkMode ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-50 border-gray-200'
+                                        isDarkMode ? 'border-gray-600' : 'border-gray-200'
                                       }`}>
-                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                                          isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
-                                        }`}>
-                                          <span className="text-base">📷</span>
-                                        </div>
+                                        <Camera className={`w-5 h-5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
                                         <div className="flex-1">
                                           <p className={`text-xs font-semibold mb-0.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                                             Thời Gian Chụp Ảnh
                                           </p>
-                                          <p className={`text-xs font-bold ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
-                                            ⏰ {new Date(startRecord.checkInTime).toLocaleString('vi-VN', { 
+                                          <p className={`text-xs font-bold flex items-center gap-1 ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
+                                            <Clock className="w-3 h-3" />
+                                            {new Date(startRecord.checkInTime).toLocaleString('vi-VN', { 
                                               hour: '2-digit', 
                                               minute: '2-digit', 
                                               second: '2-digit',
@@ -2717,10 +2747,10 @@ export default function StudentAttendancePage() {
                                       {/* Show rejected status */}
                                       {startRecord.status === 'rejected' && (
                                         <div className={`p-2 rounded border-2 ${
-                                          isDarkMode ? 'bg-red-500/10 border-red-500' : 'bg-red-50 border-red-500'
+                                          isDarkMode ? 'border-red-500' : 'border-red-500'
                                         }`}>
                                           <div className="flex items-center gap-1.5 mb-1">
-                                            <span className="text-sm">⚠️</span>
+                                            <AlertTriangle className={`w-4 h-4 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />
                                             <p className={`text-xs font-semibold ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>
                                               Đã bị hủy
                                             </p>
@@ -2736,10 +2766,11 @@ export default function StudentAttendancePage() {
                                       {/* Additional Info */}
                                       {startRecord.lateReason && startRecord.status !== 'rejected' && (
                                           <div className={`p-2 rounded border-2 text-xs ${
-                                            isDarkMode ? 'bg-amber-500/10 border-amber-500' : 'bg-amber-50 border-amber-500'
+                                            isDarkMode ? 'border-amber-500' : 'border-amber-500'
                                           }`}>
-                                            <p className={`font-medium mb-1 ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`}>
-                                              ⏰ Lý do trễ:
+                                            <p className={`font-medium mb-1 flex items-center gap-1 ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`}>
+                                              <Clock className="w-3 h-3" />
+                                              Lý do trễ:
                                             </p>
                                             <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                                               {startRecord.lateReason}
@@ -2747,15 +2778,11 @@ export default function StudentAttendancePage() {
                                           </div>
                                         )}
                                         {startRecord.verificationNote && startRecord.status === 'approved' && (
-                                          <div className={`p-4 rounded-xl border-2 shadow-md ${
-                                            isDarkMode ? 'bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-green-500/40' : 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-300'
+                                          <div className={`p-4 rounded-xl border-2 ${
+                                            isDarkMode ? 'border-green-500/40' : 'border-green-300'
                                           }`}>
                                             <div className="flex items-center gap-2 mb-2">
-                                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                                                isDarkMode ? 'bg-green-500/20' : 'bg-green-100'
-                                              }`}>
-                                                <span className="text-base">📝</span>
-                                      </div>
+                                              <FileText className={`w-5 h-5 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
                                               <p className={`font-bold text-sm ${isDarkMode ? 'text-green-300' : 'text-green-700'}`}>
                                                 Ghi chú từ người quản trị
                                               </p>
@@ -2767,23 +2794,19 @@ export default function StudentAttendancePage() {
                                               <div className={`flex items-center gap-2 pt-3 border-t ${
                                                 isDarkMode ? 'border-green-500/20' : 'border-green-200'
                                               }`}>
-                                                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${
-                                                  isDarkMode ? 'bg-gray-700/50' : 'bg-white/80'
+                                                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${
+                                                  isDarkMode ? 'border-gray-700' : 'border-gray-200'
                                                 }`}>
-                                                  <svg className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                                  </svg>
+                                                  <UserCircle className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
                                                   <span className={`text-xs font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                                                     {getVerifierName(startRecord.verifiedBy)}
                                                   </span>
                                                 </div>
                                                 {startRecord.verifiedAt && (
-                                                  <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${
-                                                    isDarkMode ? 'bg-gray-700/50' : 'bg-white/80'
+                                                  <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ${
+                                                    isDarkMode ? 'border-gray-700' : 'border-gray-200'
                                                   }`}>
-                                                    <svg className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                    </svg>
+                                                    <Clock className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
                                                     <span className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                                                       {new Date(startRecord.verifiedAt).toLocaleString('vi-VN', { 
                                                   hour: '2-digit', 
@@ -2807,24 +2830,35 @@ export default function StudentAttendancePage() {
                                             <button
                                               onClick={() => handleSlotCheckIn(slot.name, 'start')}
                                               disabled={isCheckingIn}
-                                              className={`flex-1 px-4 py-3 rounded-xl text-sm font-bold transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95 ${
+                                              className={`flex-1 px-4 py-3 rounded-xl text-sm font-bold transition-all duration-200 transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2 ${
                                                 isDarkMode 
-                                                  ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white hover:from-orange-600 hover:to-red-600' 
-                                                  : 'bg-gradient-to-r from-orange-500 to-red-500 text-white hover:from-orange-600 hover:to-red-600'
+                                                  ? 'bg-orange-600 text-white hover:bg-orange-700' 
+                                                  : 'bg-orange-600 text-white hover:bg-orange-700'
                                               } ${isCheckingIn ? 'opacity-50 cursor-not-allowed' : ''}`}
                                             >
-                                              {isCheckingIn ? '⏳ Đang xử lý...' : '📸 Chụp lại'}
+                                              {isCheckingIn ? (
+                                                <>
+                                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                                  Đang xử lý...
+                                                </>
+                                              ) : (
+                                                <>
+                                                  <Camera className="w-4 h-4" />
+                                                  Chụp lại
+                                                </>
+                                              )}
                                             </button>
                                             <button
                                               onClick={() => handleDeleteAttendance(slot.name, 'start')}
                                               disabled={isCheckingIn}
-                                              className={`px-4 py-3 rounded-xl text-sm font-bold transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95 ${
+                                              className={`px-4 py-3 rounded-xl text-sm font-bold transition-all duration-200 transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2 ${
                                                 isDarkMode 
-                                                  ? 'bg-gradient-to-r from-red-600 to-red-700 text-white hover:from-red-700 hover:to-red-800' 
-                                                  : 'bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700'
+                                                  ? 'bg-red-600 text-white hover:bg-red-700' 
+                                                  : 'bg-red-600 text-white hover:bg-red-700'
                                               } ${isCheckingIn ? 'opacity-50 cursor-not-allowed' : ''}`}
                                             >
-                                              🗑️ Xóa
+                                              <Trash2 className="w-4 h-4" />
+                                              Xóa
                                             </button>
                                           </div>
                                         )}

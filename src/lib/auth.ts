@@ -75,17 +75,25 @@ export function hasRole(user: JWTPayload | null, requiredRole: 'SUPER_ADMIN' | '
 }
 
 // Check if user is admin (Quản trị hệ thống)
-// Admin: SUPER_ADMIN
+// Admin: SUPER_ADMIN, ADMIN, hoặc CLUB_LEADER
 export function isAdmin(user: JWTPayload | null): boolean {
+  if (!user) return false;
+  return user.role === 'SUPER_ADMIN' || user.role === 'ADMIN' || user.role === 'CLUB_LEADER';
+}
+
+// Check if user is super admin (Siêu quản trị viên)
+// Super Admin: SUPER_ADMIN only
+export function isSuperAdmin(user: JWTPayload | null): boolean {
   if (!user) return false;
   return user.role === 'SUPER_ADMIN';
 }
 
 // Check if user is officer (Cán bộ phụ trách câu lạc bộ)
-// Officers: CLUB_LEADER, CLUB_DEPUTY, CLUB_MEMBER
+// Officers: CLUB_DEPUTY, CLUB_MEMBER
+// Note: CLUB_LEADER thuộc ADMIN nên không thuộc OFFICER
 export function isOfficer(user: JWTPayload | null): boolean {
   if (!user) return false;
-  return ['CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER'].includes(user.role);
+  return ['CLUB_DEPUTY', 'CLUB_MEMBER'].includes(user.role);
 }
 
 // Check if user is student (Thành viên câu lạc bộ và người tham gia)

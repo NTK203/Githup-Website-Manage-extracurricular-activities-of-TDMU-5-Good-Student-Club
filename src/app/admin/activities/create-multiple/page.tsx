@@ -1,12 +1,49 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useRouter, useParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
+import Cropper, { Area } from 'react-easy-crop';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { useAuth } from '@/hooks/useAuth';
 import ProtectedRoute from '@/components/common/ProtectedRoute';
 import AdminNav from '@/components/admin/AdminNav';
 import Footer from '@/components/common/Footer';
+import LoadingSpinner from '@/components/common/LoadingSpinner';
+import { 
+  Calendar, 
+  CalendarRange,
+  Image as ImageIcon,
+  ImageUp,
+  FileText, 
+  Users, 
+  MapPin, 
+  User, 
+  FolderOpen, 
+  StickyNote,
+  CheckCircle2,
+  XCircle,
+  Info,
+  Clock,
+  Sun,
+  Moon,
+  Loader,
+  FileEdit,
+  Globe,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  AlertCircle,
+  Crown,
+  UserCheck,
+  X,
+  Scissors,
+  ZoomIn,
+  ZoomOut,
+  Plus,
+  Minus
+} from 'lucide-react';
 
 const OpenStreetMapPicker = dynamic(() => import('@/components/common/OpenStreetMapPicker'), {
   ssr: false,
@@ -40,12 +77,22 @@ interface DaySchedule {
 }
 
 export default function CreateMultipleDaysActivityPage() {
+  const router = useRouter();
+  const params = useParams();
   const { isDarkMode } = useDarkMode();
   const { user } = useAuth();
+
+  // Check if this is edit mode
+  const activityId = params.id as string;
+  const isEditMode = activityId && activityId !== 'new';
+  
+  console.log('CreateMultipleDaysActivityPage - activityId:', activityId);
+  console.log('CreateMultipleDaysActivityPage - isEditMode:', isEditMode);
 
   const [isDesktop, setIsDesktop] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingActivity, setIsLoadingActivity] = useState(isEditMode);
   const [submitError, setSubmitError] = useState('');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
@@ -58,15 +105,31 @@ export default function CreateMultipleDaysActivityPage() {
     location: '',
     maxParticipants: '',
     visibility: 'public' as ActivityVisibility,
-    responsiblePerson: '',
+    responsiblePerson: [] as string[],
     status: 'draft' as ActivityStatus,
     imageUrl: '',
     overview: ''
   });
 
   const [locationData, setLocationData] = useState<LocationData | null>(null);
+  const [globalDetailedLocation, setGlobalDetailedLocation] = useState<string>('');
+  const [perDayDetailedLocation, setPerDayDetailedLocation] = useState<Record<DayKey, string>>({
+    mon: '', tue: '', wed: '', thu: '', fri: '', sat: '', sun: ''
+  });
+  const [showPerDayLocationSection, setShowPerDayLocationSection] = useState<Record<DayKey, boolean>>({
+    mon: false, tue: false, wed: false, thu: false, fri: false, sat: false, sun: false
+  });
+  const [perSlotDetailedLocation, setPerSlotDetailedLocation] = useState<string>('');
+  const [showPerSlotLocationSection, setShowPerSlotLocationSection] = useState(false);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
+  const [imageHeight, setImageHeight] = useState<number>(192); // Chiều cao mặc định 192px (h-48)
+  
+  // State cho crop ảnh
+  const [showCropModal, setShowCropModal] = useState(false);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
 
   const [responsiblePersons, setResponsiblePersons] = useState<Array<{
     _id: string;
@@ -75,8 +138,25 @@ export default function CreateMultipleDaysActivityPage() {
     role: string;
     studentId: string;
     status: string;
+    avatarUrl?: string;
+    imageUrl?: string;
   }>>([]);
   const [loadingResponsiblePersons, setLoadingResponsiblePersons] = useState(false);
+
+  // Quản lý vai trò thành viên - chỉ cho những người đã đăng ký tham gia
+  type MemberRole = 'leader' | 'deputy' | 'member';
+  interface ActivityMember {
+    userId: string;
+    name: string;
+    email: string;
+    studentId?: string;
+    role: MemberRole;
+    approvalStatus?: 'pending' | 'approved' | 'rejected';
+  }
+  const [activityMembers, setActivityMembers] = useState<ActivityMember[]>([]);
+  const [loadingParticipants, setLoadingParticipants] = useState(false);
+  const [selectedPersonId, setSelectedPersonId] = useState<string>('');
+  const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
 
   // Weekly sessions (Mon-Sun), each day has 3 sessions like single-day
   type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
@@ -169,12 +249,23 @@ export default function CreateMultipleDaysActivityPage() {
   const [locationEditorDay, setLocationEditorDay] = useState<DayKey>('mon'); // dùng cho chế độ per slot
   const [dayLocationEditor, setDayLocationEditor] = useState<DayKey>('mon'); // dùng cho chế độ per day
   const [selectedTimeSlotForLocation, setSelectedTimeSlotForLocation] = useState<TimeSlotKey | null>(null);
-  const locationModeOptions: Array<{ value: LocationMode; label: string; icon: string; description: string }> = [
-    { value: 'global', label: 'Địa điểm chung', icon: '📍', description: 'Áp dụng một địa điểm cho tất cả buổi đã bật' },
-    { value: 'perDay', label: 'Theo ngày', icon: '🗓️', description: 'Chọn địa điểm riêng cho từng ngày trong tuần' },
-    { value: 'perSlot', label: 'Theo buổi', icon: '🕒', description: 'Mỗi buổi Sáng/Chiều/Tối có thể đặt địa điểm riêng' },
+  const [currentWeekIndex, setCurrentWeekIndex] = useState(0); // Index của tuần hiện tại đang xem
+  const getLocationModeIcon = (mode: LocationMode) => {
+    switch (mode) {
+      case 'global':
+        return <MapPin size={16} strokeWidth={1.5} />;
+      case 'perDay':
+        return <Calendar size={16} strokeWidth={1.5} />;
+      case 'perSlot':
+        return <Clock size={16} strokeWidth={1.5} />;
+    }
+  };
+  
+  const locationModeOptions: Array<{ value: LocationMode; label: string; description: string }> = [
+    { value: 'global', label: 'Địa điểm chung', description: 'Áp dụng một địa điểm cho tất cả buổi đã bật' },
+    { value: 'perDay', label: 'Theo ngày', description: 'Chọn địa điểm riêng cho từng ngày trong tuần' },
+    { value: 'perSlot', label: 'Theo buổi', description: 'Mỗi buổi Sáng/Chiều/Tối có thể đặt địa điểm riêng' },
   ];
-  const [showPerDayNotes, setShowPerDayNotes] = useState(false);
   const dayKeyOrder: DayKey[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
   const dayKeyToLabel: Record<DayKey, string> = {
     mon: 'Thứ 2',
@@ -185,10 +276,10 @@ export default function CreateMultipleDaysActivityPage() {
     sat: 'Thứ 7',
     sun: 'Chủ nhật',
   };
-  const timeSlotIcon: Record<string, string> = {
-    'Buổi Sáng': '🌅',
-    'Buổi Chiều': '☀️',
-    'Buổi Tối': '🌙',
+  const timeSlotIcon: Record<string, React.ReactNode> = {
+    'Buổi Sáng': <Sun size={18} strokeWidth={1.5} />,
+    'Buổi Chiều': <Sun size={18} strokeWidth={1.5} />,
+    'Buổi Tối': <Moon size={18} strokeWidth={1.5} />,
   };
   const getDaySummary = (day: DayKey) => {
     const slots = weeklyPlan[day];
@@ -245,6 +336,7 @@ export default function CreateMultipleDaysActivityPage() {
   };
   const copyDayToTarget = (source: DayKey, target: DayKey) => {
     if (source === target) return;
+    // Sao chép weeklyPlan (bao gồm: isActive, startTime, endTime, activities, detailedLocation, locationAddress, locationLat, locationLng, locationRadius)
     setWeeklyPlan(prev => {
       const src = prev[source].map(s => ({ ...s }));
       return {
@@ -252,6 +344,7 @@ export default function CreateMultipleDaysActivityPage() {
         [target]: src.map(s => ({ ...s })),
       };
     });
+    // Sao chép weeklySlotLocations (cho PerSlot mode)
     setWeeklySlotLocations(prev => {
       const sourceLocations = prev[source] || [];
       return {
@@ -262,8 +355,50 @@ export default function CreateMultipleDaysActivityPage() {
         })),
       };
     });
+    // Sao chép dailyLocations (cho PerDay mode)
+    setDailyLocations(prev => {
+      const sourceLocation = prev[source];
+      if (sourceLocation) {
+        return {
+          ...prev,
+          [target]: {
+            lat: sourceLocation.lat,
+            lng: sourceLocation.lng,
+            address: sourceLocation.address,
+            radius: sourceLocation.radius,
+          },
+        };
+      }
+      return prev;
+    });
+    // Sao chép perDayDetailedLocation (cho PerDay mode)
+    setPerDayDetailedLocation(prev => {
+      const sourceDetailedLocation = prev[source];
+      if (sourceDetailedLocation) {
+        return {
+          ...prev,
+          [target]: sourceDetailedLocation,
+        };
+      }
+      return prev;
+    });
+    // Sao chép ghi chú theo ngày (daySchedules)
+    setDaySchedules(prev => {
+      const next = { ...prev };
+      // Lấy ghi chú của ngày đầu tiên có cùng dayKey với source
+      const sourceDate = datesInRange.find(d => getDayKeyFromDate(d) === source);
+      const sourceNote = sourceDate ? (prev[sourceDate] || '') : '';
+      // Áp dụng ghi chú cho tất cả các ngày có cùng dayKey với target
+      datesInRange.forEach(date => {
+        if (getDayKeyFromDate(date) === target) {
+          next[date] = sourceNote;
+        }
+      });
+      return next;
+    });
   };
   const copyDayToAll = (source: DayKey) => {
+    // Sao chép weeklyPlan (bao gồm: isActive, startTime, endTime, activities, detailedLocation, locationAddress, locationLat, locationLng, locationRadius)
     setWeeklyPlan(prev => {
       const src = prev[source].map(s => ({ ...s }));
       return {
@@ -276,6 +411,7 @@ export default function CreateMultipleDaysActivityPage() {
         sun: src.map(s => ({ ...s })),
       };
     });
+    // Sao chép weeklySlotLocations (cho PerSlot mode)
     setWeeklySlotLocations(prev => {
       const srcLocations = prev[source] || [];
       const cloneLocations = (day: DayKey) =>
@@ -293,16 +429,118 @@ export default function CreateMultipleDaysActivityPage() {
         sun: cloneLocations('sun'),
       };
     });
+    // Sao chép dailyLocations (cho PerDay mode)
+    setDailyLocations(prev => {
+      const sourceLocation = prev[source];
+      if (sourceLocation) {
+        // Tạo object mới cho mỗi ngày để tránh reference issue
+        return {
+          mon: {
+            lat: sourceLocation.lat,
+            lng: sourceLocation.lng,
+            address: sourceLocation.address,
+            radius: sourceLocation.radius,
+          },
+          tue: {
+            lat: sourceLocation.lat,
+            lng: sourceLocation.lng,
+            address: sourceLocation.address,
+            radius: sourceLocation.radius,
+          },
+          wed: {
+            lat: sourceLocation.lat,
+            lng: sourceLocation.lng,
+            address: sourceLocation.address,
+            radius: sourceLocation.radius,
+          },
+          thu: {
+            lat: sourceLocation.lat,
+            lng: sourceLocation.lng,
+            address: sourceLocation.address,
+            radius: sourceLocation.radius,
+          },
+          fri: {
+            lat: sourceLocation.lat,
+            lng: sourceLocation.lng,
+            address: sourceLocation.address,
+            radius: sourceLocation.radius,
+          },
+          sat: {
+            lat: sourceLocation.lat,
+            lng: sourceLocation.lng,
+            address: sourceLocation.address,
+            radius: sourceLocation.radius,
+          },
+          sun: {
+            lat: sourceLocation.lat,
+            lng: sourceLocation.lng,
+            address: sourceLocation.address,
+            radius: sourceLocation.radius,
+          },
+        };
+      }
+      return prev;
+    });
+    // Sao chép perDayDetailedLocation (cho PerDay mode)
+    setPerDayDetailedLocation(prev => {
+      const sourceDetailedLocation = prev[source];
+      if (sourceDetailedLocation) {
+        return {
+          mon: sourceDetailedLocation,
+          tue: sourceDetailedLocation,
+          wed: sourceDetailedLocation,
+          thu: sourceDetailedLocation,
+          fri: sourceDetailedLocation,
+          sat: sourceDetailedLocation,
+          sun: sourceDetailedLocation,
+        };
+      }
+      return prev;
+    });
+    // Sao chép ghi chú theo ngày (daySchedules) sang tất cả các ngày khác
+    setDaySchedules(prev => {
+      const next = { ...prev };
+      // Lấy ghi chú của ngày đầu tiên có cùng dayKey với source
+      const sourceDate = datesInRange.find(d => getDayKeyFromDate(d) === source);
+      const sourceNote = sourceDate ? (prev[sourceDate] || '') : '';
+      // Áp dụng ghi chú cho tất cả các ngày trong khoảng thời gian
+      datesInRange.forEach(date => {
+        next[date] = sourceNote;
+      });
+      return next;
+    });
   };
   const resetDayPlan = (day: DayKey) => {
+    // Reset weeklyPlan về mặc định (isActive, startTime, endTime, activities, detailedLocation, locationAddress, locationLat, locationLng, locationRadius)
     setWeeklyPlan(prev => ({
       ...prev,
       [day]: defaultWeeklySlots.map(slot => ({ ...slot }))
     }));
+    // Reset weeklySlotLocations (cho PerSlot mode)
     setWeeklySlotLocations(prev => ({
       ...prev,
       [day]: [],
     }));
+    // Reset dailyLocations (cho PerDay mode)
+    setDailyLocations(prev => ({
+      ...prev,
+      [day]: null,
+    }));
+    // Reset perDayDetailedLocation (cho PerDay mode)
+    setPerDayDetailedLocation(prev => ({
+      ...prev,
+      [day]: '',
+    }));
+    // Reset ghi chú theo ngày (daySchedules) cho tất cả các ngày có cùng dayKey
+    setDaySchedules(prev => {
+      const next = { ...prev };
+      datesInRange.forEach(date => {
+        if (getDayKeyFromDate(date) === day) {
+          next[date] = '';
+        }
+      });
+      return next;
+    });
   };
 
   const getActiveTimeSlotsForDay = (day: DayKey): TimeSlotKey[] => {
@@ -342,22 +580,43 @@ export default function CreateMultipleDaysActivityPage() {
     });
   };
 
-  const handleClearSlotLocation = (day: DayKey, slotId: string) => {
-    const slotKey = slotIdToTimeSlotKey[slotId];
-    if (!slotKey) return;
-    setWeeklySlotLocations(prev => ({
-      ...prev,
-      [day]: prev[day].filter(item => item.timeSlot !== slotKey),
-    }));
+  const handleSlotLocationSelect = (day: DayKey, slotKey: TimeSlotKey, location: LocationData) => {
+    if (!location || !location.address) return;
+    
+    const slotId = timeSlotKeyToSlotId[slotKey];
+    if (!slotId) return;
+
+    // Cập nhật weeklySlotLocations
+    setWeeklySlotLocations(prev => {
+      const existing = prev[day].find(item => item.timeSlot === slotKey);
+      const newLocation: SlotLocationItem = {
+        id: existing?.id || `${day}-${slotKey}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        timeSlot: slotKey,
+        location: {
+          lat: location.lat,
+          lng: location.lng,
+          address: location.address,
+        },
+        radius: location.radius || 200,
+      };
+      return {
+        ...prev,
+        [day]: existing
+          ? prev[day].map(item => item.timeSlot === slotKey ? newLocation : item)
+          : [...prev[day], newLocation],
+      };
+    });
+
+    // Cập nhật weeklyPlan
     setWeeklyPlan(prev => {
       const next = { ...prev };
       next[day] = next[day].map(slot => slot.id === slotId
         ? {
             ...slot,
-            locationAddress: undefined,
-            locationLat: undefined,
-            locationLng: undefined,
-            locationRadius: undefined,
+            locationAddress: location.address,
+            locationLat: location.lat,
+            locationLng: location.lng,
+            locationRadius: location.radius || 200,
           }
         : slot);
       return next;
@@ -410,25 +669,78 @@ export default function CreateMultipleDaysActivityPage() {
     });
   };
 
+  const handleClearSlotLocation = (day: DayKey, slotId: string) => {
+    const slotKey = slotIdToTimeSlotKey[slotId];
+    if (!slotKey) return;
+    setWeeklySlotLocations(prev => ({
+      ...prev,
+      [day]: prev[day].filter(item => item.timeSlot !== slotKey),
+    }));
+    setWeeklyPlan(prev => {
+      const next = { ...prev };
+      next[day] = next[day].map(slot => slot.id === slotId
+        ? {
+            ...slot,
+            locationAddress: undefined,
+            locationLat: undefined,
+            locationLng: undefined,
+            locationRadius: undefined,
+          }
+        : slot);
+      return next;
+    });
+  };
+
   const handleCopyDayLocationToAll = (source: DayKey) => {
     const sourceLoc = dailyLocations[source];
     if (!sourceLoc) return;
     const baseRadius = Number.isFinite(sourceLoc.radius) ? sourceLoc.radius : 200;
-    const payload: LocationData = {
+    
+    // Tạo object mới cho mỗi ngày để đảm bảo React nhận biết thay đổi
+    setDailyLocations(() => {
+      const next: Record<DayKey, LocationData | null> = {
+        mon: {
       lat: sourceLoc.lat,
       lng: sourceLoc.lng,
       address: sourceLoc.address,
       radius: baseRadius,
-    };
-    setDailyLocations(() => {
-      const next: Record<DayKey, LocationData | null> = {
-        mon: { ...payload },
-        tue: { ...payload },
-        wed: { ...payload },
-        thu: { ...payload },
-        fri: { ...payload },
-        sat: { ...payload },
-        sun: { ...payload },
+        },
+        tue: {
+          lat: sourceLoc.lat,
+          lng: sourceLoc.lng,
+          address: sourceLoc.address,
+          radius: baseRadius,
+        },
+        wed: {
+          lat: sourceLoc.lat,
+          lng: sourceLoc.lng,
+          address: sourceLoc.address,
+          radius: baseRadius,
+        },
+        thu: {
+          lat: sourceLoc.lat,
+          lng: sourceLoc.lng,
+          address: sourceLoc.address,
+          radius: baseRadius,
+        },
+        fri: {
+          lat: sourceLoc.lat,
+          lng: sourceLoc.lng,
+          address: sourceLoc.address,
+          radius: baseRadius,
+        },
+        sat: {
+          lat: sourceLoc.lat,
+          lng: sourceLoc.lng,
+          address: sourceLoc.address,
+          radius: baseRadius,
+        },
+        sun: {
+          lat: sourceLoc.lat,
+          lng: sourceLoc.lng,
+          address: sourceLoc.address,
+          radius: baseRadius,
+        },
       };
       return next;
     });
@@ -437,10 +749,10 @@ export default function CreateMultipleDaysActivityPage() {
       dayKeyOrder.forEach(day => {
         next[day] = next[day].map(slot => slot.isActive ? {
           ...slot,
-          locationAddress: payload.address,
-          locationLat: payload.lat,
-          locationLng: payload.lng,
-          locationRadius: Number.isFinite(payload.radius) ? payload.radius : 200,
+          locationAddress: sourceLoc.address,
+          locationLat: sourceLoc.lat,
+          locationLng: sourceLoc.lng,
+          locationRadius: baseRadius,
         } : slot);
       });
       return next;
@@ -557,7 +869,11 @@ export default function CreateMultipleDaysActivityPage() {
         if (response.ok) {
           const data = await response.json();
           if (data.responsiblePersons && Array.isArray(data.responsiblePersons)) {
-            setResponsiblePersons(data.responsiblePersons);
+            // Chỉ lấy CLUB_MEMBER và CLUB_DEPUTY
+            const filtered = data.responsiblePersons.filter((p: any) => 
+              p.role === 'CLUB_MEMBER' || p.role === 'CLUB_DEPUTY'
+            );
+            setResponsiblePersons(filtered);
           } else {
             setResponsiblePersons([]);
           }
@@ -573,9 +889,124 @@ export default function CreateMultipleDaysActivityPage() {
     loadResponsiblePersons();
   }, [user]);
 
+
+  // Load participants từ activity (chỉ khi edit mode và có activityId)
+  useEffect(() => {
+    const loadParticipants = async () => {
+      if (!isEditMode || !activityId) {
+        setActivityMembers([]);
+        return;
+      }
+      
+      setLoadingParticipants(true);
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        
+        const response = await fetch(`/api/activities/${activityId}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          credentials: 'include'
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data.activity) {
+            const activity = result.data.activity;
+            const participants = activity.participants || [];
+            
+            // Map participants sang ActivityMember format
+            const mappedMembers: ActivityMember[] = participants.map((p: any) => {
+              // Handle userId - can be ObjectId string or populated object
+              const userId = typeof p.userId === 'object' && p.userId !== null
+                ? p.userId._id || p.userId
+                : p.userId;
+              
+              // Get name and email
+              const name = p.name || 
+                (typeof p.userId === 'object' && p.userId !== null && 'name' in p.userId 
+                  ? String(p.userId.name) 
+                  : 'Chưa có tên');
+              const email = p.email || 
+                (typeof p.userId === 'object' && p.userId !== null && 'email' in p.userId 
+                  ? String(p.userId.email) 
+                  : '');
+              const studentId = p.studentId || 
+                (typeof p.userId === 'object' && p.userId !== null && 'studentId' in p.userId 
+                  ? String(p.userId.studentId) 
+                  : undefined);
+              
+              // Map role từ database sang MemberRole
+              // Database có: 'Trưởng Nhóm', 'Phó Trưởng Nhóm', 'Thành Viên Ban Tổ Chức', 'Người Tham Gia', 'Người Giám Sát'
+              // MemberRole có: 'leader', 'deputy', 'member'
+              let role: MemberRole = 'member';
+              if (p.role === 'Trưởng Nhóm') {
+                role = 'leader';
+              } else if (p.role === 'Phó Trưởng Nhóm') {
+                role = 'deputy';
+              } else {
+                role = 'member';
+              }
+              
+              return {
+                userId: String(userId),
+                name,
+                email,
+                studentId,
+                role,
+                approvalStatus: p.approvalStatus || 'pending'
+              };
+            });
+            
+            setActivityMembers(mappedMembers);
+          } else {
+            setActivityMembers([]);
+          }
+        } else {
+          setActivityMembers([]);
+        }
+      } catch (error) {
+        console.error('Error loading participants:', error);
+        setActivityMembers([]);
+      } finally {
+        setLoadingParticipants(false);
+      }
+    };
+    
+    loadParticipants();
+  }, [isEditMode, activityId]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setForm(prev => ({ ...prev, [name]: value }));
+  };
+
+  // Hàm xử lý toggle người phụ trách
+  const handleToggleResponsiblePerson = (personId: string) => {
+    setForm(prev => {
+      const current = prev.responsiblePerson || [];
+      const isSelected = current.includes(personId);
+      if (isSelected) {
+        // Reset image error khi xóa người
+        setImageErrors(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(personId);
+          return newSet;
+        });
+        return {
+          ...prev,
+          responsiblePerson: current.filter(id => id !== personId)
+        };
+      } else {
+        return {
+          ...prev,
+          responsiblePerson: [...current, personId]
+        };
+      }
+    });
   };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -591,13 +1022,88 @@ export default function CreateMultipleDaysActivityPage() {
     }
     setSelectedImage(file);
     const reader = new FileReader();
-    reader.onload = (evt) => setImagePreview(evt.target?.result as string);
+    reader.onload = (evt) => {
+      setImagePreview(evt.target?.result as string);
+      setShowCropModal(true);
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
+    };
     reader.readAsDataURL(file);
+  };
+
+  // Hàm xử lý khi crop xong
+  const onCropComplete = useCallback((croppedArea: Area, croppedAreaPixels: Area) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  }, []);
+
+  // Hàm tạo ảnh đã crop
+  const createCroppedImage = useCallback(async () => {
+    if (!imagePreview || !croppedAreaPixels) return;
+
+    const image = await createImage(imagePreview);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    if (!ctx) return;
+
+    canvas.width = croppedAreaPixels.width;
+    canvas.height = croppedAreaPixels.height;
+
+    ctx.drawImage(
+      image,
+      croppedAreaPixels.x,
+      croppedAreaPixels.y,
+      croppedAreaPixels.width,
+      croppedAreaPixels.height,
+      0,
+      0,
+      croppedAreaPixels.width,
+      croppedAreaPixels.height
+    );
+
+    return new Promise<string>((resolve) => {
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const fileUrl = URL.createObjectURL(blob);
+        resolve(fileUrl);
+      }, 'image/jpeg', 0.9);
+    });
+  }, [imagePreview, croppedAreaPixels]);
+
+  // Helper function để tạo image element
+  const createImage = (url: string): Promise<HTMLImageElement> => {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.addEventListener('load', () => resolve(image));
+      image.addEventListener('error', (error) => reject(error));
+      image.src = url;
+    });
+  };
+
+  // Hàm xác nhận crop
+  const handleCropComplete = async () => {
+    if (!croppedAreaPixels) return;
+    
+    const croppedImageUrl = await createCroppedImage();
+    if (croppedImageUrl) {
+      // Chuyển blob URL thành File
+      const response = await fetch(croppedImageUrl);
+      const blob = await response.blob();
+      const file = new File([blob], selectedImage?.name || 'cropped-image.jpg', { type: 'image/jpeg' });
+      
+      setSelectedImage(file);
+      setImagePreview(croppedImageUrl);
+      setShowCropModal(false);
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
+      setCroppedAreaPixels(null);
+    }
   };
 
   const handleRemoveImage = () => {
     setSelectedImage(null);
     setImagePreview('');
+    setImageHeight(192); // Reset về chiều cao mặc định
     setForm(prev => ({ ...prev, imageUrl: '' }));
   };
 
@@ -685,6 +1191,384 @@ export default function CreateMultipleDaysActivityPage() {
     updateWeeklySlot(day, slotId, 'detailedLocation', value);
   };
 
+  // Load activity data when in edit mode
+  useEffect(() => {
+    if (isEditMode && activityId) {
+      loadActivityData(activityId);
+    }
+  }, [isEditMode, activityId]);
+
+  // Function to load activity data for editing
+  const loadActivityData = async (id: string) => {
+    try {
+      setIsLoadingActivity(true);
+      console.log('Loading multiple days activity data for ID:', id);
+      
+      const response = await fetch(`/api/activities/${id}`);
+      const result = await response.json();
+      
+      console.log('API response:', result);
+      
+      if (result.success && result.data.activity) {
+        const activity = result.data.activity;
+        console.log('Loaded activity data:', activity);
+        
+        // Fill form data
+        setForm({
+          name: activity.name || '',
+          description: activity.description || '',
+          startDate: activity.startDate ? new Date(activity.startDate).toISOString().split('T')[0] : '',
+          endDate: activity.endDate ? new Date(activity.endDate).toISOString().split('T')[0] : '',
+          location: activity.location || '',
+          maxParticipants: activity.maxParticipants?.toString() || '',
+          visibility: activity.visibility || 'public',
+          responsiblePerson: (() => {
+            // Handle both single value and array
+            if (Array.isArray(activity.responsiblePerson)) {
+              return activity.responsiblePerson.map((rp: any) => 
+                typeof rp === 'object' && rp !== null ? (rp._id || rp) : rp
+              ).filter(Boolean);
+            } else if (activity.responsiblePerson) {
+              const rp = activity.responsiblePerson;
+              return [typeof rp === 'object' && rp !== null ? (rp._id || rp) : rp].filter(Boolean);
+            }
+            return [];
+          })(),
+          status: activity.status || 'draft',
+          imageUrl: activity.imageUrl || '',
+          overview: activity.overview || '',
+        });
+        
+        // Set image preview if exists
+        if (activity.imageUrl) {
+          setImagePreview(activity.imageUrl);
+        }
+
+        // Determine location mode from activity.location
+        let detectedLocationMode: LocationMode = 'global';
+        if (activity.location === 'Địa điểm theo buổi') {
+          detectedLocationMode = 'perSlot';
+        } else if (activity.location === 'Địa điểm theo ngày') {
+          detectedLocationMode = 'perDay';
+        } else if (activity.locationData) {
+          detectedLocationMode = 'global';
+        }
+        setLocationMode(detectedLocationMode);
+
+        // Fill location data based on mode
+        if (detectedLocationMode === 'global' && activity.locationData) {
+          const locationData = {
+            lat: activity.locationData.lat || 0,
+            lng: activity.locationData.lng || 0,
+            address: activity.locationData.address || activity.location || '',
+            radius: activity.locationData.radius || 200
+          };
+          setLocationData(locationData);
+        } else if (detectedLocationMode === 'global' && activity.location && 
+                   activity.location !== 'Địa điểm theo buổi' && 
+                   activity.location !== 'Địa điểm theo ngày') {
+          const locationData = {
+            lat: 0,
+            lng: 0,
+            address: activity.location,
+            radius: 200
+          };
+          setLocationData(locationData);
+        }
+
+        // Parse schedule to rebuild weeklyPlan
+        if (activity.schedule && activity.schedule.length > 0) {
+
+          // Parse schedule to extract weekly plan
+          // Schedule format: Array<{ day: number; date: Date; activities: string }>
+          const newWeeklyPlan: WeeklyPlan = {
+            mon: JSON.parse(JSON.stringify(defaultWeeklySlots)),
+            tue: JSON.parse(JSON.stringify(defaultWeeklySlots)),
+            wed: JSON.parse(JSON.stringify(defaultWeeklySlots)),
+            thu: JSON.parse(JSON.stringify(defaultWeeklySlots)),
+            fri: JSON.parse(JSON.stringify(defaultWeeklySlots)),
+            sat: JSON.parse(JSON.stringify(defaultWeeklySlots)),
+            sun: JSON.parse(JSON.stringify(defaultWeeklySlots)),
+          };
+
+          // Parse schedule activities to extract time slot info
+          activity.schedule.forEach((scheduleItem: any) => {
+            const scheduleDate = new Date(scheduleItem.date);
+            const dayKey = getDayKeyFromDate(scheduleDate.toISOString().split('T')[0]);
+            const activitiesText = scheduleItem.activities || '';
+            
+            // Parse activities text to extract time slot information
+            // Format: "Buổi Sáng (07:00-11:30) - ..." or similar
+            const lines = activitiesText.split('\n').filter((line: string) => line.trim());
+            
+            lines.forEach((line: string) => {
+              // Try to match time slot patterns
+              if (line.includes('Buổi Sáng') || line.includes('Sáng')) {
+                const morningMatch = line.match(/(\d{2}:\d{2})-(\d{2}:\d{2})/);
+                if (morningMatch) {
+                  const slot = newWeeklyPlan[dayKey].find(s => s.id === '1');
+                  if (slot) {
+                    slot.isActive = true;
+                    slot.startTime = morningMatch[1];
+                    slot.endTime = morningMatch[2];
+                    // Extract activities description
+                    const activitiesMatch = line.match(/-\s*(.+?)(?:\s*-\s*Địa điểm|$)/);
+                    if (activitiesMatch) {
+                      slot.activities = activitiesMatch[1].trim();
+                    }
+                    // Extract detailed location
+                    const locationMatch = line.match(/Địa điểm chi tiết:\s*(.+?)(?:\s*-\s*Địa điểm map|$)/);
+                    if (locationMatch) {
+                      slot.detailedLocation = locationMatch[1].trim();
+                    }
+                    // Extract map location
+                    const mapLocationMatch = line.match(/Địa điểm map:\s*(.+?)(?:\s*\(|$)/);
+                    if (mapLocationMatch) {
+                      slot.locationAddress = mapLocationMatch[1].trim();
+                      // Extract coordinates if available
+                      const coordsMatch = line.match(/\(([\d.]+),\s*([\d.]+)\)/);
+                      if (coordsMatch) {
+                        slot.locationLat = parseFloat(coordsMatch[1]);
+                        slot.locationLng = parseFloat(coordsMatch[2]);
+                      }
+                      // Extract radius if available
+                      const radiusMatch = line.match(/Bán kính:\s*(\d+)m/);
+                      if (radiusMatch) {
+                        slot.locationRadius = parseInt(radiusMatch[1]);
+                      }
+                    }
+                  }
+                }
+              } else if (line.includes('Buổi Chiều') || line.includes('Chiều')) {
+                const afternoonMatch = line.match(/(\d{2}:\d{2})-(\d{2}:\d{2})/);
+                if (afternoonMatch) {
+                  const slot = newWeeklyPlan[dayKey].find(s => s.id === '2');
+                  if (slot) {
+                    slot.isActive = true;
+                    slot.startTime = afternoonMatch[1];
+                    slot.endTime = afternoonMatch[2];
+                    const activitiesMatch = line.match(/-\s*(.+?)(?:\s*-\s*Địa điểm|$)/);
+                    if (activitiesMatch) {
+                      slot.activities = activitiesMatch[1].trim();
+                    }
+                    const locationMatch = line.match(/Địa điểm chi tiết:\s*(.+?)(?:\s*-\s*Địa điểm map|$)/);
+                    if (locationMatch) {
+                      slot.detailedLocation = locationMatch[1].trim();
+                    }
+                    // Extract map location
+                    const mapLocationMatch = line.match(/Địa điểm map:\s*(.+?)(?:\s*\(|$)/);
+                    if (mapLocationMatch) {
+                      slot.locationAddress = mapLocationMatch[1].trim();
+                      const coordsMatch = line.match(/\(([\d.]+),\s*([\d.]+)\)/);
+                      if (coordsMatch) {
+                        slot.locationLat = parseFloat(coordsMatch[1]);
+                        slot.locationLng = parseFloat(coordsMatch[2]);
+                      }
+                      const radiusMatch = line.match(/Bán kính:\s*(\d+)m/);
+                      if (radiusMatch) {
+                        slot.locationRadius = parseInt(radiusMatch[1]);
+                      }
+                    }
+                  }
+                }
+              } else if (line.includes('Buổi Tối') || line.includes('Tối')) {
+                const eveningMatch = line.match(/(\d{2}:\d{2})-(\d{2}:\d{2})/);
+                if (eveningMatch) {
+                  const slot = newWeeklyPlan[dayKey].find(s => s.id === '3');
+                  if (slot) {
+                    slot.isActive = true;
+                    slot.startTime = eveningMatch[1];
+                    slot.endTime = eveningMatch[2];
+                    const activitiesMatch = line.match(/-\s*(.+?)(?:\s*-\s*Địa điểm|$)/);
+                    if (activitiesMatch) {
+                      slot.activities = activitiesMatch[1].trim();
+                    }
+                    const locationMatch = line.match(/Địa điểm chi tiết:\s*(.+?)(?:\s*-\s*Địa điểm map|$)/);
+                    if (locationMatch) {
+                      slot.detailedLocation = locationMatch[1].trim();
+                    }
+                    // Extract map location
+                    const mapLocationMatch = line.match(/Địa điểm map:\s*(.+?)(?:\s*\(|$)/);
+                    if (mapLocationMatch) {
+                      slot.locationAddress = mapLocationMatch[1].trim();
+                      const coordsMatch = line.match(/\(([\d.]+),\s*([\d.]+)\)/);
+                      if (coordsMatch) {
+                        slot.locationLat = parseFloat(coordsMatch[1]);
+                        slot.locationLng = parseFloat(coordsMatch[2]);
+                      }
+                      const radiusMatch = line.match(/Bán kính:\s*(\d+)m/);
+                      if (radiusMatch) {
+                        slot.locationRadius = parseInt(radiusMatch[1]);
+                      }
+                    }
+                  }
+                }
+              }
+            });
+          });
+
+          setWeeklyPlan(newWeeklyPlan);
+
+          // Load location data based on mode
+          if (detectedLocationMode === 'perSlot') {
+            // Load weeklySlotLocations from weeklyPlan for PerSlot mode
+            // Parse lại schedule để đảm bảo load tất cả các buổi đã chọn trước đó
+            const slotLocationsByDay: Record<DayKey, SlotLocationItem[]> = createEmptyLocationState();
+            
+            // Parse lại schedule để tìm tất cả các buổi có địa điểm
+            activity.schedule.forEach((scheduleItem: any) => {
+              const scheduleDate = new Date(scheduleItem.date);
+              const dayKey = getDayKeyFromDate(scheduleDate.toISOString().split('T')[0]);
+              const activitiesText = scheduleItem.activities || '';
+              const lines = activitiesText.split('\n').filter((line: string) => line.trim());
+              
+              lines.forEach((line: string) => {
+                // Tìm địa điểm map trong line
+                const mapLocationMatch = line.match(/Địa điểm map:\s*(.+?)(?:\s*\(|$)/);
+                if (mapLocationMatch) {
+                  const address = mapLocationMatch[1].trim();
+                  const coordsMatch = line.match(/\(([\d.]+),\s*([\d.]+)\)/);
+                  const radiusMatch = line.match(/Bán kính:\s*(\d+)m/);
+                  
+                  if (coordsMatch) {
+                    // Xác định timeSlot từ line
+                    let slotKey: TimeSlotKey | null = null;
+                    if (line.includes('Buổi Sáng') || line.includes('Sáng')) {
+                      slotKey = 'morning';
+                    } else if (line.includes('Buổi Chiều') || line.includes('Chiều')) {
+                      slotKey = 'afternoon';
+                    } else if (line.includes('Buổi Tối') || line.includes('Tối')) {
+                      slotKey = 'evening';
+                    }
+                    
+                    if (slotKey) {
+                      // Kiểm tra xem đã có chưa
+                      const existing = slotLocationsByDay[dayKey].find(item => item.timeSlot === slotKey);
+                      if (!existing) {
+                        slotLocationsByDay[dayKey].push({
+                          id: `${dayKey}-${slotKey}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                          timeSlot: slotKey,
+                          location: {
+                            lat: parseFloat(coordsMatch[1]),
+                            lng: parseFloat(coordsMatch[2]),
+                            address: address,
+                          },
+                          radius: radiusMatch ? parseInt(radiusMatch[1]) : 200,
+                        });
+                      }
+                    }
+                  }
+                }
+              });
+            });
+            
+            // Bổ sung từ weeklyPlan nếu có slot active nhưng chưa có trong slotLocationsByDay
+            dayKeyOrder.forEach((day) => {
+              const slots = newWeeklyPlan[day];
+              slots.forEach((slot) => {
+                if (slot.isActive && slot.locationAddress && slot.locationLat && slot.locationLng) {
+                  const slotKey = slotIdToTimeSlotKey[slot.id];
+                  if (slotKey) {
+                    const existing = slotLocationsByDay[day].find(item => item.timeSlot === slotKey);
+                    if (!existing) {
+                      slotLocationsByDay[day].push({
+                        id: `${day}-${slotKey}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                        timeSlot: slotKey,
+                        location: {
+                          lat: slot.locationLat,
+                          lng: slot.locationLng,
+                          address: slot.locationAddress,
+                        },
+                        radius: slot.locationRadius || 200,
+                      });
+                    }
+                  }
+                }
+              });
+            });
+            
+            setWeeklySlotLocations(slotLocationsByDay);
+          } else if (detectedLocationMode === 'perDay') {
+            // Load dailyLocations and perDayDetailedLocation for PerDay mode
+            const dailyLocs: Record<DayKey, LocationData | null> = createEmptyDailyLocations();
+            const perDayDetailed: Record<DayKey, string> = {
+              mon: '', tue: '', wed: '', thu: '', fri: '', sat: '', sun: ''
+            };
+            
+            // Parse schedule to extract daily locations
+            activity.schedule.forEach((scheduleItem: any) => {
+              const scheduleDate = new Date(scheduleItem.date);
+              const dayKey = getDayKeyFromDate(scheduleDate.toISOString().split('T')[0]);
+              const activitiesText = scheduleItem.activities || '';
+              
+              // Extract daily location from schedule
+              // Look for "Địa điểm map:" in any line
+              const lines = activitiesText.split('\n');
+              let foundLocation = false;
+              
+              lines.forEach((line: string) => {
+                const mapLocationMatch = line.match(/Địa điểm map:\s*(.+?)(?:\s*\(|$)/);
+                if (mapLocationMatch && !foundLocation) {
+                  const address = mapLocationMatch[1].trim();
+                  const coordsMatch = line.match(/\(([\d.]+),\s*([\d.]+)\)/);
+                  const radiusMatch = line.match(/Bán kính:\s*(\d+)m/);
+                  
+                  if (coordsMatch) {
+                    dailyLocs[dayKey] = {
+                      lat: parseFloat(coordsMatch[1]),
+                      lng: parseFloat(coordsMatch[2]),
+                      address: address,
+                      radius: radiusMatch ? parseInt(radiusMatch[1]) : 200
+                    };
+                    foundLocation = true;
+                  }
+                }
+                
+                // Extract detailed location
+                const detailedMatch = line.match(/Địa điểm chi tiết:\s*(.+?)(?:\s*-\s*Địa điểm map|$)/);
+                if (detailedMatch) {
+                  perDayDetailed[dayKey] = detailedMatch[1].trim();
+                }
+              });
+            });
+            
+            setDailyLocations(dailyLocs);
+            setPerDayDetailedLocation(perDayDetailed);
+          }
+        }
+
+        // Load day schedules (free text notes)
+        if (activity.schedule && activity.schedule.length > 0) {
+          const schedules: Record<string, string> = {};
+          activity.schedule.forEach((scheduleItem: any) => {
+            const dateStr = new Date(scheduleItem.date).toISOString().split('T')[0];
+            // Extract free text (lines that don't match time slot patterns)
+            const activitiesText = scheduleItem.activities || '';
+            const lines = activitiesText.split('\n').filter((line: string) => {
+              const trimmed = line.trim();
+              return trimmed && 
+                     !trimmed.includes('Buổi Sáng') && 
+                     !trimmed.includes('Buổi Chiều') && 
+                     !trimmed.includes('Buổi Tối') &&
+                     !trimmed.includes('Địa điểm chi tiết:') &&
+                     !trimmed.includes('Địa điểm map:');
+            });
+            schedules[dateStr] = lines.join('\n').trim();
+          });
+          setDaySchedules(schedules);
+        }
+      } else {
+        console.error('API returned error:', result);
+        setSubmitError(`Không thể tải dữ liệu hoạt động: ${result.message || 'Unknown error'}`);
+      }
+    } catch (error: any) {
+      console.error('Error loading activity:', error);
+      setSubmitError(`Có lỗi xảy ra khi tải dữ liệu hoạt động: ${error.message || 'Unknown error'}`);
+    } finally {
+      setIsLoadingActivity(false);
+    }
+  };
+
   // Build schedule per day between startDate and endDate
   const datesInRange = useMemo(() => {
     if (!form.startDate || !form.endDate) return [];
@@ -719,17 +1603,100 @@ export default function CreateMultipleDaysActivityPage() {
     });
   }, [datesInRange]);
 
+  // Nhóm các ngày theo tuần
+  const weeks = useMemo(() => {
+    const result: Array<{ weekNumber: number; days: Array<{ date: string; dayIndex: number; dayKey: DayKey }> }> = [];
+    datesInRange.forEach((date, idx) => {
+      const weekNumber = Math.floor(idx / 7) + 1;
+      const dayKey = getDayKeyFromDate(date);
+      if (idx % 7 === 0) {
+        result.push({ weekNumber, days: [] });
+      }
+      result[result.length - 1].days.push({ date, dayIndex: idx, dayKey });
+    });
+    return result;
+  }, [datesInRange]);
+
   useEffect(() => {
     if (!isPerSlotMode) {
       setSelectedTimeSlotForLocation(null);
       return;
     }
-    const activeSlots = getActiveTimeSlotsForDay(locationEditorDay);
+    // Đồng bộ locationEditorDay với selectedDayKey khi selectedDayKey thay đổi
+    setLocationEditorDay(selectedDayKey);
+    const activeSlots = getActiveTimeSlotsForDay(selectedDayKey);
     setSelectedTimeSlotForLocation(prev => {
       if (prev && activeSlots.includes(prev)) return prev;
       return activeSlots[0] ?? null;
     });
-  }, [isPerSlotMode, locationEditorDay, weeklyPlan]);
+  }, [isPerSlotMode, selectedDayKey, weeklyPlan]);
+
+  // Reset currentWeekIndex khi khoảng ngày thay đổi
+  useEffect(() => {
+    setCurrentWeekIndex(0);
+  }, [form.startDate, form.endDate]);
+
+  // Tự động áp dụng địa điểm chung cho tất cả các buổi khi được chọn (chỉ trong PerSlot mode)
+  useEffect(() => {
+    if (!locationData || !isPerSlotMode) return;
+
+    // PerSlot mode: tự động áp dụng cho tất cả các buổi đang bật
+    // Kiểm tra xem có buổi nào chưa có địa điểm chung không
+    const hasUnappliedSlots = dayKeyOrder.some(day => {
+      const activeSlots = weeklyPlan[day].filter(s => s.isActive);
+      return activeSlots.some(slot => {
+        const slotKey = slotIdToTimeSlotKey[slot.id];
+        if (!slotKey) return false;
+        const slotLocation = weeklySlotLocations[day].find(l => l.timeSlot === slotKey);
+        return !slotLocation || 
+               slotLocation.location.address !== locationData.address ||
+               slotLocation.location.lat !== locationData.lat ||
+               slotLocation.location.lng !== locationData.lng;
+      });
+    });
+
+    if (hasUnappliedSlots) {
+      applyLocationToSlots(locationData.address, 'all');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationData?.address, locationData?.lat, locationData?.lng, isPerSlotMode]);
+
+  // Helper function để format date
+  const formatDateForDisplay = (dateStr: string): string => {
+    const date = new Date(dateStr);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+
+  // Tính toán thông tin tuần hiện tại
+  const weekInfo = useMemo(() => {
+    if (weeks.length === 0) {
+      return {
+        totalWeeks: 0,
+        currentWeek: null,
+        canGoPrev: false,
+        canGoNext: false,
+        startDateStr: '',
+        endDateStr: ''
+      };
+    }
+    const totalWeeks = weeks.length;
+    const currentWeek = weeks[currentWeekIndex] || weeks[0];
+    const canGoPrev = currentWeekIndex > 0;
+    const canGoNext = currentWeekIndex < totalWeeks - 1;
+    const startDateStr = currentWeek?.days?.[0] ? formatDateForDisplay(currentWeek.days[0].date) : '';
+    const endDateStr = currentWeek?.days && currentWeek.days.length > 0 ? formatDateForDisplay(currentWeek.days[currentWeek.days.length - 1].date) : '';
+    return {
+      totalWeeks,
+      currentWeek,
+      canGoPrev,
+      canGoNext,
+      startDateStr,
+      endDateStr
+    };
+  }, [weeks, currentWeekIndex]);
 
   const getTodayDate = (): string => {
     const today = new Date();
@@ -762,18 +1729,17 @@ export default function CreateMultipleDaysActivityPage() {
     ? `${durationDays} ngày${durationDays >= 7 ? ` (${Math.ceil(durationDays / 7)} tuần)` : ''}`
     : 'Chưa xác định';
 
-  const fieldLabelClass = `text-[11px] font-semibold uppercase tracking-wide ${isDarkMode ? 'text-gray-300/90' : 'text-gray-500'}`;
-  const fieldInputClass = `mt-1 w-full px-3.5 py-2.5 rounded-xl border text-sm transition focus:outline-none ${
+  const fieldLabelClass = `text-[10px] font-semibold uppercase tracking-wide ${isDarkMode ? 'text-gray-300/90' : 'text-gray-500'}`;
+  const fieldInputClass = `mt-1 w-full px-3 py-2 rounded-lg border-2 text-xs transition focus:outline-none ${
     isDarkMode
       ? 'bg-gray-900/60 border-gray-600/70 text-white placeholder-gray-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/40 shadow-inner shadow-black/20'
-      : 'bg-white/95 border-blue-100 text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 shadow-inner shadow-blue-200/40'
+      : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-gray-400 focus:ring-2 focus:ring-gray-400/20'
   }`;
-  const helperTextClass = `text-[11px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`;
-  const chipBaseClass = `inline-flex items-center gap-1 px-3.5 py-1.5 rounded-full text-[11px] font-semibold border transition ${isDarkMode ? 'bg-gray-900/50 border-gray-700/70 text-gray-200' : 'bg-white/90 border-blue-100 text-gray-700 shadow-sm'}`;
-  const fieldTileClass = `${isDarkMode ? 'bg-gradient-to-br from-gray-900/70 via-gray-800/70 to-gray-900/80 border border-gray-600/60 shadow-lg shadow-black/25' : 'bg-gradient-to-br from-white via-blue-50/40 to-purple-50/30 border border-blue-100/70 shadow-lg shadow-blue-200/40'} rounded-2xl p-4 transition hover:shadow-xl`;
-  const fieldIconClass = `${isDarkMode ? 'bg-gradient-to-br from-blue-500/40 to-purple-500/30 text-white border border-blue-400/50' : 'bg-gradient-to-br from-blue-500/15 to-purple-500/10 text-blue-600 border border-blue-200/60'} w-9 h-9 rounded-xl flex items-center justify-center text-base`;
-  const fieldTitleClass = `text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`;
-  const requiredMarkClass = `${isDarkMode ? 'text-red-300' : 'text-red-500'} text-sm ml-1 align-middle`;
+  const helperTextClass = `text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`;
+  const chipBaseClass = `inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold border-2 transition ${isDarkMode ? 'bg-gray-900/50 border-gray-700/70 text-gray-200' : 'bg-white border-gray-300 text-gray-700 shadow-sm'}`;
+  const fieldTileClass = `${isDarkMode ? 'bg-gray-900/70 border border-gray-600/60 shadow-lg shadow-black/25' : 'bg-white border-2 border-gray-300 shadow-lg'} rounded-xl p-3 transition hover:shadow-xl`;
+  const fieldTitleClass = `text-xs font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`;
+  const requiredMarkClass = `${isDarkMode ? 'text-red-300' : 'text-red-500'} text-xs ml-1 align-middle`;
   const formatCoordinate = (value?: number | null) => (typeof value === 'number' && !Number.isNaN(value) ? value.toFixed(6) : 'Chưa có');
   const quickLocationOptions = useMemo(() => {
     const set = new Set<string>();
@@ -792,6 +1758,399 @@ export default function CreateMultipleDaysActivityPage() {
     return Array.from(set);
   }, [locationData, weeklyPlan]);
 
+  const renderLocationSummaryCard = () => {
+    const wrapperClass = isDarkMode
+      ? 'border-gray-700/60 bg-gray-900/80'
+      : 'border-2 border-gray-300 bg-white';
+
+    const summaryContent = () => {
+      if (isGlobalMode) {
+        if (!locationData) {
+          return (
+            <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              Chưa chọn địa điểm
+            </div>
+          );
+        }
+        return (
+          <div className="text-xs">
+            <div className={`rounded-lg px-2.5 py-1.5 mb-2 ${isDarkMode ? 'bg-green-900/20 text-green-100' : 'bg-green-50 text-green-700'}`}>
+              {locationData.address}
+            </div>
+            <div className="flex gap-1.5 text-[10px]">
+              <span className={`${chipBaseClass} px-2 py-0.5`}>Lat: {formatCoordinate(locationData.lat)}</span>
+              <span className={`${chipBaseClass} px-2 py-0.5`}>Lng: {formatCoordinate(locationData.lng)}</span>
+              <span className={`${chipBaseClass} px-2 py-0.5`}>{locationData.radius ?? 200}m</span>
+            </div>
+          </div>
+        );
+      }
+
+      if (isPerDayMode) {
+        const selectedDaysCount = dayKeyOrder.filter(day => !!dailyLocations[day]).length;
+        return (
+          <div className="text-xs">
+            <div className={`rounded-lg px-2.5 py-1.5 mb-2 ${isDarkMode ? 'bg-purple-900/25 text-purple-100' : 'bg-purple-50 text-purple-700'}`}>
+              Đã thiết lập {selectedDaysCount}/{dayKeyOrder.length} ngày
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {dayKeyOrder.map(day => {
+                const hasLocation = !!dailyLocations[day];
+                return (
+                  <span key={`day-summary-${day}`} className={`px-2 py-0.5 rounded text-[10px] ${hasLocation ? (isDarkMode ? 'bg-green-500/30 text-green-200' : 'bg-green-100 text-green-700') : (isDarkMode ? 'bg-gray-800 text-gray-400' : 'bg-gray-100 text-gray-500')}`}>
+                    {dayKeyToLabel[day]}: {hasLocation ? '✓' : '—'}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        );
+      }
+
+      const slotLocationsCount = dayKeyOrder.reduce((sum, day) => sum + weeklySlotLocations[day].length, 0);
+      return (
+        <div className="text-xs">
+          <div className={`rounded-lg px-2.5 py-1.5 ${isDarkMode ? 'bg-indigo-900/25 text-indigo-100' : 'bg-indigo-50 text-indigo-700'}`}>
+            {slotLocationsCount > 0 ? `Đã gán ${slotLocationsCount}/${totalWeeklyActive} buổi` : 'Chưa gán địa điểm'}
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <div className={`rounded-xl border ${wrapperClass} p-3`}>
+        <div className="flex items-center gap-2 mb-2">
+          <span className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Tổng quan</span>
+        </div>
+        {summaryContent()}
+      </div>
+    );
+  };
+
+  const renderGlobalModeContent = () => {
+    if (!isGlobalMode) {
+      return null;
+    }
+
+    return (
+      <div className={`rounded-xl border-2 overflow-hidden ${isDarkMode ? 'border-blue-500/30 bg-gray-900/95' : 'border-gray-300 bg-white'} shadow-lg`}>
+        <div className={`rounded-xl overflow-hidden ${isDarkMode ? 'border border-blue-500/30' : 'border-2 border-gray-300'}`} style={{ minHeight: '350px' }}>
+          <OpenStreetMapPicker
+            onLocationChange={handleLocationChange}
+            initialLocation={locationData || undefined}
+            isDarkMode={isDarkMode}
+            enforceActiveTimeSlots={false}
+            locationContext="global"
+          />
+        </div>
+
+        {locationData && (
+          <div className={`px-4 py-3 border-t-2 ${isDarkMode ? 'border-gray-700/50' : 'border-gray-300'}`}>
+            <div className="grid gap-3 lg:grid-cols-[1fr_200px]">
+              <div className={`rounded-xl p-3 bg-white ${isDarkMode ? 'border border-green-500/40 text-green-100' : 'border-2 border-gray-300 text-green-700'}`}>
+                <div className="text-[11px] leading-relaxed mb-2 break-words">{locationData.address}</div>
+                <div className="flex gap-1.5 text-[10px]">
+                  <span className={`px-2 py-0.5 rounded ${isDarkMode ? 'bg-black/40 text-gray-100' : 'bg-white text-gray-700'}`}>
+                    Lat: {formatCoordinate(locationData.lat)}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded ${isDarkMode ? 'bg-black/40 text-gray-100' : 'bg-white text-gray-700'}`}>
+                    Lng: {formatCoordinate(locationData.lng)}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded ${isDarkMode ? 'bg-black/40 text-gray-100' : 'bg-white text-gray-700'}`}>
+                    {locationData.radius ?? 200}m
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => applyLocationToSlots(locationData.address, 'all')}
+                  className={`w-full px-3 py-2 rounded-lg text-xs font-semibold transition ${isDarkMode ? 'bg-blue-500/30 text-blue-50 border border-blue-500/50 hover:bg-blue-500/40' : 'bg-blue-500 text-white border border-blue-500 hover:bg-blue-600'}`}
+                >
+                  Áp dụng tất cả
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyLocationToSlots(locationData.address, selectedDayKey)}
+                  className={`w-full px-3 py-2 rounded-lg text-xs font-semibold transition ${isDarkMode ? 'bg-purple-500/25 text-purple-100 border border-purple-500/50 hover:bg-purple-500/35' : 'bg-purple-100 text-purple-700 border border-purple-200 hover:bg-purple-200'}`}
+                >
+                  Áp dụng {dayKeyToLabel[selectedDayKey]}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderPerDayModeContent = () => {
+    if (!isPerDayMode) {
+      return null;
+    }
+
+    const selectedDaySummary = getDaySummary(dayLocationEditor);
+    const hasLocation = !!dailyLocations[dayLocationEditor];
+
+    return (
+      <div className="space-y-4">
+        {/* Địa điểm theo ngày */}
+      <div className={`rounded-xl border-2 overflow-hidden ${isDarkMode ? 'border-purple-500/30 bg-gray-900/95' : 'border-gray-300 bg-white'} shadow-lg`}>
+        {/* Compact Header with Day Selector */}
+        <div className={`px-4 py-3 border-b-2 ${isDarkMode ? 'border-gray-700/50' : 'border-gray-300'}`}>
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-2">
+              <span className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Địa điểm theo ngày</span>
+              {hasLocation && (
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${isDarkMode ? 'bg-green-500/30 text-green-200' : 'bg-green-100 text-green-700'}`}>
+                  ✓ {dayKeyToLabel[dayLocationEditor]}
+                </span>
+              )}
+            </div>
+            {hasLocation && (
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleCopyDayLocationToAll(dayLocationEditor)}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition flex items-center gap-1 ${isDarkMode ? 'bg-blue-500/25 text-blue-100 hover:bg-blue-500/35' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
+                >
+                  <FileText size={12} strokeWidth={1.5} />
+                  Sao chép
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleClearDayLocation(dayLocationEditor)}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition ${isDarkMode ? 'bg-red-500/25 text-red-100 hover:bg-red-500/35' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}
+                >
+                  <XCircle size={12} strokeWidth={1.5} />
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {dayKeyOrder.map((day) => {
+              const summary = getDaySummary(day);
+              const isSelected = dayLocationEditor === day;
+              const hasDayLocation = !!dailyLocations[day];
+              return (
+                <button
+                  key={`day-mode-${day}`}
+                  type="button"
+                  onClick={() => setDayLocationEditor(day)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border-2 transition ${
+                    isSelected
+                      ? isDarkMode
+                        ? 'bg-purple-600 text-white border-transparent'
+                        : 'bg-purple-500 text-white border-transparent'
+                      : isDarkMode
+                        ? 'bg-gray-800/50 border-gray-700 text-gray-300 hover:border-purple-500/50'
+                        : 'bg-white border-gray-300 text-gray-700 hover:border-purple-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>{dayKeyToLabel[day]}</span>
+                    {hasDayLocation && (
+                      <span className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-green-500'}`}></span>
+                    )}
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                      summary.active > 0
+                        ? isSelected ? 'bg-white/20' : isDarkMode ? 'bg-green-500/30' : 'bg-green-100'
+                        : isSelected ? 'bg-white/10' : isDarkMode ? 'bg-gray-700' : 'bg-gray-200'
+                    }`}>
+                      {summary.active}/{summary.total}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Map and Info Side by Side */}
+        <div className="grid lg:grid-cols-[1fr_280px] gap-4 p-4">
+          {/* Map */}
+          <div className={`rounded-xl overflow-hidden ${isDarkMode ? 'border border-purple-500/30' : 'border-2 border-gray-300'}`} style={{ minHeight: '350px' }}>
+            <OpenStreetMapPicker
+              key={`perday-map-${dayLocationEditor}-${dailyLocations[dayLocationEditor]?.address || 'none'}-${dailyLocations[dayLocationEditor]?.lat || '0'}-${dailyLocations[dayLocationEditor]?.lng || '0'}`}
+              onLocationChange={(location) => {
+                if (location && location.address) {
+                  handleDayLocationSelect(dayLocationEditor, location);
+                }
+              }}
+              initialLocation={dailyLocations[dayLocationEditor] || undefined}
+              isDarkMode={isDarkMode}
+              enforceActiveTimeSlots={false}
+              locationContext="perDay"
+              dayLabel={dayKeyToLabel[dayLocationEditor]}
+            />
+          </div>
+
+          {/* Location Info - Compact */}
+          <div className="space-y-3">
+            {hasLocation ? (
+              <div className={`rounded-xl p-3 bg-white ${isDarkMode ? 'border border-green-500/40 text-green-100' : 'border-2 border-gray-300 text-green-700'}`}>
+                <div className="text-[11px] leading-relaxed mb-2 break-words font-semibold">{dailyLocations[dayLocationEditor]?.address}</div>
+                <div className="space-y-1">
+                  <div className={`rounded px-2 py-1 text-[10px] ${isDarkMode ? 'bg-black/40 text-gray-100' : 'bg-white text-gray-700'}`}>
+                    Lat: {formatCoordinate(dailyLocations[dayLocationEditor]?.lat)}
+                  </div>
+                  <div className={`rounded px-2 py-1 text-[10px] ${isDarkMode ? 'bg-black/40 text-gray-100' : 'bg-white text-gray-700'}`}>
+                    Lng: {formatCoordinate(dailyLocations[dayLocationEditor]?.lng)}
+                  </div>
+                  <div className={`rounded px-2 py-1 text-[10px] ${isDarkMode ? 'bg-black/40 text-gray-100' : 'bg-white text-gray-700'}`}>
+                    {dailyLocations[dayLocationEditor]?.radius ?? 200}m
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className={`rounded-xl p-3 text-center border-2 bg-white ${isDarkMode ? 'border-gray-700/50 text-gray-400' : 'border-gray-300 text-gray-500'}`}>
+                <div className="text-xs">Chưa chọn</div>
+              </div>
+            )}
+            
+            {/* Nút áp dụng cho tất cả các ngày */}
+            {hasLocation && (
+              <button
+                type="button"
+                onClick={() => handleCopyDayLocationToAll(dayLocationEditor)}
+                className={`w-full px-3 py-2 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-2 ${isDarkMode ? 'bg-blue-500/30 text-blue-50 border border-blue-500/50 hover:bg-blue-500/40' : 'bg-blue-500 text-white border border-blue-500 hover:bg-blue-600'}`}
+              >
+                <FileText size={14} strokeWidth={2} />
+                <span>Áp dụng tất cả các ngày</span>
+              </button>
+            )}
+          </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderPerSlotModeContent = () => {
+    if (!isPerSlotMode) {
+      return null;
+    }
+
+    return (
+      <div className="space-y-4">
+        <div id="session-map-section" className={`rounded-xl border-2 ${isDarkMode ? 'border-gray-700/60 bg-gray-900/70' : 'border-gray-300 bg-white'} p-4 shadow-lg`}>
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div>
+              <h3 className={`text-sm font-semibold uppercase tracking-wide ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Địa điểm theo buổi</h3>
+              <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                Chọn địa điểm riêng cho từng buổi (Sáng/Chiều/Tối) của từng ngày trong tuần.
+              </p>
+            </div>
+          </div>
+          <div className="mt-5 space-y-5">
+            <div className={`rounded-xl border-2 ${isDarkMode ? 'border-gray-700/60 bg-gray-900/60' : 'border-gray-300 bg-white'} p-4`}>
+              {getActiveTimeSlotsForDay(locationEditorDay).length === 0 ? (
+                <div className={`text-center py-10 rounded-xl border-2 border-dashed ${isDarkMode ? 'border-gray-700 text-gray-400 bg-gray-900/50' : 'border-gray-300 text-gray-500 bg-white'}`}>
+                  <div className="mb-3 flex justify-center">
+                    <Clock size={32} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} strokeWidth={1.5} />
+                  </div>
+                  <div className="text-xs font-medium">Chưa có buổi nào được kích hoạt trong {dayKeyToLabel[locationEditorDay]}.</div>
+                  <div className="text-[10px] mt-1">Hãy bật buổi Sáng/Chiều/Tối trong phần &quot;Lịch tuần&quot; trước.</div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Map picker cho buổi đã chọn */}
+                  {selectedTimeSlotForLocation && (() => {
+                    const timeSlotLabels: Record<TimeSlotKey, string> = {
+                      morning: 'Buổi Sáng',
+                      afternoon: 'Buổi Chiều',
+                      evening: 'Buổi Tối',
+                    };
+                    const currentSlotLocation = weeklySlotLocations[locationEditorDay].find(l => l.timeSlot === selectedTimeSlotForLocation);
+                    return (
+                      <div>
+                        <div className={`flex items-center justify-center gap-2 mb-3 py-3 px-4 rounded-lg ${
+                          isDarkMode 
+                            ? 'bg-gradient-to-r from-orange-500/20 to-red-500/20 border border-orange-500/40' 
+                            : 'bg-gradient-to-r from-orange-50 to-red-50 border border-orange-200'
+                        }`}>
+                          <div className={`flex items-center justify-center w-10 h-10 rounded-full ${
+                            isDarkMode 
+                              ? 'bg-orange-500/30 border-2 border-orange-400/50' 
+                              : 'bg-orange-100 border-2 border-orange-300'
+                          }`}>
+                            <Globe size={20} strokeWidth={2.5} className={isDarkMode ? 'text-orange-300' : 'text-orange-600'} />
+                          </div>
+                          <span className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                            Địa điểm {timeSlotLabels[selectedTimeSlotForLocation]} - {dayKeyToLabel[locationEditorDay]}
+                          </span>
+                        </div>
+                        <div className={`rounded border overflow-hidden mb-1 ${isDarkMode ? 'border-orange-500/30' : 'border-gray-300'}`} style={{ minHeight: '180px' }}>
+                          <OpenStreetMapPicker
+                            key={`perslot-map-${locationEditorDay}-${selectedTimeSlotForLocation}-${currentSlotLocation?.location.address || 'none'}-${currentSlotLocation?.location.lat || '0'}-${currentSlotLocation?.location.lng || '0'}`}
+                            onLocationChange={(location) => {
+                              // Chỉ lưu địa điểm khi có địa chỉ đầy đủ (không chỉ là tọa độ)
+                              // Điều này đảm bảo chỉ lưu sau khi người dùng nhấn "Chọn" trong modal xác nhận
+                              if (location && location.address && selectedTimeSlotForLocation) {
+                                // Địa chỉ đầy đủ sẽ có chữ cái (tên địa điểm), còn tọa độ chỉ có số
+                                // Chỉ lưu nếu địa chỉ có chữ cái (địa chỉ đầy đủ)
+                                const hasLetters = /[a-zA-ZÀ-ỹ]/.test(location.address.trim());
+                                if (hasLetters) {
+                                  handleSlotLocationSelect(locationEditorDay, selectedTimeSlotForLocation, location);
+                                }
+                              }
+                            }}
+                            initialLocation={currentSlotLocation ? {
+                              lat: currentSlotLocation.location.lat,
+                              lng: currentSlotLocation.location.lng,
+                              address: currentSlotLocation.location.address,
+                              radius: currentSlotLocation.radius || 200,
+                            } : undefined}
+                            isDarkMode={isDarkMode}
+                            enforceActiveTimeSlots={false}
+                            locationContext="perSlot"
+                            slotLabel={timeSlotLabels[selectedTimeSlotForLocation]}
+                          />
+                        </div>
+                        {currentSlotLocation && (
+                          <div className="space-y-1 mt-2">
+                            <div className={`rounded border px-1.5 py-1 text-[10px] ${isDarkMode ? 'border-green-500/30 bg-green-500/10 text-green-200' : 'border-green-300 bg-green-50 text-green-700'}`}>
+                              <div className="font-semibold flex items-center gap-0.5 mb-0.5">
+                                <MapPin size={9} strokeWidth={2} />
+                                <span className="truncate">{currentSlotLocation.location.address}</span>
+                              </div>
+                              <div className="flex items-center gap-1 text-[9px] opacity-80">
+                                <span>{formatCoordinate(currentSlotLocation.location.lat)}, {formatCoordinate(currentSlotLocation.location.lng)}</span>
+                                <span>•</span>
+                                <span>{currentSlotLocation.radius ?? 200}m</span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const slotId = timeSlotKeyToSlotId[selectedTimeSlotForLocation];
+                                if (slotId) {
+                                  handleClearSlotLocation(locationEditorDay, slotId);
+                                }
+                              }}
+                              className={`w-full px-2 py-1 rounded text-[10px] font-semibold transition flex items-center justify-center gap-1 ${
+                                isDarkMode 
+                                  ? 'bg-red-500/20 text-red-200 hover:bg-red-500/30' 
+                                  : 'bg-red-50 text-red-600 hover:bg-red-100'
+                              }`}
+                            >
+                              <XCircle size={10} strokeWidth={2} />
+                              <span>Xóa địa điểm</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError('');
@@ -805,8 +2164,52 @@ export default function CreateMultipleDaysActivityPage() {
       const end = new Date(`${form.endDate}T00:00:00.000Z`);
       if (start > end) throw new Error('Ngày kết thúc phải sau hoặc bằng ngày bắt đầu');
       if (datesInRange.length === 0) throw new Error('Khoảng ngày không hợp lệ');
-      if (!locationData && !form.location.trim()) throw new Error('Vui lòng chọn địa điểm trên bản đồ');
-      if (!form.responsiblePerson) throw new Error('Người phụ trách là bắt buộc');
+      
+      // Validate địa điểm theo từng mode
+      if (isGlobalMode) {
+        if (!locationData && !form.location.trim()) {
+          throw new Error('Vui lòng chọn địa điểm trên bản đồ');
+        }
+      } else if (isPerDayMode) {
+        // Chỉ kiểm tra các ngày có buổi active
+        const daysWithActiveSessions = dayKeyOrder.filter(day => 
+          weeklyPlan[day].some(s => s.isActive)
+        );
+        const hasDayLocation = daysWithActiveSessions.some(day => {
+          const dayLocation = dailyLocations[day];
+          return dayLocation && dayLocation.address && dayLocation.address.trim() !== '';
+        });
+        if (daysWithActiveSessions.length > 0 && !hasDayLocation) {
+          throw new Error('Vui lòng chọn địa điểm cho ít nhất một ngày có buổi hoạt động');
+        }
+      } else if (isPerSlotMode) {
+        // Chỉ kiểm tra các buổi active
+        const hasSlotLocation = dayKeyOrder.some(day => {
+          const activeSlotIds = weeklyPlan[day]
+            .filter(s => s.isActive)
+            .map(s => s.id);
+          if (activeSlotIds.length === 0) return false;
+          
+          const slotLocations = weeklySlotLocations[day] || [];
+          // Kiểm tra xem có ít nhất một buổi active có địa điểm không
+          return activeSlotIds.some(slotId => {
+            const slotKey = slotIdToTimeSlotKey[slotId];
+            if (!slotKey) return false;
+            const slotLocation = slotLocations.find(sl => sl.timeSlot === slotKey);
+            return slotLocation && 
+                   slotLocation.location && 
+                   slotLocation.location.address && 
+                   slotLocation.location.address.trim() !== '';
+          });
+        });
+        if (!hasSlotLocation) {
+          throw new Error('Vui lòng chọn địa điểm cho ít nhất một buổi đã kích hoạt');
+        }
+      }
+      
+      if (!form.responsiblePerson || form.responsiblePerson.length === 0) {
+        throw new Error('Vui lòng chọn ít nhất một người phụ trách');
+      }
 
       // Validate weekly sessions: at least one active slot and time validity for active slots
       const hasAnyActiveSession = dayKeyOrder.some((dk) => weeklyPlan[dk].some((s) => s.isActive));
@@ -852,7 +2255,7 @@ export default function CreateMultipleDaysActivityPage() {
       }
 
       // Build schedule payload using weekly sessions (Mon-Sun) + free text
-      const schedule: Array<{ day: number; date: Date; activities: string }> = datesInRange.map((d, idx) => {
+      const schedule: Array<{ day: number; date: string | Date; activities: string }> = datesInRange.map((d, idx) => {
         const dayKey = getDayKeyFromDate(d);
         const slots = weeklyPlan[dayKey] || [];
         const activeLines = slots
@@ -877,14 +2280,66 @@ export default function CreateMultipleDaysActivityPage() {
             }
             return parts.join(' ');
           });
+        
+        // Add location information based on mode
+        const dayLocationLines: string[] = [];
+        
+        if (isPerDayMode) {
+          // PerDay mode: Add location for this specific day
+          const dayLocation = dailyLocations[dayKey];
+          const dayDetailedLocation = perDayDetailedLocation[dayKey];
+          
+          // Add detailed location for the day if exists
+          if (dayDetailedLocation && dayDetailedLocation.trim()) {
+            dayLocationLines.push(`Địa điểm chi tiết: ${dayDetailedLocation.trim()}`);
+          }
+          
+          // Add map location for the day if exists
+          if (dayLocation && dayLocation.address) {
+            const coords =
+              typeof dayLocation.lat === 'number' && typeof dayLocation.lng === 'number'
+                ? ` (${dayLocation.lat.toFixed(5)}, ${dayLocation.lng.toFixed(5)})`
+                : '';
+            const radiusText =
+              typeof dayLocation.radius === 'number' ? ` - Bán kính: ${dayLocation.radius}m` : '';
+            dayLocationLines.push(`Địa điểm map: ${dayLocation.address}${coords}${radiusText}`);
+          }
+        } else if (isGlobalMode) {
+          // Global mode: Add global detailed location if exists
+          if (globalDetailedLocation && globalDetailedLocation.trim()) {
+            dayLocationLines.push(`Địa điểm chi tiết: ${globalDetailedLocation.trim()}`);
+          }
+        }
+        
         const freeText = daySchedules[d] || '';
-        const activities = [...activeLines, freeText].filter(Boolean).join('\n');
+        const allLines = [...activeLines, ...dayLocationLines, freeText].filter(Boolean);
+        const activities = allLines.join('\n');
+        // Format date as ISO string to ensure proper serialization
+        const dateObj = new Date(`${d}T00:00:00.000Z`);
         return {
           day: idx + 1,
-          date: new Date(`${d}T00:00:00.000Z`),
+          date: dateObj.toISOString(),
           activities
         };
       });
+
+      // Validate activities length for each day (max 1000 characters)
+      const invalidDays: string[] = [];
+      schedule.forEach((item, idx) => {
+        if (item.activities && item.activities.length > 1000) {
+          const dateObj = typeof item.date === 'string' ? new Date(item.date) : item.date;
+          const dateStr = dateObj.toLocaleDateString('vi-VN', { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+          });
+          invalidDays.push(`${dateStr} (${item.activities.length}/1000 ký tự)`);
+        }
+      });
+      if (invalidDays.length > 0) {
+        throw new Error(`Mô tả hoạt động vượt quá 1000 ký tự ở các ngày sau:\n- ${invalidDays.join('\n- ')}\n\nVui lòng rút ngắn nội dung hoặc chia nhỏ thông tin.`);
+      }
 
       const locationLabel = isPerSlotMode
         ? 'Địa điểm theo buổi'
@@ -911,39 +2366,53 @@ export default function CreateMultipleDaysActivityPage() {
         type: 'multiple_days' as const,
         imageUrl: imageUrl || undefined,
         overview: form.overview || undefined,
-        startDate: new Date(`${form.startDate}T00:00:00.000Z`),
-        endDate: new Date(`${form.endDate}T00:00:00.000Z`),
+        startDate: form.startDate ? new Date(`${form.startDate}T00:00:00.000Z`).toISOString() : undefined,
+        endDate: form.endDate ? new Date(`${form.endDate}T00:00:00.000Z`).toISOString() : undefined,
         schedule
       };
 
       const token = localStorage.getItem('token');
       if (!token) throw new Error('Không tìm thấy token xác thực. Vui lòng đăng nhập lại.');
 
-      const res = await fetch('/api/activities', {
-        method: 'POST',
+      // Submit to API - use PUT for edit, POST for create
+      const url = isEditMode ? `/api/activities/${activityId}` : '/api/activities';
+      const method = isEditMode ? 'PUT' : 'POST';
+      
+      const res = await fetch(url, {
+        method: method,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(activityData)
       });
+      
       if (!res.ok) {
-        let errText = await res.text();
+        let responseText = '';
         try {
-          const errJson = errText ? JSON.parse(errText) : null;
+          responseText = await res.text();
+          const errJson = responseText ? JSON.parse(responseText) : null;
           if (errJson?.details && Array.isArray(errJson.details)) {
-            throw new Error(`Dữ liệu không hợp lệ: ${errJson.details.join(', ')}`);
+            // Loại bỏ các lỗi trùng lặp
+            const uniqueErrors = Array.from(new Set(errJson.details));
+            throw new Error(`Dữ liệu không hợp lệ: ${uniqueErrors.join(', ')}`);
           }
-          throw new Error(errJson?.error || errJson?.message || 'Tạo hoạt động thất bại');
-        } catch (parseErr) {
-          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+          throw new Error(errJson?.error || errJson?.message || `Failed to ${isEditMode ? 'update' : 'create'} activity`);
+        } catch (parseErr: any) {
+          if (parseErr.message && parseErr.message.includes('Dữ liệu không hợp lệ')) {
+            throw parseErr;
+          }
+          throw new Error(`HTTP ${res.status}: ${res.statusText}. Response: ${responseText.substring(0, 200)}`);
         }
       }
+      
       const result = await res.json();
-      setSuccessMessage('Hoạt động nhiều ngày đã được tạo thành công!');
+      console.log(`Activity ${isEditMode ? 'updated' : 'created'}:`, result);
+      setSuccessMessage(`Hoạt động nhiều ngày đã được ${isEditMode ? 'cập nhật' : 'tạo'} thành công!`);
       setShowSuccessModal(true);
 
-      // Reset form
+      // Only reset form if creating new activity
+      if (!isEditMode) {
       setForm({
         name: '',
         description: '',
@@ -952,7 +2421,7 @@ export default function CreateMultipleDaysActivityPage() {
         location: '',
         maxParticipants: '',
         visibility: 'public',
-        responsiblePerson: '',
+        responsiblePerson: [],
         status: 'draft',
         imageUrl: '',
         overview: ''
@@ -976,14 +2445,57 @@ export default function CreateMultipleDaysActivityPage() {
       setLocationEditorDay('mon');
       setDayLocationEditor('mon');
       setSelectedTimeSlotForLocation(null);
+      } else {
+        // In edit mode, update form.imageUrl with new image URL if uploaded
+        if (selectedImage && imageUrl) {
+          setForm(prev => ({
+            ...prev,
+            imageUrl: imageUrl
+          }));
+          setImagePreview(imageUrl);
+        }
+        // Reset selectedImage after successful upload in edit mode
+        setSelectedImage(null);
+      }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Có lỗi xảy ra khi tạo hoạt động nhiều ngày';
+      const msg = err instanceof Error ? err.message : `Có lỗi xảy ra khi ${isEditMode ? 'cập nhật' : 'tạo'} hoạt động nhiều ngày`;
       setSubmitError(msg);
       alert(msg);
     } finally {
       setIsLoading(false);
     }
   };
+
+  // Show loading spinner when loading activity data in edit mode
+  if (isLoadingActivity) {
+    return (
+      <ProtectedRoute requiredRole="CLUB_LEADER">
+        <div 
+          className={`min-h-screen flex flex-col overflow-x-hidden ${isDarkMode ? 'bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white' : 'bg-gradient-to-br from-blue-50 via-white to-purple-50 text-gray-900'}`}
+          style={{
+            '--sidebar-width': isSidebarOpen ? '288px' : '80px'
+          } as React.CSSProperties}
+        >
+          <AdminNav />
+          <main 
+            className="flex-1 flex items-center justify-center transition-all duration-300 overflow-x-hidden min-w-0"
+            style={{
+              marginLeft: isDesktop ? (isSidebarOpen ? '288px' : '80px') : '0',
+              width: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%',
+              maxWidth: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%'
+            }}
+          >
+            <div className="text-center">
+              <LoadingSpinner />
+              <p className={`mt-4 text-lg ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                Đang tải dữ liệu hoạt động...
+              </p>
+            </div>
+          </main>
+        </div>
+      </ProtectedRoute>
+    );
+  }
 
   return (
     <ProtectedRoute requiredRole="CLUB_LEADER">
@@ -1002,53 +2514,126 @@ export default function CreateMultipleDaysActivityPage() {
             maxWidth: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%'
           }}
         >
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-            <div className="text-center mb-6">
-              <div className={`inline-flex items-center justify-center w-12 h-12 rounded-full mb-3 ${isDarkMode ? 'bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-500/30' : 'bg-gradient-to-r from-blue-100 to-purple-100 border border-blue-200'}`}>
-                <span className="text-xl">🗓️</span>
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div className="text-center mb-4">
+              <div className={`inline-flex items-center justify-center w-10 h-10 rounded-full mb-2 bg-white ${isDarkMode ? 'border border-blue-500/30' : 'border-2 border-gray-300'}`}>
+                <Calendar size={20} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} strokeWidth={1.5} />
               </div>
-              <h1 className={`text-2xl font-bold mb-2 bg-gradient-to-r ${isDarkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent`}>
-                Tạo Hoạt Động Nhiều Ngày
+              <h1 className={`text-xl font-bold mb-1.5 bg-gradient-to-r ${isDarkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent`}>
+                {isEditMode ? 'Chỉnh Sửa Hoạt Động Nhiều Ngày' : 'Tạo Hoạt Động Nhiều Ngày'}
               </h1>
-              <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                Thiết lập khoảng ngày, lịch trình từng ngày và địa điểm
+              <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                {isEditMode ? 'Chỉnh sửa thông tin hoạt động nhiều ngày' : 'Thiết lập khoảng ngày, lịch trình từng ngày và địa điểm'}
               </p>
             </div>
 
             {submitError && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl">
-                <p className="text-sm text-red-800">{submitError}</p>
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-xs text-red-800">{submitError}</p>
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-4">
               {/* 1. Ảnh mô tả hoạt động */}
-              <div className={`p-5 rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' : 'bg-gradient-to-br from-white/90 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'} shadow-lg`}>
-                <div className="flex items-center mb-4">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center mr-3 ${isDarkMode ? 'bg-gradient-to-br from-purple-500/30 to-pink-500/30 border border-purple-500/20' : 'bg-gradient-to-br from-purple-100 to-pink-100 border border-purple-200'}`}>
-                    <span className="text-lg">🖼️</span>
-                  </div>
-                  <div>
-                    <h2 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>1. Ảnh mô tả hoạt động</h2>
-                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Chọn ảnh đại diện (tùy chọn)</p>
-                  </div>
+              <div className={`p-4 rounded-xl bg-white ${isDarkMode ? 'border border-gray-700/50' : 'border-2 border-gray-300'} shadow-lg`}>
+                <div className="mb-3">
+                  <h2 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>1. Ảnh mô tả hoạt động</h2>
+                  <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Chọn ảnh đại diện (tùy chọn)</p>
                 </div>
-                <div className={`relative overflow-hidden rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-gray-700/50 to-gray-800/50 border border-gray-600/50' : 'bg-gradient-to-br from-white/80 to-gray-50/50 border border-gray-200/50'}`}>
-                  <input type="file" accept="image/*" onChange={handleImageSelect} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                <div className={`relative overflow-hidden rounded-xl bg-white ${isDarkMode ? 'border border-gray-600/50' : 'border-2 border-gray-300'}`}>
                   {!selectedImage && !form.imageUrl ? (
-                    <div className="p-8 text-center">
-                      <div className="text-sm">Kéo & thả ảnh vào đây hoặc click để chọn file (≤10MB)</div>
-                    </div>
+                    <>
+                      <input type="file" accept="image/*" onChange={handleImageSelect} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                      <div className="p-6 text-center flex flex-col items-center gap-2">
+                        <ImageUp size={48} strokeWidth={1.5} className={isDarkMode ? 'text-gray-400' : 'text-gray-400'} />
+                        <div className="text-xs">Kéo & thả ảnh vào đây hoặc click để chọn file (≤10MB)</div>
+                      </div>
+                    </>
                   ) : (
-                    <div>
+                    <div className="relative">
                       {!!(imagePreview || form.imageUrl) && (
-                        <img src={imagePreview || form.imageUrl} alt="Preview" className="w-full h-64 object-cover" />
+                        <div className="relative group">
+                          <img 
+                            src={imagePreview || form.imageUrl} 
+                            alt="Preview" 
+                            className="w-full object-cover transition-all duration-300"
+                            style={{ height: `${imageHeight}px` }}
+                          />
+                          {/* Control panel - Đơn giản */}
+                          <div className={`absolute bottom-3 right-3 p-2 rounded-lg shadow-lg z-20 ${
+                            isDarkMode 
+                              ? 'bg-gray-900/90 backdrop-blur-sm' 
+                              : 'bg-white/90 backdrop-blur-sm'
+                          }`}>
+                            <div className="flex items-center gap-2 min-w-[150px]">
+                              <ZoomIn size={14} strokeWidth={2} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} />
+                              <input
+                                type="range"
+                                min="100"
+                                max="600"
+                                step="10"
+                                value={imageHeight}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  setImageHeight(Number(e.target.value));
+                                }}
+                                className={`flex-1 h-1.5 rounded-lg appearance-none cursor-pointer ${
+                                  isDarkMode 
+                                    ? 'bg-gray-700 accent-blue-500' 
+                                    : 'bg-gray-200 accent-blue-600'
+                                }`}
+                              />
+                              <span className={`text-[10px] font-medium min-w-[3rem] text-center ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                {imageHeight}px
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                       )}
-                      <div className="p-3 flex items-center justify-between">
-                        <div className="text-xs">{selectedImage ? selectedImage.name : 'Ảnh hiện tại'}</div>
-                        <button type="button" onClick={handleRemoveImage} className={`${isDarkMode ? 'text-red-300' : 'text-red-600'} text-sm`}>
-                          Xóa ảnh
-                        </button>
+                      <div className={`p-3 flex items-center justify-between relative z-20 border-t ${
+                        isDarkMode ? 'border-gray-700/50 bg-gray-800/30' : 'border-gray-200 bg-gray-50/50'
+                      }`}>
+                        <div className="flex items-center gap-2">
+                          <ImageIcon size={14} strokeWidth={2} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} />
+                          <span className={`text-xs font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                            {selectedImage ? selectedImage.name : 'Ảnh hiện tại'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button 
+                            type="button" 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowCropModal(true);
+                              setCrop({ x: 0, y: 0 });
+                              setZoom(1);
+                              setCroppedAreaPixels(null);
+                            }} 
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                              isDarkMode 
+                                ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 border border-blue-500/30' 
+                                : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200'
+                            }`}
+                          >
+                            <Scissors size={14} strokeWidth={2} />
+                            <span>Cắt ảnh</span>
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveImage();
+                            }} 
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                              isDarkMode 
+                                ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30' 
+                                : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
+                            }`}
+                          >
+                            <XCircle size={14} strokeWidth={2} />
+                            <span>Xóa ảnh</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1056,29 +2641,23 @@ export default function CreateMultipleDaysActivityPage() {
               </div>
 
               {/* 2. Thông tin cơ bản */}
-              <div className={`p-4 rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-gray-820/85 via-gray-900/85 to-gray-950/85 border border-gray-700/60 backdrop-blur-xl' : 'bg-gradient-to-br from-white via-blue-50/35 to-purple-50/30 border border-blue-100/60'} shadow-lg`}>
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className={`relative w-10 h-10 rounded-xl flex items-center justify-center text-lg ${isDarkMode ? 'bg-blue-600/25 border border-blue-500/40 text-blue-200' : 'bg-gradient-to-br from-blue-100 via-white to-purple-100 text-blue-600 border border-blue-200 shadow-sm'}`}>
-                      📋
-                      <span className={`absolute -top-2 -right-2 w-5 h-5 rounded-full text-[10px] font-semibold flex items-center justify-center ${isDarkMode ? 'bg-blue-500 text-white' : 'bg-blue-500 text-white shadow-sm'}`}>2</span>
-                    </div>
-                    <div>
-                      <h2 className={`text-base font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Thông tin cơ bản</h2>
-                      <p className={`text-xs ${isDarkMode ? 'text-gray-300/90' : 'text-gray-600'}`}>Thiết lập tên, phạm vi và thời gian hoạt động.</p>
-                    </div>
+              <div className={`p-4 rounded-xl bg-white ${isDarkMode ? 'border border-gray-700/60' : 'border-2 border-gray-300'} shadow-lg`}>
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
+                  <div>
+                    <h2 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>2. Thông tin cơ bản</h2>
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-300/90' : 'text-gray-600'}`}>Thiết lập tên, phạm vi và thời gian hoạt động.</p>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <span className={`${chipBaseClass} ${isDarkMode ? 'border-blue-500/40 bg-blue-500/15 text-blue-200' : 'border-blue-200 bg-blue-50 text-blue-600'}`}>Ngày bắt đầu: {startDateLabel ?? 'Chưa chọn'}</span>
                     <span className={`${chipBaseClass} ${isDarkMode ? 'border-purple-500/40 bg-purple-500/15 text-purple-200' : 'border-purple-200 bg-purple-50 text-purple-600'}`}>Ngày kết thúc: {endDateLabel ?? 'Chưa chọn'}</span>
                     <span className={`${chipBaseClass} ${isDarkMode ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-200' : 'border-emerald-200 bg-emerald-50 text-emerald-600'}`}>Thời lượng: {durationLabel}</span>
                   </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                   <div className={`${fieldTileClass} md:col-span-2 xl:col-span-3`}>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className={fieldIconClass}>🏷️</span>
+                      <FileText size={16} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} strokeWidth={1.5} />
                       <span className={fieldTitleClass}>
                         Tên hoạt động
                         <span className={requiredMarkClass}>*</span>
@@ -1093,12 +2672,12 @@ export default function CreateMultipleDaysActivityPage() {
                       className={fieldInputClass}
                       placeholder="VD: Chuỗi hoạt động thiện nguyện mùa hè"
                     />
-                    <p className={`mt-2 ${helperTextClass}`}>Tên hiển thị trên trang chi tiết và thông báo.</p>
+                    <p className={`mt-1.5 ${helperTextClass}`}>Tên hiển thị trên trang chi tiết và thông báo.</p>
                   </div>
 
                   <div className={fieldTileClass}>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className={fieldIconClass}>👥</span>
+                      <Users size={16} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} strokeWidth={1.5} />
                       <span className={fieldTitleClass}>Số lượng tối đa</span>
                     </div>
                     <input
@@ -1116,7 +2695,7 @@ export default function CreateMultipleDaysActivityPage() {
 
                   <div className={fieldTileClass}>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className={fieldIconClass}>🗓️</span>
+                      <Calendar size={16} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} strokeWidth={1.5} />
                       <span className={fieldTitleClass}>
                         Ngày bắt đầu
                         <span className={requiredMarkClass}>*</span>
@@ -1131,12 +2710,12 @@ export default function CreateMultipleDaysActivityPage() {
                       min={getTodayDate()}
                       className={fieldInputClass}
                     />
-                    <p className={`mt-2 ${helperTextClass}`}>Lịch tuần dựa trên khoảng ngày này.</p>
+                    <p className={`mt-1.5 ${helperTextClass}`}>Lịch tuần dựa trên khoảng ngày này.</p>
                   </div>
 
                   <div className={fieldTileClass}>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className={fieldIconClass}>⏱️</span>
+                      <Clock size={16} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} strokeWidth={1.5} />
                       <span className={fieldTitleClass}>
                         Ngày kết thúc
                         <span className={requiredMarkClass}>*</span>
@@ -1151,12 +2730,12 @@ export default function CreateMultipleDaysActivityPage() {
                       min={form.startDate || getTodayDate()}
                       className={fieldInputClass}
                     />
-                    <p className={`mt-2 ${helperTextClass}`}>Không được trước ngày bắt đầu.</p>
+                    <p className={`mt-1.5 ${helperTextClass}`}>Không được trước ngày bắt đầu.</p>
                   </div>
 
                   <div className={fieldTileClass}>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className={fieldIconClass}>🌐</span>
+                      <Users size={16} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} strokeWidth={1.5} />
                       <span className={fieldTitleClass}>
                         Quyền truy cập
                         <span className={requiredMarkClass}>*</span>
@@ -1169,15 +2748,15 @@ export default function CreateMultipleDaysActivityPage() {
                       required
                       className={fieldInputClass}
                     >
-                      <option value="public">🌍 Public - Tất cả đều xem được</option>
-                      <option value="private">🔒 Private - Chỉ thành viên CLB</option>
+                      <option value="public">Public - Tất cả đều xem được</option>
+                      <option value="private">Private - Chỉ thành viên CLB</option>
                     </select>
-                    <p className={`mt-2 ${helperTextClass}`}>Quy định ai có thể thấy hoạt động.</p>
+                    <p className={`mt-1.5 ${helperTextClass}`}>Quy định ai có thể thấy hoạt động.</p>
                   </div>
 
                   <div className={fieldTileClass}>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className={fieldIconClass}>📌</span>
+                      <Info size={16} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} strokeWidth={1.5} />
                       <span className={fieldTitleClass}>
                         Trạng thái
                         <span className={requiredMarkClass}>*</span>
@@ -1190,15 +2769,27 @@ export default function CreateMultipleDaysActivityPage() {
                       required
                       className={fieldInputClass}
                     >
-                      <option value="draft">📝 Nháp</option>
-                      <option value="published">✅ Đã xuất bản</option>
+                      <option value="draft">Nháp</option>
+                      <option value="published">Đã xuất bản</option>
+                      {isEditMode && (
+                        <>
+                          <option value="ongoing">Đang diễn ra</option>
+                          <option value="completed">Đã hoàn thành</option>
+                          <option value="cancelled">Đã hủy</option>
+                          <option value="postponed">Hoãn lại</option>
+                        </>
+                      )}
                     </select>
-                    <p className={`mt-2 ${helperTextClass}`}>Chọn Nháp để lưu tạm, Đã xuất bản để công bố ngay.</p>
+                    <p className={`mt-1.5 ${helperTextClass}`}>
+                      {isEditMode 
+                        ? 'Chọn trạng thái phù hợp với tình trạng hiện tại của hoạt động.'
+                        : 'Chọn Nháp để lưu tạm, Đã xuất bản để công bố ngay.'}
+                    </p>
                   </div>
 
                   <div className={`${fieldTileClass} md:col-span-2 xl:col-span-3`}>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className={fieldIconClass}>📝</span>
+                      <FileText size={16} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} strokeWidth={1.5} />
                       <span className={fieldTitleClass}>
                         Mô tả hoạt động
                         <span className={requiredMarkClass}>*</span>
@@ -1218,92 +2809,238 @@ export default function CreateMultipleDaysActivityPage() {
                 </div>
               </div>
 
-              {/* 3. Lịch theo tuần */}
-              <div className={`p-6 rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/85 via-gray-820/80 to-gray-900/85 border border-gray-700/60' : 'bg-gradient-to-br from-blue-50/90 via-white to-purple-50/80 border border-blue-100/70'} shadow-lg backdrop-blur`}
-              >
-                <div className="flex flex-col gap-6">
-                  <div className={`rounded-2xl border ${isDarkMode ? 'border-gray-700/60 bg-gray-900/85' : 'border-blue-100/60 bg-white/95'} px-6 py-5 shadow-lg`}
-                  >
-                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-                      <div className="flex items-start gap-4">
-                        <div className={`relative flex items-center justify-center w-14 h-14 rounded-3xl text-3xl font-semibold ${isDarkMode ? 'bg-blue-600/15 border border-blue-500/40 text-blue-200' : 'bg-gradient-to-br from-blue-50 via-purple-50 to-white text-blue-500 border border-blue-200 shadow-sm'}`}>
-                          🗓️
-                          <span className={`absolute -right-2 -bottom-2 w-8 h-8 rounded-full text-sm flex items-center justify-center ${isDarkMode ? 'bg-blue-500 text-white shadow-blue-900/50' : 'bg-blue-500 text-white shadow-md'}`}>{totalWeeklyActive}</span>
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex flex-col gap-1">
-                            <h2 className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Lịch tuần đa buổi</h2>
-                            <div className="flex flex-wrap items-center gap-2 text-xs">
-                              <span className={`${isDarkMode ? 'text-blue-300' : 'text-blue-600'} font-semibold`}>Thứ 2 → Chủ nhật</span>
-                              <span className={`${isDarkMode ? 'text-gray-300/80' : 'text-gray-600'}`}>Quản lý nhanh buổi Sáng • Chiều • Tối cho từng ngày.</span>
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-2 sm:grid-cols-2 gap-2 text-xs font-semibold max-w-xs">
-                            <span className={`px-3.5 py-2 rounded-xl text-center ${isDarkMode ? 'bg-blue-500/20 text-blue-200 border border-blue-500/40' : 'bg-blue-50 text-blue-600 border border-blue-200'}`}>Tổng buổi bật: {totalWeeklyActive}</span>
-                            <span className={`px-3.5 py-2 rounded-xl text-center ${isDarkMode ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/40' : 'bg-emerald-50 text-emerald-600 border border-emerald-200'}`}>{dayKeyToLabel[selectedDayKey]}: {selectedDaySummary.active}/{selectedDaySummary.total}</span>
-                          </div>
-                        </div>
-                      </div>
+              {/* 3. Lịch theo tuần - Layout compact */}
+              <div className={`p-3 rounded-lg bg-white ${isDarkMode ? 'border border-gray-700/60' : 'border-2 border-gray-300'} shadow-lg`}>
+                {/* Header compact */}
+                <div className={`mb-3 flex items-center justify-between flex-wrap gap-2`}>
+                  <div>
+                    <h2 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>3. Lịch tuần đa buổi & Địa điểm</h2>
+                    <p className={`text-[11px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Quản lý buổi Sáng • Chiều • Tối</p>
+                  </div>
+                  <div className={`px-2 py-1 rounded text-xs font-semibold flex items-center gap-1 ${isDarkMode ? 'bg-blue-500/20 text-blue-200' : 'bg-blue-50 text-blue-700'}`}>
+                    <CheckCircle2 size={12} strokeWidth={2} />
+                    <span>{totalWeeklyActive} buổi</span>
+                  </div>
+                </div>
 
-                      <div className="w-full lg:w-auto">
-                        <div className={`rounded-2xl border ${isDarkMode ? 'border-gray-700 bg-gray-900/70' : 'border-blue-100 bg-blue-50/80'} p-3 shadow-inner`}
-                        >
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {/* Location Mode Selector - Compact */}
+                <div className={`mb-3 rounded-lg border ${isDarkMode ? 'border-gray-700/60 bg-gray-900/50' : 'border-gray-300 bg-gray-50'} p-2`}>
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <MapPin size={14} strokeWidth={2} className={isDarkMode ? 'text-purple-300' : 'text-purple-600'} />
+                    <span className={`text-xs font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>Chế độ địa điểm</span>
+                  </div>
+                  <div className={`rounded ${isDarkMode ? 'bg-gray-800/50' : 'bg-white border border-gray-200'} p-1`}>
+                    <div className="grid grid-cols-3 gap-1">
+                      {locationModeOptions.map(option => {
+                        const isActive = option.value === locationMode;
+                        return (
                             <button
+                            key={option.value}
                               type="button"
-                              onClick={() => copyDayToTarget('mon', selectedDayKey)}
-                              disabled={selectedDayKey === 'mon'}
-                              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
-                                selectedDayKey === 'mon'
-                                  ? isDarkMode ? 'bg-gray-900/60 text-blue-300/60 border border-blue-500/30 cursor-not-allowed' : 'bg-white text-blue-400 border border-blue-200/80 cursor-not-allowed'
-                                  : isDarkMode ? 'bg-gray-900 text-blue-200 border border-blue-500/40 hover:bg-blue-600/30' : 'bg-white text-blue-600 border border-blue-200 hover:bg-blue-100'
-                              }`}
-                            >Sao chép từ Thứ 2</button>
-                            <button
-                              type="button"
-                              onClick={() => copyDayToAll(selectedDayKey)}
-                              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${isDarkMode ? 'bg-gray-900 text-purple-200 border border-purple-500/40 hover:bg-purple-600/30' : 'bg-white text-purple-600 border border-purple-200 hover:bg-purple-100'}`}
-                            >Áp dụng ngày này</button>
-                            <button
-                              type="button"
-                              onClick={() => resetDayPlan(selectedDayKey)}
-                              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${isDarkMode ? 'bg-gray-900 text-gray-200 border border-gray-600 hover:bg-gray-800' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'}`}
-                            >Đặt lại</button>
-                          </div>
-                        </div>
-                      </div>
+                            onClick={() => setLocationMode(option.value)}
+                            className={`relative rounded px-2 py-1.5 text-left transition-all ${
+                              isActive
+                                ? isDarkMode
+                                  ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md'
+                                  : 'bg-gradient-to-br from-blue-500 to-indigo-500 text-white shadow-sm'
+                                : isDarkMode
+                                  ? 'bg-transparent text-gray-300 hover:bg-gray-700/50'
+                                  : 'bg-transparent text-gray-600 hover:bg-gray-100'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1">
+                              {getLocationModeIcon(option.value)}
+                              <div className="flex-1 min-w-0">
+                                <div className="font-semibold text-[11px]">{option.label}</div>
+                              </div>
+                            </div>
+                            {isActive && (
+                              <div className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${isDarkMode ? 'bg-blue-400' : 'bg-blue-300'}`}></div>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
+                </div>
 
-                  <div className="flex flex-col xl:flex-row gap-6 items-stretch">
-                    <div className="xl:w-60">
-                      <div className={`h-full rounded-2xl border ${isDarkMode ? 'border-gray-700/60 bg-gray-900/45' : 'border-gray-200 bg-white/90'} px-3 py-4 shadow-inner flex lg:flex-col gap-2 overflow-x-auto lg:overflow-visible no-scrollbar`}
+                {/* Horizontal Day Tabs - Compact với Week Navigation */}
+                <div className={`mb-3 rounded-lg border ${isDarkMode ? 'border-gray-700/60 bg-gray-900/50' : 'border-gray-300 bg-gray-50'} p-2`}>
+                  {/* Week Navigation - Luôn hiển thị */}
+                  {datesInRange.length > 0 && (
+                    <div className="flex items-center justify-between gap-3 mb-3 pb-3 border-b border-gray-200 dark:border-gray-700/50">
+                      {/* Nút Previous */}
+                      <button
+                        type="button"
+                        onClick={() => setCurrentWeekIndex(prev => Math.max(0, prev - 1))}
+                        disabled={!weekInfo.canGoPrev}
+                        className={`flex items-center justify-center w-10 h-10 rounded-lg transition-all ${
+                          weekInfo.canGoPrev
+                            ? isDarkMode 
+                              ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 hover:scale-105 border border-blue-500/30' 
+                              : 'bg-blue-50 text-blue-600 hover:bg-blue-100 hover:scale-105 border border-blue-200'
+                            : isDarkMode 
+                              ? 'bg-gray-800/50 text-gray-500 opacity-50 cursor-not-allowed border border-gray-700' 
+                              : 'bg-gray-100 text-gray-400 opacity-50 cursor-not-allowed border border-gray-300'
+                        }`}
+                        title="Tuần trước"
                       >
+                        <ChevronLeft size={20} strokeWidth={2.5} />
+                      </button>
+                      
+                      {/* Week Info Card - Enhanced */}
+                      <div className={`flex-1 flex items-center justify-center gap-3 px-4 py-3 rounded-lg ${
+                        isDarkMode 
+                          ? 'bg-gradient-to-r from-purple-500/20 to-indigo-500/20 border border-purple-500/30' 
+                          : 'bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200'
+                      }`}>
+                        <CalendarRange size={20} strokeWidth={2.5} className={isDarkMode ? 'text-purple-300' : 'text-purple-600'} />
+                        <div className="flex flex-col items-center gap-1">
+                          <div className={`flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                            <span className="text-base font-bold">Tuần</span>
+                            <span className="text-lg font-extrabold">{weekInfo.currentWeek?.weekNumber || 1}</span>
+                            {weekInfo.totalWeeks > 1 && (
+                              <>
+                                <span className="text-sm opacity-70">/</span>
+                                <span className="text-sm opacity-70">{weekInfo.totalWeeks}</span>
+                              </>
+                            )}
+                          </div>
+                          {weekInfo.currentWeek && weekInfo.startDateStr && weekInfo.endDateStr && (
+                            <div className={`flex items-center gap-1.5 text-xs font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                              <Calendar size={12} strokeWidth={2} />
+                              <span>{weekInfo.startDateStr} - {weekInfo.endDateStr}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Nút Next */}
+                      <button
+                        type="button"
+                        onClick={() => setCurrentWeekIndex(prev => Math.min(weekInfo.totalWeeks - 1, prev + 1))}
+                        disabled={!weekInfo.canGoNext}
+                        className={`flex items-center justify-center w-10 h-10 rounded-lg transition-all ${
+                          weekInfo.canGoNext
+                            ? isDarkMode 
+                              ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 hover:scale-105 border border-blue-500/30' 
+                              : 'bg-blue-50 text-blue-600 hover:bg-blue-100 hover:scale-105 border border-blue-200'
+                            : isDarkMode 
+                              ? 'bg-gray-800/50 text-gray-500 opacity-50 cursor-not-allowed border border-gray-700' 
+                              : 'bg-gray-100 text-gray-400 opacity-50 cursor-not-allowed border border-gray-300'
+                        }`}
+                        title="Tuần tiếp theo"
+                      >
+                        <ChevronRight size={20} strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  )}
+                  
+                  {/* Day Tabs - Hiển thị đầy đủ từ Thứ 2 đến Chủ nhật */}
+                  <div className="flex justify-center overflow-x-auto gap-1.5 no-scrollbar">
                         {dayKeyOrder.map((dayKey) => {
                           const { active, total } = getDaySummary(dayKey);
                           const isSelected = selectedDayKey === dayKey;
+                      
+                      // Tìm ngày tương ứng với dayKey trong tuần hiện tại hoặc tuần đầu tiên
+                      const currentWeekDays = weekInfo.currentWeek?.days || weeks[0]?.days || [];
+                      const dayDate = currentWeekDays.find(d => d.dayKey === dayKey)?.date;
+                      const dayDateShort = dayDate ? (() => {
+                        const date = new Date(dayDate);
+                        const day = date.getDate();
+                        const month = date.getMonth() + 1;
+                        return `${day}/${month}`;
+                      })() : null;
+                      
+                      // Kiểm tra xem ngày này có trong tuần hiện tại không
+                      const isInCurrentWeek = !!dayDate;
+                      
+                      // Kiểm tra xem ngày có buổi active nhưng chưa có địa điểm không
+                      const hasActiveSlots = active > 0;
+                      let hasLocation = false;
+                      if (isPerDayMode) {
+                        // PerDay mode: kiểm tra dailyLocations
+                        hasLocation = !!dailyLocations[dayKey];
+                      } else if (isPerSlotMode) {
+                        // PerSlot mode: kiểm tra xem tất cả slot active đều có địa điểm
+                        const activeSlots = weeklyPlan[dayKey].filter(s => s.isActive);
+                        hasLocation = activeSlots.length > 0 && activeSlots.every(slot => 
+                          slot.locationAddress && typeof slot.locationLat === 'number' && typeof slot.locationLng === 'number'
+                        );
+                      } else if (isGlobalMode) {
+                        // Global mode: kiểm tra locationData
+                        hasLocation = !!locationData;
+                      }
+                      const needsLocation = hasActiveSlots && !hasLocation;
+                      
                           return (
                             <button
                               key={`tab-${dayKey}`}
                               type="button"
-                              onClick={() => setSelectedDayKey(dayKey)}
-                              className={`flex-1 min-w-[110px] px-4 py-2 rounded-2xl border text-sm font-medium transition-all duration-200 text-left shadow-sm ${
+                              onClick={() => {
+                                setSelectedDayKey(dayKey);
+                                // Nếu ở PerSlot mode, cập nhật locationEditorDay và selectedTimeSlotForLocation
+                                if (isPerSlotMode) {
+                                  setLocationEditorDay(dayKey);
+                                  const activeSlots = getActiveTimeSlotsForDay(dayKey);
+                                  setSelectedTimeSlotForLocation(prev => (prev && activeSlots.includes(prev) ? prev : activeSlots[0] ?? null));
+                                }
+                              }}
+                          className={`flex-shrink-0 px-3 py-2 rounded-lg text-xs font-semibold transition-all relative border-2 ${
                                 isSelected
                                   ? isDarkMode
-                                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-transparent shadow-blue-500/40 shadow-lg'
-                                    : 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white border-transparent shadow-md shadow-blue-200'
-                                  : isDarkMode
-                                    ? 'bg-gray-800 border-gray-700 text-gray-200 hover:text-white hover:bg-blue-600/40 hover:border-blue-400'
-                                    : 'bg-white border-gray-200 text-gray-700 hover:border-blue-400 hover:bg-blue-50'
+                                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md border-blue-400'
+                                    : 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-sm border-blue-300'
+                                  : isInCurrentWeek
+                                    ? isDarkMode
+                                      ? 'bg-gray-800 text-gray-300 hover:bg-gray-700 border-gray-600'
+                                      : 'bg-white text-gray-600 hover:bg-gray-100 border-gray-300'
+                                    : isDarkMode
+                                      ? 'bg-gray-800/40 text-gray-400 opacity-60 border-gray-700/50'
+                                      : 'bg-gray-50 text-gray-400 opacity-60 border-gray-200'
                               }`}
                             >
-                              <div className="flex items-center justify-between">
-                                <span>{dayKeyToLabel[dayKey]}</span>
-                                <span className={`ml-2 inline-flex items-center justify-center min-w-[30px] px-2 py-0.5 rounded-full text-xs font-semibold ${
+                          <div className="flex flex-col items-center gap-1">
+                            <div className="flex items-center gap-1.5">
+                                <span className="font-bold">{dayKeyToLabel[dayKey]}</span>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
                                   active > 0
-                                    ? isDarkMode ? 'bg-green-500/40 text-green-100' : 'bg-green-100 text-green-700'
-                                    : isDarkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600'
+                                  ? isSelected
+                                    ? isDarkMode ? 'bg-white/20 text-white' : 'bg-white/30 text-white'
+                                    : isDarkMode ? 'bg-green-500/40 text-green-100' : 'bg-green-100 text-green-700'
+                                  : isSelected
+                                    ? isDarkMode ? 'bg-white/10 text-white/70' : 'bg-white/20 text-white/80'
+                                    : isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-500'
                                 }`}>{active}/{total}</span>
+                              {/* Indicator cho ngày đã mở nhưng chưa có địa điểm */}
+                              {needsLocation && (
+                                <span title="Đã mở buổi nhưng chưa có địa điểm">
+                                  <AlertCircle 
+                                    size={12} 
+                                    strokeWidth={2.5}
+                                    className={isSelected 
+                                      ? isDarkMode ? 'text-red-300' : 'text-red-400'
+                                      : isDarkMode ? 'text-red-400' : 'text-red-600'
+                                    }
+                                  />
+                                </span>
+                              )}
+                            </div>
+                            {dayDateShort ? (
+                              <span className={`text-[10px] font-medium ${
+                                isSelected
+                                  ? isDarkMode ? 'text-white/90' : 'text-white'
+                                  : isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                              }`}>
+                                {dayDateShort}
+                              </span>
+                            ) : (
+                              <span className={`text-[9px] italic ${
+                                isDarkMode ? 'text-gray-500' : 'text-gray-400'
+                              }`}>
+                                Ngoài phạm vi
+                              </span>
+                            )}
                               </div>
                             </button>
                           );
@@ -1311,35 +3048,111 @@ export default function CreateMultipleDaysActivityPage() {
                       </div>
                     </div>
 
-                    <div className={`flex-1 rounded-2xl border ${isDarkMode ? 'border-gray-700/60 bg-gray-900/55' : 'border-gray-200 bg-white/95'} p-5 shadow-xl`}>
-                      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+                {/* Main Content Area - Compact */}
+                <div className={`rounded-lg border ${isDarkMode ? 'border-gray-700/60 bg-gray-900/55' : 'border-gray-300 bg-white'} p-3`}>
+                  {/* Day Header */}
+                  <div className="flex items-center justify-between mb-3 pb-3 border-b border-gray-200 dark:border-gray-700/50">
                         <div>
-                          <h3 className={`text-base font-semibold mt-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                            Cấu hình cho <span className={`${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>{dayKeyToLabel[selectedDayKey]}</span>
-                          </h3>x
+                      <h3 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                        {dayKeyToLabel[selectedDayKey]}
+                          </h3>
+                      <p className={`text-[11px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                        {selectedDaySummary.active}/{selectedDaySummary.total} buổi đang bật
+                      </p>
                         </div>
-                        <div className="flex items-center gap-2 text-xs">
-                          <span className={`px-3 py-1 rounded-full ${isDarkMode ? 'bg-blue-500/20 text-blue-200' : 'bg-blue-100 text-blue-700'}`}>Buổi đang bật: {selectedDaySummary.active}</span>
-                          <span className={`px-3 py-1 rounded-full ${isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'}`}>Tổng buổi: {selectedDaySummary.total}</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => copyDayToTarget('mon', selectedDayKey)}
+                        disabled={selectedDayKey === 'mon'}
+                        className={`px-2 py-1 rounded text-[11px] font-semibold transition-all flex items-center gap-1 ${
+                          selectedDayKey === 'mon'
+                            ? isDarkMode ? 'bg-gray-800/60 text-gray-500 opacity-50 cursor-not-allowed' : 'bg-gray-200 text-gray-400 opacity-50 cursor-not-allowed'
+                            : isDarkMode ? 'bg-blue-500/20 text-blue-200 hover:bg-blue-500/30' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                        }`}
+                      >
+                        <FileEdit size={11} strokeWidth={2} />
+                        <span>Sao chép T2</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => copyDayToAll(selectedDayKey)}
+                        className={`px-2 py-1 rounded text-[11px] font-semibold transition-all flex items-center gap-1 ${isDarkMode ? 'bg-purple-500/20 text-purple-200 hover:bg-purple-500/30' : 'bg-purple-50 text-purple-600 hover:bg-purple-100'}`}
+                      >
+                        <Users size={11} strokeWidth={2} />
+                        <span>Áp dụng</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => resetDayPlan(selectedDayKey)}
+                        className={`px-2 py-1 rounded text-[11px] font-semibold transition-all flex items-center gap-1 ${isDarkMode ? 'bg-gray-800 text-gray-200 hover:bg-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                      >
+                        <XCircle size={11} strokeWidth={2} />
+                        <span>Đặt lại</span>
+                      </button>
                         </div>
                       </div>
 
-                      <div className="grid md:grid-cols-3 gap-4">
+                  {/* Time Slots Grid - Compact */}
+                  <div className="grid md:grid-cols-3 gap-3">
                         {weeklyPlan[selectedDayKey].map((slot) => {
                           const isActive = slot.isActive;
-                          const cardClass = isActive
-                            ? isDarkMode ? 'border-blue-500/60 bg-blue-900/20' : 'border-blue-300 bg-blue-50'
-                            : isDarkMode ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-white';
                           return (
-                            <div key={`slot-${selectedDayKey}-${slot.id}`} className={`rounded-2xl border ${cardClass} p-4 flex flex-col gap-3 transition-shadow hover:shadow-lg`}>
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="flex items-start gap-3">
-                                  <div className={`w-11 h-11 rounded-2xl flex items-center justify-center text-xl ${isActive ? 'bg-blue-500/20 text-blue-500' : isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'}`}>
-                                    {timeSlotIcon[slot.name] ?? '🕒'}
+                        <div
+                          key={`slot-${selectedDayKey}-${slot.id}`}
+                          onClick={(e) => {
+                            // Nếu click vào input, button, label, hoặc textarea thì không làm gì
+                            const target = e.target as HTMLElement;
+                            if (target.tagName === 'INPUT' || target.tagName === 'BUTTON' || target.tagName === 'LABEL' || target.tagName === 'TEXTAREA' || target.closest('label') || target.closest('button')) {
+                              return;
+                            }
+                            // Nếu ở PerSlot mode và buổi đang active, chọn buổi này để chỉnh địa điểm
+                            if (isPerSlotMode && isActive) {
+                              const slotKey = slotIdToTimeSlotKey[slot.id];
+                              if (slotKey) {
+                                setSelectedTimeSlotForLocation(slotKey);
+                                setLocationEditorDay(selectedDayKey);
+                                // Scroll đến phần map picker
+                                requestAnimationFrame(() => {
+                                  const section = document.getElementById('session-map-section');
+                                  if (section) {
+                                    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                  }
+                                });
+                              }
+                            }
+                          }}
+                          className={`rounded-lg border-2 p-3 transition-all ${
+                            isActive
+                              ? isDarkMode
+                                ? 'border-blue-500/60 bg-gradient-to-br from-blue-900/30 to-indigo-900/20 shadow-md'
+                                : 'border-blue-400 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm'
+                              : isDarkMode
+                                ? 'border-gray-700 bg-gray-800/40 opacity-60'
+                                : 'border-gray-300 bg-gray-50 opacity-70'
+                          } ${
+                            isPerSlotMode && isActive && selectedTimeSlotForLocation === slotIdToTimeSlotKey[slot.id]
+                              ? 'ring-2 ring-orange-400 ring-offset-2'
+                              : ''
+                          } ${isPerSlotMode && isActive ? 'cursor-pointer' : ''}`}
+                        >
+                          {/* Slot Header */}
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                                isActive
+                                  ? isDarkMode ? 'bg-blue-500/30 text-blue-200' : 'bg-blue-100 text-blue-600'
+                                  : isDarkMode ? 'bg-gray-700/50 text-gray-500' : 'bg-gray-200 text-gray-400'
+                              }`}>
+                                {timeSlotIcon[slot.name] ?? <Clock size={16} strokeWidth={2} />}
                                   </div>
                                   <div>
-                                    <p className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{slot.name}</p>
-                                    <p className={`text-xs ${isDarkMode ? 'text-blue-200' : 'text-blue-600'}`}>{slot.startTime} - {slot.endTime}</p>
+                                <p className={`text-xs font-bold ${isActive ? (isDarkMode ? 'text-white' : 'text-gray-900') : (isDarkMode ? 'text-gray-500' : 'text-gray-400')}`}>
+                                  {slot.name}
+                                </p>
+                                <p className={`text-[11px] ${isActive ? (isDarkMode ? 'text-blue-200' : 'text-blue-600') : (isDarkMode ? 'text-gray-500' : 'text-gray-400')}`}>
+                                  {slot.startTime} - {slot.endTime}
+                                </p>
                                   </div>
                                 </div>
                                 <label className="relative inline-flex items-center cursor-pointer">
@@ -1349,593 +3162,904 @@ export default function CreateMultipleDaysActivityPage() {
                                     onChange={(e) => updateWeeklySlot(selectedDayKey, slot.id, 'isActive', e.target.checked)}
                                     className="sr-only peer"
                                   />
-                                  <div className={`relative w-11 h-6 rounded-full transition ${isActive ? 'bg-blue-500' : 'bg-gray-400'} peer-checked:after:translate-x-5 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:w-5 after:h-5 after:rounded-full after:bg-white after:transition`}></div>
+                              <div className={`relative w-10 h-5 rounded-full transition-all ${isActive ? 'bg-blue-500' : 'bg-gray-400'} peer-checked:after:translate-x-5 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:w-4 after:h-4 after:rounded-full after:bg-white after:shadow-sm after:transition-all`}></div>
                                 </label>
                               </div>
 
-                              <div className="grid gap-3 text-xs">
-                                <div className="grid grid-cols-2 gap-2">
+                          {/* Slot Content */}
+                          {isActive && (
+                            <div className={`space-y-2 pt-2 border-t ${isDarkMode ? 'border-gray-700/50' : 'border-gray-200'}`}>
+                              <div className="grid grid-cols-2 gap-1.5">
                                   <div>
-                                    <label className={`block mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Bắt đầu</label>
+                                  <label className={`block mb-0.5 text-[11px] font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Bắt đầu</label>
                                     <input
                                       type="time"
                                       value={slot.startTime}
                                       onChange={(e) => updateWeeklySlot(selectedDayKey, slot.id, 'startTime', e.target.value)}
-                                      className={`w-full px-3 py-2 rounded-lg border text-sm ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                                    className={`w-full px-2 py-1.5 rounded border text-xs ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
                                     />
                                   </div>
                                   <div>
-                                    <label className={`block mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Kết thúc</label>
+                                  <label className={`block mb-0.5 text-[11px] font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Kết thúc</label>
                                     <input
                                       type="time"
                                       value={slot.endTime}
                                       onChange={(e) => updateWeeklySlot(selectedDayKey, slot.id, 'endTime', e.target.value)}
-                                      className={`w-full px-3 py-2 rounded-lg border text-sm ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                                    className={`w-full px-2 py-1.5 rounded border text-xs ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
                                     />
                                   </div>
                                 </div>
                                 <div>
-                                  <label className={`block mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Mô tả hoạt động</label>
+                                <label className={`block mb-0.5 text-[11px] font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Mô tả hoạt động</label>
                                   <textarea
                                     value={slot.activities}
                                     onChange={(e) => updateWeeklySlot(selectedDayKey, slot.id, 'activities', e.target.value)}
                                     rows={2}
-                                    className={`w-full px-3 py-2 rounded-lg border text-sm ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
-                                    placeholder="Nội dung dự kiến của buổi..."
+                                  className={`w-full px-2 py-1.5 rounded border text-xs resize-none ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                                  placeholder="Nhập nội dung..."
                                   />
                                 </div>
-                                <div className="space-y-2">
-                                  <label className={`block mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Địa điểm chi tiết</label>
+                              {/* Địa điểm chi tiết (text) - Luôn hiển thị khi buổi bật */}
+                              <div>
+                                <div className="flex items-center justify-between mb-0.5">
+                                  <label className={`text-[11px] font-semibold flex items-center gap-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                    <FileText size={10} strokeWidth={2} />
+                                    <span>Địa điểm chi tiết</span>
+                                  </label>
+                                  {isGlobalMode && globalDetailedLocation && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        updateWeeklySlot(selectedDayKey, slot.id, 'detailedLocation', globalDetailedLocation);
+                                      }}
+                                      className={`text-[10px] px-1.5 py-0.5 rounded transition-all flex items-center gap-0.5 ${
+                                        isDarkMode 
+                                          ? 'text-blue-300 hover:text-blue-200 hover:bg-blue-500/20' 
+                                          : 'text-blue-600 hover:text-blue-700 hover:bg-blue-50'
+                                      }`}
+                                      title="Áp dụng địa điểm chung"
+                                    >
+                                      <Users size={9} strokeWidth={2} />
+                                      <span>Dùng chung</span>
+                                    </button>
+                                  )}
+                                  {isPerDayMode && perDayDetailedLocation[selectedDayKey] && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        updateWeeklySlot(selectedDayKey, slot.id, 'detailedLocation', perDayDetailedLocation[selectedDayKey]);
+                                      }}
+                                      className={`text-[10px] px-1.5 py-0.5 rounded transition-all flex items-center gap-0.5 ${
+                                        isDarkMode 
+                                          ? 'text-purple-300 hover:text-purple-200 hover:bg-purple-500/20' 
+                                          : 'text-purple-600 hover:text-purple-700 hover:bg-purple-50'
+                                      }`}
+                                      title="Áp dụng địa điểm theo ngày"
+                                    >
+                                      <Users size={9} strokeWidth={2} />
+                                      <span>Dùng theo ngày</span>
+                                    </button>
+                                  )}
+                                  {isPerSlotMode && perSlotDetailedLocation && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        updateWeeklySlot(selectedDayKey, slot.id, 'detailedLocation', perSlotDetailedLocation);
+                                      }}
+                                      className={`text-[10px] px-1.5 py-0.5 rounded transition-all flex items-center gap-0.5 ${
+                                        isDarkMode 
+                                          ? 'text-orange-300 hover:text-orange-200 hover:bg-orange-500/20' 
+                                          : 'text-orange-600 hover:text-orange-700 hover:bg-orange-50'
+                                      }`}
+                                      title="Áp dụng địa điểm theo buổi"
+                                    >
+                                      <Users size={9} strokeWidth={2} />
+                                      <span>Dùng theo buổi</span>
+                                    </button>
+                                  )}
+                                </div>
                                   <input
                                     type="text"
-                                    value={slot.detailedLocation}
+                                  value={slot.detailedLocation || ''}
                                     onChange={(e) => updateWeeklySlot(selectedDayKey, slot.id, 'detailedLocation', e.target.value)}
-                                    className={`w-full px-3 py-2 rounded-lg border text-sm ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
-                                    placeholder="VD: Hội trường A1, phòng 101..."
-                                  />
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    {locationData?.address ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleApplyMainLocationToSlot(selectedDayKey, slot.id)}
-                                        className={`${isDarkMode ? 'bg-blue-500/20 text-blue-100 border border-blue-500/40 hover:bg-blue-500/30' : 'bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100'} px-3 py-1.5 rounded-lg text-xs font-semibold transition`}
-                                      >Dùng địa điểm chung</button>
-                                    ) : null}
-                                    {quickLocationOptions.length > 0 && (
-                                      <select
-                                        value=""
-                                        onChange={(e) => {
-                                          const value = e.target.value;
-                                          if (value) {
-                                            applySuggestionToSlot(selectedDayKey, slot.id, value);
-                                          }
-                                        }}
-                                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold ${isDarkMode ? 'bg-gray-800 border-gray-600 text-gray-100' : 'bg-white border-gray-200 text-gray-700'}`}
-                                      >
-                                        <option value="">Chọn nhanh địa điểm</option>
-                                        {quickLocationOptions.map((opt) => (
-                                          <option key={`${slot.id}-${opt}`} value={opt}>{opt}</option>
-                                        ))}
-                                      </select>
-                                    )}
+                                  className={`w-full px-2 py-1.5 rounded border text-xs ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                                  placeholder={
+                                    isGlobalMode && globalDetailedLocation 
+                                      ? globalDetailedLocation 
+                                      : isPerDayMode && perDayDetailedLocation[selectedDayKey]
+                                        ? perDayDetailedLocation[selectedDayKey]
+                                        : isPerSlotMode && perSlotDetailedLocation
+                                          ? perSlotDetailedLocation
+                                          : "VD: Dãy A, Phòng 101..."
+                                  }
+                                />
+                                <p className={`mt-0.5 text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  {isGlobalMode && globalDetailedLocation 
+                                    ? 'Có thể chỉnh sửa riêng hoặc nhấn "Dùng chung" để áp dụng địa điểm chung'
+                                    : isPerDayMode && perDayDetailedLocation[selectedDayKey]
+                                      ? 'Có thể chỉnh sửa riêng hoặc nhấn "Dùng theo ngày" để áp dụng địa điểm theo ngày'
+                                      : isPerSlotMode && perSlotDetailedLocation
+                                        ? 'Có thể chỉnh sửa riêng hoặc nhấn "Dùng theo buổi" để áp dụng địa điểm theo buổi'
+                                        : 'Mô tả địa điểm bằng văn bản (tùy chọn)'}
+                                </p>
                                   </div>
-                                  {isPerSlotMode && (
-                                    <div className="space-y-2">
-                                      <div className={`rounded-xl border px-3 py-2 text-xs ${slot.locationAddress ? (isDarkMode ? 'bg-green-900/20 border-green-500/30 text-green-200' : 'bg-green-50 border-green-200 text-green-700') : (isDarkMode ? 'bg-gray-800/80 border-gray-700 text-gray-300' : 'bg-gray-50 border-gray-200 text-gray-600')}`}>
-                                        {slot.locationAddress ? (
-                                          <div className="space-y-1">
-                                            <div className="font-semibold flex items-center gap-2">
-                                              <span>📍</span>
-                                              <span>{slot.locationAddress}</span>
+                              
+                              {/* Địa điểm trên bản đồ - Chỉ hiển thị khi buổi đã bật */}
+                              {/* Global Mode: Hiển thị địa điểm chung */}
+                              {isGlobalMode && locationData && (
+                                <div>
+                                  <label className={`block mb-0.5 text-[11px] font-semibold flex items-center gap-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                    <Globe size={10} strokeWidth={2} />
+                                    <span>Địa điểm chung (từ bản đồ)</span>
+                                  </label>
+                                  <div className={`rounded border px-2 py-1.5 text-[11px] ${isDarkMode ? 'border-green-500/30 bg-green-500/10 text-green-200' : 'border-green-300 bg-green-50 text-green-700'}`}>
+                                    <div className="font-semibold flex items-center gap-1 mb-0.5">
+                                      <MapPin size={11} strokeWidth={2} />
+                                      <span className="truncate">{locationData.address}</span>
                                             </div>
-                                            {(typeof slot.locationLat === 'number' && typeof slot.locationLng === 'number') && (
-                                              <div className="flex items-center gap-2 font-mono">
-                                                <span>🎯</span>
-                                                <span>{slot.locationLat.toFixed(6)}, {slot.locationLng.toFixed(6)}</span>
+                                    <div className="text-[10px] opacity-80">
+                                      {formatCoordinate(locationData.lat)}, {formatCoordinate(locationData.lng)} • {locationData.radius ?? 200}m
+                                              </div>
+                                  </div>
                                               </div>
                                             )}
-                                            {typeof slot.locationRadius === 'number' && (
-                                              <div className="flex items-center gap-2">
-                                                <span>📏</span>
-                                                <span>Bán kính: {slot.locationRadius}m</span>
-                                              </div>
-                                            )}
+
+                              {/* PerDay Mode: Hiển thị địa điểm theo ngày */}
+                              {isPerDayMode && dailyLocations[selectedDayKey] && (
+                                <div>
+                                  <label className={`block mb-0.5 text-[11px] font-semibold flex items-center gap-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                    <Globe size={10} strokeWidth={2} />
+                                    <span>Địa điểm {dayKeyToLabel[selectedDayKey]} (từ bản đồ)</span>
+                                  </label>
+                                  <div className={`rounded border px-2 py-1.5 text-[11px] ${isDarkMode ? 'border-green-500/30 bg-green-500/10 text-green-200' : 'border-green-300 bg-green-50 text-green-700'}`}>
+                                    <div className="font-semibold flex items-center gap-1 mb-0.5">
+                                      <MapPin size={11} strokeWidth={2} />
+                                      <span className="truncate">{dailyLocations[selectedDayKey]?.address}</span>
                                           </div>
-                                        ) : (
-                                          <div className="flex items-center gap-2">
-                                            <span>ℹ️</span>
-                                            <span>Chưa chọn địa điểm trên bản đồ cho buổi này.</span>
+                                    <div className="text-[10px] opacity-80">
+                                      {formatCoordinate(dailyLocations[selectedDayKey]?.lat)}, {formatCoordinate(dailyLocations[selectedDayKey]?.lng)} • {dailyLocations[selectedDayKey]?.radius ?? 200}m
+                                    </div>
+                                  </div>
                                           </div>
                                         )}
+
+                              {/* PerSlot Mode: Chọn địa điểm riêng cho từng buổi */}
+                              {isPerSlotMode && (
+                                <div>
+                                  <label className={`block mb-0.5 text-[11px] font-semibold flex items-center gap-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                    <Globe size={10} strokeWidth={2} />
+                                    <span>Địa điểm trên bản đồ (cho buổi này)</span>
+                                  </label>
+                                  <p className={`mb-1.5 text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                    Chọn vị trí trên bản đồ để điểm danh (tùy chọn)
+                                  </p>
+                                  {slot.locationAddress ? (
+                                    <div className="space-y-1.5">
+                                      <div className={`rounded border px-2 py-1.5 text-[11px] ${isDarkMode ? 'border-green-500/30 bg-green-500/10 text-green-200' : 'border-green-300 bg-green-50 text-green-700'}`}>
+                                        <div className="font-semibold flex items-center gap-1 mb-0.5">
+                                          <MapPin size={11} strokeWidth={2} />
+                                          <span className="truncate">{slot.locationAddress}</span>
                                       </div>
-                                      <div className="flex flex-wrap items-center gap-2">
+                                        <div className="text-[10px] opacity-80">
+                                          {typeof slot.locationLat === 'number' && typeof slot.locationLng === 'number' && (
+                                            <span>{slot.locationLat.toFixed(4)}, {slot.locationLng.toFixed(4)}</span>
+                                          )}
+                                          {typeof slot.locationRadius === 'number' && (
+                                            <span> • {slot.locationRadius}m</span>
+                                          )}
+                                        </div>
+                                      </div>
                                         <button
                                           type="button"
                                           onClick={() => handleOpenSlotLocationPicker(selectedDayKey, slot.id)}
-                                          disabled={!slot.isActive}
-                                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${!slot.isActive
-                                            ? isDarkMode ? 'bg-gray-800 text-gray-500 border border-gray-700 cursor-not-allowed' : 'bg-gray-200 text-gray-500 border border-gray-300 cursor-not-allowed'
-                                            : isDarkMode ? 'bg-purple-500/20 text-purple-100 border border-purple-500/40 hover:bg-purple-500/30' : 'bg-purple-50 text-purple-600 border border-purple-200 hover:bg-purple-100'}`}
+                                        className={`w-full px-2 py-1 rounded text-[11px] font-semibold transition flex items-center justify-center gap-1 ${isDarkMode ? 'bg-blue-500/20 text-blue-200 hover:bg-blue-500/30' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
                                         >
-                                          Chọn trên bản đồ
+                                        <MapPin size={10} strokeWidth={2} />
+                                        <span>Thay đổi địa điểm</span>
                                         </button>
-                                        {slot.locationAddress && (
                                           <button
                                             type="button"
                                             onClick={() => handleClearSlotLocation(selectedDayKey, slot.id)}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${isDarkMode ? 'bg-red-500/20 text-red-200 border border-red-500/40 hover:bg-red-500/30' : 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'}`}
-                                          >
-                                            Xóa địa điểm
+                                        className={`w-full px-2 py-1 rounded text-[11px] font-semibold transition flex items-center justify-center gap-1 ${isDarkMode ? 'bg-red-500/20 text-red-200 hover:bg-red-500/30' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
+                                      >
+                                        <XCircle size={10} strokeWidth={2} />
+                                        <span>Xóa địa điểm</span>
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenSlotLocationPicker(selectedDayKey, slot.id)}
+                                      className={`w-full px-2 py-1 rounded text-[11px] font-semibold transition flex items-center justify-center gap-1 ${isDarkMode ? 'bg-purple-500/20 text-purple-100 hover:bg-purple-500/30' : 'bg-purple-50 text-purple-600 hover:bg-purple-100'}`}
+                                    >
+                                      <MapPin size={10} strokeWidth={2} />
+                                      <span>Chọn địa điểm trên bản đồ</span>
                                           </button>
                                         )}
                                       </div>
+                              )}
                                     </div>
                                   )}
-                                </div>
-                              </div>
                             </div>
                           );
                         })}
                       </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
 
-              {/* 4. Địa điểm hoạt động */}
-              <div className={`p-5 rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/90 via-gray-800/80 to-gray-900/90 border border-gray-700/50' : 'bg-gradient-to-br from-white/95 via-blue-50/30 to-purple-50/30 border border-gray-200/50'} shadow-lg`}>
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isDarkMode ? 'bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30' : 'bg-gradient-to-br from-blue-100 to-purple-100 border border-blue-200/60'}`}>
-                      <span className="text-lg">📍</span>
-                    </div>
-                    <div>
-                      <h2 className={`text-lg font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>4. Địa điểm hoạt động</h2>
-                      <p className={`text-xs ${isDarkMode ? 'text-gray-300/90' : 'text-gray-600'}`}>{locationModeSubtitles[locationMode]}</p>
-                    </div>
-                  </div>
-                  {locationData ? (
-                    <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
-                      <span className={`${chipBaseClass} ${isDarkMode ? 'border-green-500/40 bg-green-500/10 text-green-200' : 'border-green-200 bg-green-50 text-green-700'}`}>Đang dùng địa điểm chung</span>
-                      <span className={`${chipBaseClass}`}>Lat: {formatCoordinate(locationData.lat)}</span>
-                      <span className={`${chipBaseClass}`}>Lng: {formatCoordinate(locationData.lng)}</span>
-                      <span className={`${chipBaseClass}`}>Bán kính: {locationData.radius ?? 200}m</span>
-                    </div>
-                  ) : (
-                    <div className={`${chipBaseClass} ${isDarkMode ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200' : 'border-yellow-200 bg-yellow-50 text-yellow-700'}`}>Chưa chọn vị trí</div>
-                  )}
-                </div>
-                <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
-                  {locationModeOptions.map(option => {
-                    const isActive = option.value === locationMode;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => setLocationMode(option.value)}
-                        className={`relative rounded-2xl border px-4 py-3 text-left transition ${isActive
-                          ? isDarkMode ? 'border-blue-500/50 bg-blue-500/15 text-blue-100 shadow-lg shadow-blue-500/20' : 'border-blue-400 bg-blue-50 text-blue-700 shadow-md shadow-blue-200/60'
-                          : isDarkMode ? 'border-gray-700 bg-gray-900/70 text-gray-300 hover:border-blue-500/40 hover:text-blue-200' : 'border-gray-200 bg-white text-gray-700 hover:border-blue-400 hover:text-blue-600'}`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${isActive ? (isDarkMode ? 'bg-blue-500/30 text-blue-100' : 'bg-blue-100 text-blue-600') : (isDarkMode ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-500')}`}>
-                            {option.icon}
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm font-semibold">{option.label}</span>
-                              {isActive && (
-                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${isDarkMode ? 'bg-blue-500/30 text-blue-100' : 'bg-blue-100 text-blue-600'}`}>Đang chọn</span>
-                              )}
-                            </div>
-                            <p className={`text-xs mt-1 leading-relaxed ${isDarkMode ? 'text-gray-400/90' : 'text-gray-500'}`}>
-                              {option.description}
-                            </p>
-                          </div>
+                  {/* Ghi chú và Địa điểm chung - Cùng một hàng */}
+                  <div className={`mt-3 rounded-lg border ${isDarkMode ? 'border-gray-700/60 bg-gray-900/55' : 'border-gray-300 bg-white'} p-2`}>
+                    <div className={`grid gap-2 items-stretch ${isGlobalMode ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                      {/* Ghi chú theo ngày */}
+                      <div className="flex flex-col gap-1 h-full">
+                        <div className="flex items-center gap-1.5">
+                          <StickyNote size={14} strokeWidth={2} className={isDarkMode ? 'text-gray-300' : 'text-gray-600'} />
+                          <label className={`text-xs font-semibold whitespace-nowrap ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                            Ghi chú:
+                          </label>
                         </div>
-                      </button>
-                    );
-                  })}
-                </div>
-                {isGlobalMode && (
-                  <div className="space-y-4">
-                    <div className={`rounded-3xl border overflow-hidden ${isDarkMode ? 'border-blue-500/20 bg-gradient-to-br from-gray-900 via-gray-850 to-gray-900' : 'border-blue-100 bg-gradient-to-br from-white via-blue-50/40 to-purple-50/30'} shadow-xl`}>
-                      <div className="px-6 py-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                        <div className="flex items-start gap-3">
-                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl ${isDarkMode ? 'bg-blue-500/20 text-blue-200 border border-blue-500/30' : 'bg-blue-100 text-blue-600 border border-blue-200'}`}>
-                            🗺️
-                          </div>
-                          <div>
-                            <h3 className={`text-base font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Chọn địa điểm chung trên bản đồ</h3>
-                            <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                              Kéo bản đồ hoặc dùng ô tìm kiếm để định vị. Click trực tiếp để thả marker, giữ và kéo để điều chỉnh.
-                            </p>
-                            <div className="flex flex-wrap items-center gap-2 mt-2">
-                              <span className={`${chipBaseClass} ${isDarkMode ? 'border-blue-500/40 bg-blue-500/10 text-blue-200' : 'border-blue-200 bg-blue-50 text-blue-600'}`}>Bước 1: Tìm kiếm hoặc click bản đồ</span>
-                              <span className={`${chipBaseClass} ${isDarkMode ? 'border-purple-500/40 bg-purple-500/10 text-purple-200' : 'border-purple-200 bg-purple-50 text-purple-600'}`}>Bước 2: Áp dụng nhanh cho các buổi</span>
-                            </div>
-                          </div>
-                        </div>
-                        {!locationData && (
-                          <div className={`rounded-2xl px-4 py-3 text-xs ${isDarkMode ? 'bg-gray-800/70 border border-gray-700 text-gray-300' : 'bg-white/80 border border-gray-200 text-gray-600'} shadow-inner`}>
-                            <div className="flex items-start gap-2">
-                              <span>💡</span>
-                              <span>Chưa có địa điểm. Hãy chọn vị trí để hiển thị chi tiết và áp dụng cho các buổi.</span>
-                            </div>
-                          </div>
-                        )}
+                        <textarea
+                          value={(() => {
+                            // Lấy ghi chú của ngày đầu tiên có cùng dayKey với selectedDayKey
+                            const firstDateWithSameDayKey = datesInRange.find(d => getDayKeyFromDate(d) === selectedDayKey);
+                            return firstDateWithSameDayKey ? (daySchedules[firstDateWithSameDayKey] || '') : '';
+                          })()}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            // Cập nhật ghi chú cho tất cả các ngày có cùng dayKey
+                            setDaySchedules(prev => {
+                              const next = { ...prev };
+                              datesInRange.forEach(date => {
+                                if (getDayKeyFromDate(date) === selectedDayKey) {
+                                  next[date] = value;
+                                }
+                              });
+                              return next;
+                            });
+                          }}
+                          rows={2}
+                          className={`w-full flex-1 px-2 py-1.5 rounded border text-xs resize-none ${isDarkMode ? 'bg-gray-700/50 border-gray-600/50 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                          placeholder={`Ghi chú ${dayKeyToLabel[selectedDayKey]}...`}
+                        />
                       </div>
 
-                      <div className="relative">
-                        <div className="absolute top-4 left-4 z-10">
-                          <div className={`px-3 py-2 rounded-xl text-xs font-semibold ${isDarkMode ? 'bg-black/50 text-blue-200 border border-blue-500/30 backdrop-blur' : 'bg-white/80 text-blue-600 border border-blue-200 backdrop-blur'}`}>
-                            🔍 Tìm kiếm địa chỉ hoặc bấm trực tiếp trên bản đồ để chọn nhanh
+                      {/* Global Mode: Input địa điểm chi tiết chung */}
+                      {isGlobalMode && (
+                        <div className="flex flex-col gap-1 h-full">
+                          <div className="flex items-center gap-1.5">
+                            <FileText size={14} strokeWidth={2} className={isDarkMode ? 'text-gray-300' : 'text-gray-600'} />
+                            <label className={`text-xs font-semibold whitespace-nowrap ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                              Địa điểm chung:
+                            </label>
+                          </div>
+                          <div className="flex gap-1 flex-1 items-start">
+                            <input
+                              type="text"
+                              value={globalDetailedLocation}
+                              onChange={(e) => setGlobalDetailedLocation(e.target.value)}
+                              className={`flex-1 px-2 py-1.5 rounded border text-xs h-full ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                              placeholder="VD: Dãy A, Phòng 101..."
+                            />
+                            <div className="flex flex-col gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  // Áp dụng địa điểm chi tiết chung cho tất cả các buổi đang bật
+                                  setWeeklyPlan(prev => {
+                                    const next = { ...prev };
+                                    dayKeyOrder.forEach(day => {
+                                      next[day] = next[day].map(slot => 
+                                        slot.isActive 
+                                          ? { ...slot, detailedLocation: globalDetailedLocation }
+                                          : slot
+                                      );
+                                    });
+                                    return next;
+                                  });
+                                }}
+                                disabled={!globalDetailedLocation.trim()}
+                                className={`px-1.5 py-1.5 rounded text-[10px] font-semibold transition-all flex items-center gap-0.5 whitespace-nowrap ${
+                                  globalDetailedLocation.trim()
+                                  ? isDarkMode
+                                      ? 'bg-green-500/20 text-green-200 hover:bg-green-500/30' 
+                                      : 'bg-green-500 text-white hover:bg-green-600'
+                                  : isDarkMode
+                                      ? 'bg-gray-800/30 text-gray-500 opacity-50 cursor-not-allowed'
+                                      : 'bg-gray-200 text-gray-400 opacity-50 cursor-not-allowed'
+                                }`}
+                              >
+                                <Users size={10} strokeWidth={2} />
+                                <span>Áp dụng</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  // Xóa tất cả địa điểm chi tiết từ các buổi đang bật
+                                  setWeeklyPlan(prev => {
+                                    const next = { ...prev };
+                                    dayKeyOrder.forEach(day => {
+                                      next[day] = next[day].map(slot => 
+                                        slot.isActive 
+                                          ? { ...slot, detailedLocation: '' }
+                                          : slot
+                                      );
+                                    });
+                                    return next;
+                                  });
+                                  // Xóa cả địa điểm chi tiết chung
+                                  setGlobalDetailedLocation('');
+                                }}
+                                className={`px-1.5 py-1.5 rounded text-[10px] font-semibold transition-all flex items-center justify-center whitespace-nowrap ${
+                                  isDarkMode 
+                                    ? 'bg-red-500/20 text-red-200 hover:bg-red-500/30' 
+                                    : 'bg-red-500 text-white hover:bg-red-600'
+                                }`}
+                                title="Xóa tất cả"
+                              >
+                                <XCircle size={10} strokeWidth={2} />
+                              </button>
+                            </div>
                           </div>
                         </div>
-                        <div className={`rounded-t-3xl overflow-hidden border-t border-dashed ${isDarkMode ? 'border-blue-500/30' : 'border-blue-200/80'}`}>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Global Map Picker - Hiển thị khi có buổi active */}
+                  {isGlobalMode && totalWeeklyActive > 0 && (
+                    <div className={`mt-3 rounded-lg border ${isDarkMode ? 'border-blue-500/30 bg-gray-900/50' : 'border-gray-300 bg-white'} p-1.5`}>
+                      <div className="flex items-center gap-1 mb-1">
+                        <Globe size={12} strokeWidth={2} className={isDarkMode ? 'text-blue-300' : 'text-blue-600'} />
+                        <span className={`text-[11px] font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>Chọn địa điểm trên bản đồ</span>
+                      </div>
+                      {/* Thông báo nếu chưa chọn buổi */}
+                      {totalWeeklyActive === 0 ? (
+                        <div className={`mb-3 p-2.5 rounded-lg border-2 flex items-start gap-2 ${
+                          isDarkMode 
+                            ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-200' 
+                            : 'bg-yellow-50 border-yellow-300 text-yellow-800'
+                        }`}>
+                          <AlertCircle size={16} strokeWidth={2} className={`flex-shrink-0 mt-0.5 ${
+                            isDarkMode ? 'text-yellow-300' : 'text-yellow-600'
+                          }`} />
+                          <div className="flex-1">
+                            <p className={`text-xs font-semibold mb-0.5 ${isDarkMode ? 'text-yellow-200' : 'text-yellow-900'}`}>
+                              Vui lòng chọn buổi trước khi chọn địa điểm
+                            </p>
+                            <p className={`text-[10px] ${isDarkMode ? 'text-yellow-300/80' : 'text-yellow-700'}`}>
+                              Hãy bật ít nhất một buổi (Sáng/Chiều/Tối) trong tuần trước khi chọn địa điểm chung.
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className={`rounded border overflow-hidden mb-1 ${isDarkMode ? 'border-blue-500/30' : 'border-gray-300'}`} style={{ minHeight: '180px' }}>
                           <OpenStreetMapPicker
-                            onLocationChange={handleLocationChange}
+                            onLocationChange={(location) => {
+                              if (location && location.address) {
+                                handleLocationChange(location);
+                              }
+                            }}
                             initialLocation={locationData || undefined}
                             isDarkMode={isDarkMode}
                             enforceActiveTimeSlots={false}
+                            locationContext="global"
                           />
                         </div>
-                      </div>
+                      )}
+                      {locationData && (
+                        <div className="space-y-1">
+                          <div className={`rounded border px-1.5 py-1 text-[10px] ${isDarkMode ? 'border-green-500/30 bg-green-500/10 text-green-200' : 'border-green-300 bg-green-50 text-green-700'}`}>
+                            <div className="font-semibold flex items-center gap-0.5 mb-0.5">
+                              <MapPin size={9} strokeWidth={2} />
+                              <span className="truncate">{locationData.address}</span>
+                            </div>
+                            <div className="flex items-center gap-1 text-[9px] opacity-80">
+                              <span>{formatCoordinate(locationData.lat)}, {formatCoordinate(locationData.lng)}</span>
+                              <span>•</span>
+                              <span>{locationData.radius ?? 200}m</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLocationData(null);
+                            }}
+                            className={`w-full px-2 py-1 rounded text-[10px] font-semibold transition flex items-center justify-center gap-1 ${
+                              isDarkMode 
+                                ? 'bg-red-500/20 text-red-200 hover:bg-red-500/30' 
+                                : 'bg-red-50 text-red-600 hover:bg-red-100'
+                            }`}
+                          >
+                            <XCircle size={10} strokeWidth={2} />
+                            <span>Xóa địa điểm</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                      <div className="px-6 pb-6 pt-4 border-t border-white/5">
-                        {locationData ? (
-                          <div className="grid gap-4 lg:grid-cols-2">
-                            <div className={`rounded-2xl px-4 py-3 ${isDarkMode ? 'bg-green-900/20 border border-green-500/30 text-green-100' : 'bg-green-50/90 border border-green-200/60 text-green-700'}`}>
-                              <div className="flex items-start gap-2">
-                                <span className="text-lg">📍</span>
-                                <div>
-                                  <p className="text-sm font-semibold mb-1">Địa chỉ đã chọn</p>
-                                  <p className="text-xs leading-relaxed">{locationData.address}</p>
-                                  <div className="mt-2 grid grid-cols-3 gap-2 text-[11px] font-semibold">
-                                    <span className={`${isDarkMode ? 'bg-black/40 text-gray-100' : 'bg-white/70 text-gray-700'} rounded-lg px-2 py-1 border border-white/10`}>Lat: {formatCoordinate(locationData.lat)}</span>
-                                    <span className={`${isDarkMode ? 'bg-black/40 text-gray-100' : 'bg-white/70 text-gray-700'} rounded-lg px-2 py-1 border border-white/10`}>Lng: {formatCoordinate(locationData.lng)}</span>
-                                    <span className={`${isDarkMode ? 'bg-black/40 text-gray-100' : 'bg-white/70 text-gray-700'} rounded-lg px-2 py-1 border border-white/10`}>Bán kính: {locationData.radius ?? 200}m</span>
+                  {/* PerDay Mode: Input địa điểm chi tiết theo ngày - Collapsible */}
+                  {isPerDayMode && (
+                    <div className={`mt-4 rounded-lg border ${isDarkMode ? 'border-purple-500/30 bg-purple-900/10' : 'border-purple-200 bg-purple-50/50'}`}>
+                      {/* Header với nút collapse/expand */}
+                      <button
+                        type="button"
+                        onClick={() => setShowPerDayLocationSection(prev => ({
+                          ...prev,
+                          [selectedDayKey]: !prev[selectedDayKey]
+                        }))}
+                        className={`w-full flex items-center justify-between p-3 rounded-t-lg transition-all ${
+                          showPerDayLocationSection[selectedDayKey]
+                            ? isDarkMode ? 'bg-purple-500/20' : 'bg-purple-100'
+                            : isDarkMode ? 'hover:bg-purple-500/10' : 'hover:bg-purple-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <FileText size={16} strokeWidth={2} className={isDarkMode ? 'text-purple-300' : 'text-purple-600'} />
+                          <div className="text-left">
+                            <div className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                              Địa điểm chi tiết {dayKeyToLabel[selectedDayKey]}
+                            </div>
+                            <div className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                              Nhập địa điểm chung cho {dayKeyToLabel[selectedDayKey]} để áp dụng nhanh cho các buổi
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {perDayDetailedLocation[selectedDayKey] && (
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+                              isDarkMode ? 'bg-green-500/20 text-green-200' : 'bg-green-100 text-green-700'
+                            }`}>
+                              Đã nhập
+                            </span>
+                          )}
+                          {showPerDayLocationSection[selectedDayKey] ? (
+                            <ChevronUp size={18} strokeWidth={2} className={isDarkMode ? 'text-gray-400' : 'text-gray-600'} />
+                          ) : (
+                            <ChevronDown size={18} strokeWidth={2} className={isDarkMode ? 'text-gray-400' : 'text-gray-600'} />
+                          )}
+                        </div>
+                      </button>
+
+                      {/* Content - Collapsible */}
+                      {showPerDayLocationSection[selectedDayKey] && (
+                        <div className="p-3 pt-0 space-y-3">
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={perDayDetailedLocation[selectedDayKey] || ''}
+                              onChange={(e) => setPerDayDetailedLocation(prev => ({
+                                ...prev,
+                                [selectedDayKey]: e.target.value
+                              }))}
+                              className={`flex-1 px-3 py-2 rounded border text-sm ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                              placeholder="VD: Dãy A, Sân trường, Phòng 101, Hội trường..."
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Áp dụng địa điểm chi tiết cho tất cả các buổi đang bật của ngày này
+                                setWeeklyPlan(prev => {
+                                  const next = { ...prev };
+                                  next[selectedDayKey] = next[selectedDayKey].map(slot => 
+                                    slot.isActive 
+                                      ? { ...slot, detailedLocation: perDayDetailedLocation[selectedDayKey] }
+                                      : slot
+                                  );
+                                  return next;
+                                });
+                              }}
+                              disabled={!perDayDetailedLocation[selectedDayKey]?.trim()}
+                              className={`px-3 py-2 rounded text-[11px] font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                                perDayDetailedLocation[selectedDayKey]?.trim()
+                                  ? isDarkMode 
+                                    ? 'bg-green-500/20 text-green-200 hover:bg-green-500/30' 
+                                    : 'bg-green-500 text-white hover:bg-green-600'
+                                  : isDarkMode
+                                    ? 'bg-gray-800/30 text-gray-500 opacity-50 cursor-not-allowed'
+                                    : 'bg-gray-200 text-gray-400 opacity-50 cursor-not-allowed'
+                              }`}
+                            >
+                              <Users size={12} strokeWidth={2} />
+                              <span>Áp dụng tất cả</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Xóa tất cả địa điểm chi tiết từ các buổi đang bật của ngày này
+                                setWeeklyPlan(prev => {
+                                  const next = { ...prev };
+                                  next[selectedDayKey] = next[selectedDayKey].map(slot => 
+                                    slot.isActive 
+                                      ? { ...slot, detailedLocation: '' }
+                                      : slot
+                                  );
+                                  return next;
+                                });
+                                // Xóa cả địa điểm chi tiết của ngày này
+                                setPerDayDetailedLocation(prev => ({
+                                  ...prev,
+                                  [selectedDayKey]: ''
+                                }));
+                              }}
+                              className={`px-3 py-2 rounded text-[11px] font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                                isDarkMode 
+                                  ? 'bg-red-500/20 text-red-200 hover:bg-red-500/30' 
+                                  : 'bg-red-500 text-white hover:bg-red-600'
+                              }`}
+                              title="Xóa tất cả địa điểm chi tiết"
+                            >
+                              <XCircle size={12} strokeWidth={2} />
+                              <span>Xóa tất cả</span>
+                            </button>
+                          </div>
+                          
+                          <p className={`text-center text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                            Nhập địa điểm chi tiết cho {dayKeyToLabel[selectedDayKey]}, sau đó nhấn "Áp dụng tất cả" để áp dụng nhanh cho các buổi đang bật. Bạn vẫn có thể chỉnh sửa riêng cho từng buổi.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* PerDay Map Picker */}
+                  {isPerDayMode && (
+                    <div className={`mt-4 rounded-lg border ${isDarkMode ? 'border-purple-500/30 bg-gray-900/50' : 'border-gray-300 bg-white'} p-1.5`}>
+                      <div className={`flex items-center justify-center gap-2 mb-3 py-3 px-4 rounded-lg ${
+                        isDarkMode 
+                          ? 'bg-gradient-to-r from-purple-500/20 to-indigo-500/20 border border-purple-500/40' 
+                          : 'bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200'
+                      }`}>
+                        <div className={`flex items-center justify-center w-10 h-10 rounded-full ${
+                          isDarkMode 
+                            ? 'bg-purple-500/30 border-2 border-purple-400/50' 
+                            : 'bg-purple-100 border-2 border-purple-300'
+                        }`}>
+                          <Globe size={20} strokeWidth={2.5} className={isDarkMode ? 'text-purple-300' : 'text-purple-600'} />
+                        </div>
+                        <span className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                          Địa điểm {dayKeyToLabel[selectedDayKey]}
+                        </span>
+                      </div>
+                      {/* Thông báo nếu chưa chọn buổi */}
+                      {selectedDaySummary.active === 0 ? (
+                        <div className={`mb-3 p-2.5 rounded-lg border-2 flex items-start gap-2 ${
+                          isDarkMode 
+                            ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-200' 
+                            : 'bg-yellow-50 border-yellow-300 text-yellow-800'
+                        }`}>
+                          <AlertCircle size={16} strokeWidth={2} className={`flex-shrink-0 mt-0.5 ${
+                            isDarkMode ? 'text-yellow-300' : 'text-yellow-600'
+                          }`} />
+                          <div className="flex-1">
+                            <p className={`text-xs font-semibold mb-0.5 ${isDarkMode ? 'text-yellow-200' : 'text-yellow-900'}`}>
+                              Vui lòng chọn buổi trước khi chọn địa điểm
+                            </p>
+                            <p className={`text-[10px] ${isDarkMode ? 'text-yellow-300/80' : 'text-yellow-700'}`}>
+                              Hãy bật ít nhất một buổi (Sáng/Chiều/Tối) cho {dayKeyToLabel[selectedDayKey]} trước khi chọn địa điểm.
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className={`rounded border overflow-hidden mb-1 ${isDarkMode ? 'border-purple-500/30' : 'border-gray-300'}`} style={{ minHeight: '180px' }}>
+                          <OpenStreetMapPicker
+                            key={`perday-map-${selectedDayKey}-${dailyLocations[selectedDayKey]?.address || 'none'}-${dailyLocations[selectedDayKey]?.lat || '0'}-${dailyLocations[selectedDayKey]?.lng || '0'}`}
+                            onLocationChange={(location) => {
+                              if (location && location.address) {
+                                handleDayLocationSelect(selectedDayKey, location);
+                              }
+                            }}
+                            initialLocation={dailyLocations[selectedDayKey] || undefined}
+                            isDarkMode={isDarkMode}
+                            enforceActiveTimeSlots={false}
+                            locationContext="perDay"
+                            dayLabel={dayKeyToLabel[selectedDayKey]}
+                          />
+                        </div>
+                      )}
+                      {dailyLocations[selectedDayKey] ? (
+                        <div className="space-y-1">
+                          <div className={`rounded border px-1.5 py-1 text-[10px] ${isDarkMode ? 'border-green-500/30 bg-green-500/10 text-green-200' : 'border-green-300 bg-green-50 text-green-700'}`}>
+                            <div className="font-semibold flex items-center gap-0.5 mb-0.5">
+                              <MapPin size={9} strokeWidth={2} />
+                              <span className="truncate">{dailyLocations[selectedDayKey]?.address}</span>
+                            </div>
+                            <div className="flex items-center gap-1 text-[9px] opacity-80">
+                              <span>{formatCoordinate(dailyLocations[selectedDayKey]?.lat)}, {formatCoordinate(dailyLocations[selectedDayKey]?.lng)}</span>
+                              <span>•</span>
+                              <span>{dailyLocations[selectedDayKey]?.radius ?? 200}m</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleClearDayLocation(selectedDayKey)}
+                            className={`w-full px-2 py-1 rounded text-[10px] font-semibold transition flex items-center justify-center gap-1 ${
+                              isDarkMode 
+                                ? 'bg-red-500/20 text-red-200 hover:bg-red-500/30' 
+                                : 'bg-red-50 text-red-600 hover:bg-red-100'
+                            }`}
+                          >
+                            <XCircle size={10} strokeWidth={2} />
+                            <span>Xóa địa điểm</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className={`rounded border px-1.5 py-1 text-[10px] text-center ${isDarkMode ? 'border-gray-700 bg-gray-800/50 text-gray-400' : 'border-gray-300 bg-gray-50 text-gray-500'}`}>
+                          Chưa chọn địa điểm. Hãy chọn trên bản đồ phía trên.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* PerSlot Mode: Map picker cho từng buổi */}
+                  {isPerSlotMode && totalWeeklyActive > 0 && (
+                    <div className="mt-4">
+                      {renderPerSlotModeContent()}
+                    </div>
+                  )}
+                            </div>
+              </div>
+
+              {/* 4. Người phụ trách */}
+              <div className={`p-4 rounded-xl bg-white ${isDarkMode ? 'border border-gray-700/50' : 'border-2 border-gray-300'} shadow-lg`}>
+                <div className="mb-3">
+                  <h2 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>4. Người phụ trách</h2>
+                </div>
+                
+                {/* Chọn người phụ trách */}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className={`text-xs font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                      Người phụ trách
+                    </label>
+                    {form.responsiblePerson.length > 0 && (
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full ${isDarkMode ? 'bg-blue-500/20 text-blue-200' : 'bg-blue-100 text-blue-700'}`}>
+                        Đã chọn {form.responsiblePerson.length} người
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Dropdown chọn người */}
+                  <div className="relative mb-3">
+                    <div className="relative">
+                      <select
+                        value={selectedPersonId}
+                        onChange={(e) => {
+                          const selectedId = e.target.value;
+                          if (selectedId && !form.responsiblePerson.includes(selectedId)) {
+                            handleToggleResponsiblePerson(selectedId);
+                            setSelectedPersonId('');
+                          }
+                        }}
+                        disabled={loadingResponsiblePersons}
+                        className={`w-full px-3 py-2.5 rounded-lg border-2 text-sm appearance-none cursor-pointer ${
+                          isDarkMode
+                            ? 'bg-gray-600/50 border-gray-500/50 text-white'
+                            : 'bg-white border-gray-300 text-gray-900'
+                        } focus:outline-none focus:ring-2 focus:ring-blue-500/50`}
+                      >
+                        <option value="">
+                          {loadingResponsiblePersons ? 'Đang tải...' : 'Chọn người phụ trách...'}
+                        </option>
+                        {!loadingResponsiblePersons && responsiblePersons
+                          .filter(p => !form.responsiblePerson.includes(p._id))
+                          .map((person) => (
+                            <option key={person._id} value={person._id}>
+                              {person.name} ({getRoleDisplayName(person.role)})
+                              {person.studentId && ` - ${person.studentId}`}
+                            </option>
+                          ))}
+                      </select>
+                      <ChevronDown 
+                        size={18} 
+                        className={`absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none ${
+                          isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                        }`} 
+                        strokeWidth={2} 
+                      />
+                    </div>
+                  </div>
+
+                  {/* Card chứa người đã chọn */}
+                  {form.responsiblePerson.length > 0 ? (
+                    <div className={`space-y-2 p-3 rounded-lg border-2 ${isDarkMode ? 'border-gray-700 bg-gray-800/30' : 'border-gray-300 bg-gray-50'}`}>
+                      {form.responsiblePerson.map((personId) => {
+                        const person = responsiblePersons.find(p => p._id === personId);
+                        if (!person) return null;
+                        return (
+                          <div
+                            key={personId}
+                            className={`flex items-center justify-between p-2.5 rounded-lg border-2 ${
+                              isDarkMode
+                                ? 'bg-gray-800/50 border-gray-700/50'
+                                : 'bg-white border-gray-200'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <div className={`w-10 h-10 rounded-full overflow-hidden flex-shrink-0 border-2 ${
+                                isDarkMode ? 'border-gray-600' : 'border-gray-300'
+                              }`}>
+                                {(person.avatarUrl || person.imageUrl) && !imageErrors.has(personId) ? (
+                                  <img
+                                    src={person.avatarUrl || person.imageUrl}
+                                    alt={person.name}
+                                    className="w-full h-full object-cover"
+                                    onError={() => {
+                                      setImageErrors(prev => new Set(prev).add(personId));
+                                    }}
+                                  />
+                                ) : (
+                                  <div className={`w-full h-full flex items-center justify-center ${
+                                    isDarkMode ? 'bg-blue-500/20 text-blue-200' : 'bg-blue-100 text-blue-600'
+                                  }`}>
+                                    <User size={20} strokeWidth={2} />
                                   </div>
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className={`text-xs font-semibold truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                                  {person.name}
+                                </div>
+                                <div className={`text-[10px] truncate ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  {getRoleDisplayName(person.role)} • {getStatusDisplayName(person.status)}
+                                  {person.studentId && ` • ${person.studentId}`}
                                 </div>
                               </div>
                             </div>
-                            <div className={`rounded-2xl px-4 py-3 ${isDarkMode ? 'bg-blue-900/20 border border-blue-500/30 text-blue-100' : 'bg-blue-50/90 border border-blue-200/60 text-blue-700'}`}>
-                              <p className="text-sm font-semibold mb-2 flex items-center gap-2">
-                                <span>⚙️</span>Hành động nhanh
-                              </p>
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => applyLocationToSlots(locationData.address, 'all')}
-                                  className={`${isDarkMode ? 'bg-blue-500/25 text-blue-50 border border-blue-500/40 hover:bg-blue-500/35' : 'bg-blue-500 text-white border border-blue-500 hover:bg-blue-600'} px-3.5 py-2 rounded-xl text-xs font-semibold transition`}
-                                >
-                                  Áp dụng cho mọi buổi đang bật
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => applyLocationToSlots(locationData.address, selectedDayKey)}
-                                  className={`${isDarkMode ? 'bg-purple-500/20 text-purple-100 border border-purple-500/40 hover:bg-purple-500/30' : 'bg-purple-100 text-purple-700 border border-purple-200 hover:bg-purple-200'} px-3.5 py-2 rounded-xl text-xs font-semibold transition`}
-                                >
-                                  Áp dụng cho {dayKeyToLabel[selectedDayKey]}
-                                </button>
-                              </div>
-                              <p className={`text-[11px] mt-2 ${isDarkMode ? 'text-blue-200/70' : 'text-blue-600/80'}`}>
-                                Bạn có thể chỉnh sửa địa điểm chi tiết từng buổi ở phần &quot;Lịch tuần&quot; bên trên.
-                              </p>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleResponsiblePerson(personId)}
+                              className={`p-1.5 rounded transition ${
+                                isDarkMode
+                                  ? 'text-red-300 hover:bg-red-500/20'
+                                  : 'text-red-600 hover:bg-red-50'
+                              }`}
+                              title="Xóa"
+                            >
+                              <X size={16} strokeWidth={2.5} />
+                            </button>
                           </div>
-                        ) : (
-                          <div className={`rounded-2xl px-4 py-4 text-sm text-center border-2 border-dashed ${isDarkMode ? 'border-gray-700 text-gray-300 bg-gray-900/40' : 'border-gray-200 text-gray-600 bg-gray-50/70'}`}>
-                            Chưa có địa điểm. Hãy tìm kiếm hoặc click trực tiếp trên bản đồ để thả marker.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {isPerDayMode && (
-                  <div className="mt-5 space-y-4">
-                    <div className={`rounded-2xl px-5 py-4 border ${isDarkMode ? 'border-purple-500/30 bg-purple-900/20 text-purple-100' : 'border-purple-200 bg-purple-50 text-purple-700'}`}>
-                      <div className="flex items-start gap-3">
-                        <span className="text-xl">🗓️</span>
-                        <div className="flex-1">
-                          <p className="text-sm font-semibold">Chọn địa điểm riêng từng ngày</p>
-                          <p className="text-xs mt-1 leading-relaxed">
-                            Mỗi ngày có thể đặt một địa điểm chung cho các buổi đã bật. Bạn vẫn có thể chỉnh thêm địa điểm chi tiết theo buổi nếu cần.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {dayKeyOrder.map((day) => {
-                        const summary = getDaySummary(day);
-                        const isSelected = dayLocationEditor === day;
-                        return (
-                          <button
-                            key={`day-mode-${day}`}
-                            type="button"
-                            onClick={() => setDayLocationEditor(day)}
-                            className={`px-3.5 py-2 rounded-xl text-sm font-semibold border transition ${isSelected
-                              ? isDarkMode ? 'bg-purple-500/30 border-purple-400 text-purple-100 shadow-lg' : 'bg-purple-100 border-purple-400 text-purple-700 shadow'
-                              : isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-300 hover:border-purple-400 hover:text-purple-200' : 'bg-white border-gray-200 text-gray-700 hover:border-purple-300 hover:text-purple-600'}`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <span>{dayKeyToLabel[day]}</span>
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${summary.active > 0
-                                ? isDarkMode ? 'bg-green-500/30 text-green-200' : 'bg-green-100 text-green-700'
-                                : isDarkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600'}`}>
-                                {summary.active}/{summary.total}
-                              </span>
-                            </div>
-                          </button>
                         );
                       })}
                     </div>
-                    <div className={`rounded-3xl border overflow-hidden ${isDarkMode ? 'border-purple-500/20 bg-gradient-to-br from-gray-900 via-gray-850 to-gray-900' : 'border-purple-200 bg-gradient-to-br from-white via-purple-50/30 to-blue-50/30'} shadow-xl`}>
-                      <div className="px-6 py-5 flex flex-col gap-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Đang chọn: {dayKeyToLabel[dayLocationEditor]}</span>
-                              {dailyLocations[dayLocationEditor] && (
-                                <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${isDarkMode ? 'bg-green-500/30 text-green-100' : 'bg-green-100 text-green-700'}`}>Đã có địa điểm</span>
-                              )}
-                            </div>
-                            <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                              Chọn địa điểm trên bản đồ dưới đây. Địa điểm sẽ áp dụng cho tất cả buổi đã bật trong ngày này.
-                            </p>
-                          </div>
-                          {dailyLocations[dayLocationEditor] && (
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleCopyDayLocationToAll(dayLocationEditor)}
-                                className={`${isDarkMode ? 'bg-blue-500/20 text-blue-100 border border-blue-500/40 hover:bg-blue-500/30' : 'bg-blue-100 text-blue-700 border border-blue-200 hover:bg-blue-200'} px-3 py-1.5 rounded-lg text-xs font-semibold transition`}
-                              >
-                                Sao chép cho toàn tuần
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleClearDayLocation(dayLocationEditor)}
-                                className={`${isDarkMode ? 'bg-red-500/20 text-red-200 border border-red-500/40 hover:bg-red-500/30' : 'bg-red-100 text-red-600 border border-red-200 hover:bg-red-200'} px-3 py-1.5 rounded-lg text-xs font-semibold transition`}
-                              >
-                                Xóa địa điểm
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                        <div className="relative rounded-2xl border border-dashed border-white/10 overflow-hidden">
-                          <OpenStreetMapPicker
-                            key={`day-map-${dayLocationEditor}-${dailyLocations[dayLocationEditor]?.lat ?? 'empty'}-${dailyLocations[dayLocationEditor]?.lng ?? 'empty'}`}
-                            onLocationChange={(location) => handleDayLocationSelect(dayLocationEditor, location)}
-                            initialLocation={dailyLocations[dayLocationEditor] || undefined}
-                            isDarkMode={isDarkMode}
-                            enforceActiveTimeSlots={false}
-                          />
-                        </div>
-                        {dailyLocations[dayLocationEditor] ? (
-                          <div className={`rounded-2xl px-4 py-3 ${isDarkMode ? 'bg-green-900/20 border border-green-500/30 text-green-100' : 'bg-green-50/90 border border-green-200/60 text-green-700'}`}>
-                            <div className="text-xs leading-relaxed">
-                              <div className="font-semibold mb-1">Địa điểm ngày {dayKeyToLabel[dayLocationEditor]}</div>
-                              <div>{dailyLocations[dayLocationEditor]?.address}</div>
-                              <div className="grid grid-cols-3 gap-2 mt-2 text-[11px] font-semibold">
-                                <span className={`${isDarkMode ? 'bg-black/40 text-gray-100' : 'bg-white/70 text-gray-700'} rounded-lg px-2 py-1 border border-white/10`}>Lat: {formatCoordinate(dailyLocations[dayLocationEditor]?.lat)}</span>
-                                <span className={`${isDarkMode ? 'bg-black/40 text-gray-100' : 'bg-white/70 text-gray-700'} rounded-lg px-2 py-1 border border-white/10`}>Lng: {formatCoordinate(dailyLocations[dayLocationEditor]?.lng)}</span>
-                                <span className={`${isDarkMode ? 'bg-black/40 text-gray-100' : 'bg-white/70 text-gray-700'} rounded-lg px-2 py-1 border border-white/10`}>Bán kính: {dailyLocations[dayLocationEditor]?.radius ?? 200}m</span>
+                  ) : (
+                    <div className={`p-4 rounded-lg border-2 border-dashed text-center ${isDarkMode ? 'border-gray-700 text-gray-400 bg-gray-800/30' : 'border-gray-300 text-gray-500 bg-gray-50'}`}>
+                      <User size={24} className={`mx-auto mb-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} strokeWidth={1.5} />
+                      <p className="text-xs">Chưa chọn người phụ trách</p>
+                    </div>
+                  )}
+
+                  {form.responsiblePerson.length === 0 && !loadingResponsiblePersons && (
+                    <p className={`text-[10px] mt-2 ${isDarkMode ? 'text-yellow-300' : 'text-yellow-600'}`}>
+                      <AlertCircle size={12} className="inline mr-1" strokeWidth={2} />
+                      Vui lòng chọn ít nhất một người phụ trách
+                    </p>
+                  )}
+                </div>
+
+                {/* Danh sách người đăng ký */}
+                <div className="border-t pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <label className={`text-xs font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                        Danh sách người đăng ký
+                      </label>
+                      <p className={`text-[10px] mt-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Hiển thị những người đã đăng ký tham gia hoạt động
+                      </p>
+                    </div>
+                    {loadingParticipants ? (
+                      <Loader size={16} className="animate-spin" />
+                    ) : (
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full ${isDarkMode ? 'bg-blue-500/20 text-blue-200' : 'bg-blue-100 text-blue-700'}`}>
+                        {activityMembers.length} người đăng ký
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Danh sách người đã đăng ký */}
+                  {loadingParticipants ? (
+                    <div className={`text-center py-8 rounded-lg border-2 border-dashed ${isDarkMode ? 'border-gray-700 text-gray-400 bg-gray-800/30' : 'border-gray-300 text-gray-500 bg-gray-50'}`}>
+                      <Loader size={24} className={`mx-auto mb-2 animate-spin ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
+                      <p className="text-xs">Đang tải danh sách người đăng ký...</p>
+                    </div>
+                  ) : activityMembers.length > 0 ? (
+                    <div className="space-y-2">
+                      {activityMembers.map((member) => {
+                        // Map role từ database format sang display format
+                        const getRoleDisplay = (role: MemberRole) => {
+                          const roleMap: Record<MemberRole, { label: string; icon: React.ReactNode; color: string }> = {
+                            leader: {
+                              label: 'Trưởng nhóm',
+                              icon: <Crown size={14} strokeWidth={2} />,
+                              color: isDarkMode ? 'bg-yellow-500/20 text-yellow-200 border-yellow-500/40' : 'bg-yellow-100 text-yellow-700 border-yellow-300'
+                            },
+                            deputy: {
+                              label: 'Phó trưởng nhóm',
+                              icon: <UserCheck size={14} strokeWidth={2} />,
+                              color: isDarkMode ? 'bg-blue-500/20 text-blue-200 border-blue-500/40' : 'bg-blue-100 text-blue-700 border-blue-300'
+                            },
+                            member: {
+                              label: 'Thành viên tham gia',
+                              icon: <User size={14} strokeWidth={2} />,
+                              color: isDarkMode ? 'bg-gray-500/20 text-gray-200 border-gray-500/40' : 'bg-gray-100 text-gray-700 border-gray-300'
+                            }
+                          };
+                          return roleMap[role] || roleMap.member;
+                        };
+                        const roleInfo = getRoleDisplay(member.role);
+                        return (
+                          <div
+                            key={member.userId}
+                            className={`flex items-center justify-between p-2.5 rounded-lg border-2 ${isDarkMode ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}
+                          >
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <div className={`flex items-center gap-1.5 px-2 py-1 rounded border ${roleInfo.color}`}>
+                                {roleInfo.icon}
+                                <span className="text-[10px] font-semibold">{roleInfo.label}</span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className={`text-xs font-semibold truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                                  {member.name}
+                                </div>
+                                <div className={`text-[10px] truncate ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  {member.studentId ? `${member.studentId} • ` : ''}{member.email}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        ) : (
-                          <div className={`rounded-2xl px-4 py-3 text-sm text-center border-2 border-dashed ${isDarkMode ? 'border-gray-700 text-gray-300 bg-gray-900/40' : 'border-gray-200 text-gray-600 bg-gray-50/70'}`}>
-                            Chưa có địa điểm cho ngày này. Hãy chọn trên bản đồ.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {isPerSlotMode && (
-                  <div className="mt-4 space-y-3">
-                    <div className={`rounded-xl px-4 py-3 text-sm border ${isDarkMode ? 'border-purple-500/30 bg-purple-900/20 text-purple-200' : 'border-purple-200 bg-purple-50 text-purple-700'}`}>
-                      <div className="flex items-start gap-2">
-                        <span className="text-lg">🗺️</span>
-                        <div>
-                          <p className="font-semibold">Đang sử dụng chế độ địa điểm theo buổi</p>
-                          <p className="text-xs mt-1">
-                            Bản đồ chung được ẩn để tránh trùng lặp. Nếu cần chọn địa điểm chung, tạm tắt công tắc &quot;Kích hoạt&quot; bên dưới, chọn địa điểm rồi bật lại.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                    {locationData ? (
-                      <div className={`rounded-xl px-4 py-3 text-xs leading-relaxed border ${isDarkMode ? 'border-green-500/30 bg-green-900/20 text-green-100' : 'border-green-200 bg-green-50 text-green-700'}`}>
-                        <div className="font-semibold mb-1">Địa điểm chung hiện tại</div>
-                        <div>{locationData.address}</div>
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold">
-                          <button
-                            type="button"
-                            onClick={() => applyLocationToSlots(locationData.address, 'all')}
-                            className={`${isDarkMode ? 'bg-blue-500/25 text-blue-100 border border-blue-500/40 hover:bg-blue-500/35' : 'bg-blue-500 text-white border border-blue-500 hover:bg-blue-600'} px-3.5 py-2 rounded-xl transition`}
-                          >Áp dụng cho mọi buổi đang bật</button>
-                          <button
-                            type="button"
-                            onClick={() => applyLocationToSlots(locationData.address, selectedDayKey)}
-                            className={`${isDarkMode ? 'bg-purple-500/20 text-purple-100 border border-purple-500/40 hover:bg-purple-500/30' : 'bg-purple-100 text-purple-700 border border-purple-200 hover:bg-purple-200'} px-3.5 py-2 rounded-xl transition`}
-                          >Áp dụng cho {dayKeyToLabel[selectedDayKey]}</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className={`rounded-xl px-4 py-3 text-xs border ${isDarkMode ? 'border-gray-700 bg-gray-800/60 text-gray-300' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
-                        Chưa có địa điểm chung. Bạn vẫn có thể chọn địa điểm riêng cho từng buổi ở phần bên dưới.
-                      </div>
-                    )}
-                  </div>
-                )}
-                {isPerSlotMode && (
-                <div id="session-map-section" className="mt-6">
-                  <div className={`rounded-2xl border ${isDarkMode ? 'border-gray-700/60 bg-gray-900/70' : 'border-blue-100/70 bg-white/95'} p-5 shadow-lg`}>
-                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                      <div>
-                        <h3 className={`text-sm font-semibold uppercase tracking-wide ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Địa điểm theo buổi</h3>
-                        <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                          Chọn địa điểm riêng cho từng buổi (Sáng/Chiều/Tối) của từng ngày trong tuần.
-                        </p>
-                      </div>
-                    </div>
-
-                    {isPerSlotMode && (
-                      <div className="mt-5 space-y-5">
-                        <div className="space-y-3">
-                          <div className={`text-xs font-semibold uppercase tracking-wide ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                            Chọn ngày để chỉnh địa điểm
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {dayKeyOrder.map((day) => {
-                              const summary = getDaySummary(day);
-                              const isSelected = locationEditorDay === day;
-                              return (
-                                <button
-                                  key={`location-day-${day}`}
-                                  type="button"
-                                  onClick={() => {
-                                    setLocationEditorDay(day);
-                                    const activeSlots = getActiveTimeSlotsForDay(day);
-                                    setSelectedTimeSlotForLocation(prev => (prev && activeSlots.includes(prev) ? prev : activeSlots[0] ?? null));
-                                  }}
-                                  className={`px-3.5 py-2 rounded-xl text-sm font-semibold transition-all border ${isSelected
-                                    ? isDarkMode ? 'bg-blue-500/30 border-blue-400 text-blue-100 shadow-lg' : 'bg-blue-100 border-blue-400 text-blue-700 shadow'
-                                    : isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-300 hover:border-blue-400 hover:text-blue-200' : 'bg-white border-gray-200 text-gray-700 hover:border-blue-400 hover:text-blue-600'}`}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <span>{dayKeyToLabel[day]}</span>
-                                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${summary.active > 0
-                                      ? isDarkMode ? 'bg-green-500/30 text-green-200' : 'bg-green-100 text-green-700'
-                                      : isDarkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600'}`}>
-                                      {summary.active}/{summary.total}
-                                    </span>
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        <div className={`rounded-2xl border ${isDarkMode ? 'border-gray-700/60 bg-gray-900/60' : 'border-gray-200 bg-white'} p-4`}>
-                          {getActiveTimeSlotsForDay(locationEditorDay).length === 0 ? (
-                            <div className={`text-center py-10 rounded-xl border-2 border-dashed ${isDarkMode ? 'border-gray-700 text-gray-400 bg-gray-900/50' : 'border-gray-300 text-gray-500 bg-gray-50/70'}`}>
-                              <div className="text-4xl mb-3">⏳</div>
-                              <div className="text-sm font-medium">Chưa có buổi nào được kích hoạt trong {dayKeyToLabel[locationEditorDay]}.</div>
-                              <div className="text-xs mt-1">Hãy bật buổi Sáng/Chiều/Tối trong phần &quot;Lịch tuần&quot; trước.</div>
+                            <div className="flex items-center gap-2">
+                              {member.approvalStatus && (
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded ${
+                                  member.approvalStatus === 'approved'
+                                    ? isDarkMode ? 'bg-green-500/20 text-green-200' : 'bg-green-100 text-green-700'
+                                    : member.approvalStatus === 'rejected'
+                                    ? isDarkMode ? 'bg-red-500/20 text-red-200' : 'bg-red-100 text-red-700'
+                                    : isDarkMode ? 'bg-yellow-500/20 text-yellow-200' : 'bg-yellow-100 text-yellow-700'
+                                }`}>
+                                  {member.approvalStatus === 'approved' ? 'Đã duyệt' : member.approvalStatus === 'rejected' ? 'Từ chối' : 'Chờ duyệt'}
+                                </span>
+                              )}
                             </div>
-                          ) : (
-                            <MultiTimeLocationPicker
-                              onLocationsChange={(locations) => handleDayLocationsChange(locationEditorDay, locations)}
-                              initialLocations={weeklySlotLocations[locationEditorDay]}
-                              isDarkMode={isDarkMode}
-                              selectedTimeSlot={selectedTimeSlotForLocation}
-                              onTimeSlotSelect={(slot) => setSelectedTimeSlotForLocation(slot)}
-                              activeTimeSlots={getActiveTimeSlotsForDay(locationEditorDay)}
-                            />
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className={`text-center py-8 rounded-lg border-2 border-dashed ${isDarkMode ? 'border-gray-700 text-gray-400 bg-gray-800/30' : 'border-gray-300 text-gray-500 bg-gray-50'}`}>
+                      <Users size={32} className={`mx-auto mb-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} strokeWidth={1.5} />
+                      <p className={`text-xs font-semibold mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                        {isEditMode ? 'Chưa có người đăng ký tham gia' : 'Chưa có người đăng ký'}
+                      </p>
+                      <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                        {isEditMode 
+                          ? 'Danh sách sẽ hiển thị khi có người đăng ký tham gia hoạt động này'
+                          : 'Sau khi tạo hoạt động và có người đăng ký, danh sách sẽ hiển thị tại đây'}
+                      </p>
+                    </div>
+                  )}
                 </div>
-                )}
               </div>
 
-              {/* 5. Người phụ trách */}
-              <div className={`p-5 rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' : 'bg-gradient-to-br from-white/90 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'} shadow-lg`}>
-                <div className="flex items-center mb-4">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center mr-3 ${isDarkMode ? 'bg-gradient-to-br from-green-500/30 to-emerald-500/30 border border-green-500/20' : 'bg-gradient-to-br from-green-100 to-emerald-100 border border-green-200'}`}>
-                    <span className="text-lg">👤</span>
-                  </div>
-                  <div>
-                    <h2 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>5. Người phụ trách</h2>
-                  </div>
-                </div>
-                <select name="responsiblePerson" value={form.responsiblePerson} onChange={handleChange} required className={`w-full px-3 py-2.5 rounded-lg border text-base ${isDarkMode ? 'bg-gray-600/50 border-gray-500/50 text-white' : 'bg-white/90 border-gray-300/50 text-gray-900'}`}>
-                  <option value="">{loadingResponsiblePersons ? '⏳ Đang tải...' : 'Chọn người phụ trách...'}</option>
-                  {!loadingResponsiblePersons && responsiblePersons.map((p) => (
-                    <option key={p._id} value={p._id}>
-                      {p.name} ({getRoleDisplayName(p.role)}) - {getStatusDisplayName(p.status)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 6. Lịch trình theo ngày */}
-              <div className={`p-5 rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' : 'bg-gradient-to-br from-white/90 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'} shadow-lg`}>
-                <div className="flex items-center mb-4">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center mr-3 ${isDarkMode ? 'bg-gradient-to-br from-purple-500/30 to-pink-500/30 border border-purple-500/20' : 'bg-gradient-to-br from-purple-100 to-pink-100 border border-purple-200'}`}>
-                    <span className="text-lg">🗂️</span>
-                  </div>
-                  <div>
-                    <h2 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>6. Lịch trình theo ngày</h2>
-                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Ghi chú bổ sung theo ngày (tùy chọn). Mặc định ẩn để giao diện gọn.</p>
-                  </div>
-                </div>
+              {/* 5. Ghi chú tổng quan */}
+              <div className={`p-4 rounded-xl bg-white ${isDarkMode ? 'border border-gray-700/50' : 'border-2 border-gray-300'} shadow-lg`}>
                 <div className="mb-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowPerDayNotes(v => !v)}
-                    className={`px-4 py-2 rounded-lg text-xs font-semibold ${isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-800'} border ${isDarkMode ? 'border-gray-600' : 'border-gray-200'}`}
-                  >
-                    {showPerDayNotes ? 'Ẩn ghi chú theo ngày' : 'Hiện ghi chú theo ngày'}
-                  </button>
+                  <h2 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>5. Ghi chú tổng quan</h2>
+                  <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Thông tin tổng quan, yêu cầu đặc biệt hoặc ghi chú chung cho toàn bộ hoạt động.</p>
                 </div>
-                {!showPerDayNotes ? null : datesInRange.length === 0 ? (
-                  <div className={`text-center py-8 rounded-2xl border-2 border-dashed ${isDarkMode ? 'border-gray-600 bg-gray-700/30' : 'border-gray-300 bg-gray-50/50'}`}>
-                    <div className="text-sm">Chọn ngày bắt đầu và ngày kết thúc để tạo lịch trình</div>
-                  </div>
-                ) : (
-                  <div className="space-y-3 max-h-80 overflow-auto pr-1">
-                    {datesInRange.map((d, idx) => (
-                      <div key={d} className={`p-3 rounded-xl border ${isDarkMode ? 'bg-gray-700/30 border-gray-600/50' : 'bg-gray-50/50 border-gray-200/50'}`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="font-semibold text-sm">{`Ngày ${idx + 1} — ${new Date(d).toLocaleDateString('vi-VN', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}`}</div>
-                        </div>
-                        <textarea
-                          value={daySchedules[d] || ''}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            setDaySchedules(prev => ({ ...prev, [d]: value }));
-                          }}
-                          rows={2}
-                          className={`w-full px-3 py-2 rounded-lg border text-sm ${isDarkMode ? 'bg-gray-700/50 border-gray-600/50 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
-                          placeholder="Mô tả hoạt động trong ngày..."
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* 7. Ghi chú bổ sung */}
-              <div className={`p-5 rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' : 'bg-gradient-to-br from-white/90 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'} shadow-lg`}>
-                <div className="flex items-center mb-4">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center mr-3 ${isDarkMode ? 'bg-gradient-to-br from-blue-500/30 to-indigo-500/30 border border-blue-500/20' : 'bg-gradient-to-br from-blue-100 to-indigo-100 border border-blue-200'}`}>
-                    <span className="text-lg">📝</span>
-                  </div>
-                  <div>
-                    <h2 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>7. Ghi chú bổ sung</h2>
-                  </div>
-                </div>
-                <textarea name="overview" value={form.overview} onChange={handleChange} rows={4} className={`w-full px-3 py-2.5 rounded-lg border text-sm ${isDarkMode ? 'bg-gray-600/50 border-gray-500/50 text-white' : 'bg-white/80 border-gray-300/50 text-gray-900'}`} placeholder="Thông tin chi tiết hoặc yêu cầu đặc biệt..." />
+                <textarea name="overview" value={form.overview} onChange={handleChange} rows={4} className={`w-full px-3 py-2 rounded-lg border-2 text-xs ${isDarkMode ? 'bg-gray-600/50 border-gray-500/50 text-white' : 'bg-white border-gray-300 text-gray-900'}`} placeholder="Thông tin chi tiết hoặc yêu cầu đặc biệt..." />
               </div>
 
               <div className="flex justify-center pt-2">
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className={`px-8 py-3 rounded-2xl text-base font-bold transition-all duration-300 ${isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105 hover:shadow-xl'} ${
+                  className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 ${isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105 hover:shadow-xl'} ${
                     isDarkMode
                       ? 'bg-gradient-to-r from-blue-600 via-purple-600 to-blue-700 text-white'
                       : 'bg-gradient-to-r from-blue-500 via-purple-500 to-blue-600 text-white'
                   }`}
                 >
-                  {isLoading ? 'Đang tạo hoạt động...' : 'Tạo hoạt động nhiều ngày'}
+                  {isLoading 
+                    ? (isEditMode ? 'Đang cập nhật hoạt động...' : 'Đang tạo hoạt động...') 
+                    : (isEditMode ? 'Cập nhật hoạt động nhiều ngày' : 'Tạo hoạt động nhiều ngày')}
                 </button>
               </div>
             </form>
@@ -1944,24 +4068,112 @@ export default function CreateMultipleDaysActivityPage() {
         <Footer />
       </div>
 
-      {showSuccessModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className={`relative w-full max-w-sm rounded-2xl shadow-2xl ${isDarkMode ? 'bg-gray-800 border border-gray-600' : 'bg-white border border-gray-200'}`}>
-            <div className="flex items-center justify-center p-6 border-b border-gray-200 dark:border-gray-600">
-              <div className="flex items-center justify-center w-16 h-16 rounded-full bg-green-100 dark:bg-green-900">
-                <svg className="w-8 h-8 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
+      {/* Modal Crop Ảnh */}
+      {showCropModal && imagePreview && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className={`relative w-full max-w-3xl rounded-lg ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}>
+            {/* Crop Area */}
+            <div className="relative w-full" style={{ height: '400px' }}>
+              <Cropper
+                image={imagePreview}
+                crop={crop}
+                zoom={zoom}
+                onCropChange={setCrop}
+                onZoomChange={setZoom}
+                onCropComplete={onCropComplete}
+                cropShape="rect"
+                style={{
+                  containerStyle: {
+                    width: '100%',
+                    height: '100%',
+                    position: 'relative',
+                  },
+                }}
+              />
+            </div>
+
+            {/* Controls - Đơn giản */}
+            <div className={`p-3 flex items-center justify-between border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setZoom(prev => Math.max(1, prev - 0.2))}
+                  className={`p-2 rounded-lg transition ${
+                    isDarkMode 
+                      ? 'bg-gray-800 hover:bg-gray-700 text-gray-300' 
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+                  }`}
+                  title="Thu nhỏ"
+                >
+                  <Minus size={18} strokeWidth={2} />
+                </button>
+                <span className={`text-xs font-medium min-w-[3rem] text-center ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                  {zoom.toFixed(1)}x
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setZoom(prev => Math.min(3, prev + 0.2))}
+                  className={`p-2 rounded-lg transition ${
+                    isDarkMode 
+                      ? 'bg-gray-800 hover:bg-gray-700 text-gray-300' 
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+                  }`}
+                  title="Phóng to"
+                >
+                  <Plus size={18} strokeWidth={2} />
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowCropModal(false);
+                    setSelectedImage(null);
+                    setImagePreview('');
+                    setCrop({ x: 0, y: 0 });
+                    setZoom(1);
+                    setCroppedAreaPixels(null);
+                  }}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition ${
+                    isDarkMode 
+                      ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' 
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={handleCropComplete}
+                  disabled={!croppedAreaPixels}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition ${
+                    croppedAreaPixels
+                      ? 'bg-blue-600 text-white hover:bg-blue-700'
+                      : 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                  }`}
+                >
+                  Xác nhận
+                </button>
               </div>
             </div>
-            <div className="p-6 text-center">
-              <h3 className={`text-xl font-bold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Thành công!</h3>
-              <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{successMessage}</p>
+          </div>
+        </div>
+      )}
+
+      {showSuccessModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className={`relative w-full max-w-sm rounded-xl shadow-2xl bg-white ${isDarkMode ? 'border-2 border-gray-600' : 'border-2 border-gray-300'}`}>
+            <div className="flex items-center justify-center p-4 border-b-2 border-gray-300">
+              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white border-2 border-gray-300">
+                <CheckCircle2 size={24} className="text-green-600" strokeWidth={1.5} />
+              </div>
             </div>
-            <div className="flex justify-center p-6 border-t border-gray-200 dark:border-gray-600">
+            <div className="p-4 text-center">
+              <h3 className={`text-base font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Thành công!</h3>
+              <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{successMessage}</p>
+            </div>
+            <div className="flex justify-center p-4 border-t-2 border-gray-300">
               <button
                 onClick={() => setShowSuccessModal(false)}
-                className="px-8 py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 transition-all duration-200 hover:scale-105"
+                className="px-6 py-2 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 transition-all duration-200"
               >
                 OK
               </button>

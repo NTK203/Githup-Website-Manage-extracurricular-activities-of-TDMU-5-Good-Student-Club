@@ -449,17 +449,25 @@ export default function StudentNav() {
   const getMembershipChip = () => {
     if (loading) {
       return (
-        <div className="flex items-center px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-800">
+        <div className={`flex items-center px-2 py-1 rounded-md ${
+          isDarkMode ? 'bg-gray-800' : 'bg-gray-100'
+        }`}>
           <div className="animate-spin w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full mr-1"></div>
-          <span className="text-xs text-gray-600 dark:text-gray-400">...</span>
+          <span className={`text-xs ${
+            isDarkMode ? 'text-gray-400' : 'text-gray-600'
+          }`}>...</span>
         </div>
       );
     }
 
     if (!membershipStatus) {
       return (
-        <div className="flex items-center px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-800">
-          <span className="text-xs text-gray-700 dark:text-gray-300 font-medium">Chưa là thành viên</span>
+        <div className={`flex items-center px-2 py-1 rounded-md ${
+          isDarkMode ? 'bg-gray-800' : 'bg-gray-100'
+        }`}>
+          <span className={`text-xs font-medium ${
+            isDarkMode ? 'text-gray-300' : 'text-gray-700'
+          }`}>Chưa là thành viên</span>
         </div>
       );
     }
@@ -467,35 +475,57 @@ export default function StudentNav() {
     switch (membershipStatus) {
       case 'ACTIVE':
         return (
-          <div className="flex items-center px-2 py-1 rounded-md bg-green-100 dark:bg-green-900/30">
-            <span className="text-xs text-green-700 dark:text-green-300 font-medium">Thành viên</span>
+          <div className={`flex items-center px-2 py-1 rounded-md ${
+            isDarkMode ? 'bg-green-900/30' : 'bg-green-100'
+          }`}>
+            <span className={`text-xs font-medium ${
+              isDarkMode ? 'text-green-300' : 'text-green-700'
+            }`}>Thành viên</span>
           </div>
         );
       case 'PENDING':
         return (
-          <div className="flex items-center px-2 py-1 rounded-md bg-yellow-100 dark:bg-yellow-900/30">
-            <span className="text-xs text-yellow-700 dark:text-yellow-300 font-medium">Đang chờ duyệt</span>
+          <div className={`flex items-center px-2 py-1 rounded-md ${
+            isDarkMode ? 'bg-yellow-900/30' : 'bg-yellow-100'
+          }`}>
+            <span className={`text-xs font-medium ${
+              isDarkMode ? 'text-yellow-300' : 'text-yellow-700'
+            }`}>Đang chờ duyệt</span>
           </div>
         );
       case 'REJECTED':
         return (
-          <div className="flex items-center px-2 py-1 rounded-md bg-red-100 dark:bg-red-900/30">
-            <span className="text-xs text-red-700 dark:text-red-300 font-medium">Đơn bị từ chối</span>
+          <div className={`flex items-center px-2 py-1 rounded-md ${
+            isDarkMode ? 'bg-red-900/30' : 'bg-red-100'
+          }`}>
+            <span className={`text-xs font-medium ${
+              isDarkMode ? 'text-red-300' : 'text-red-700'
+            }`}>Đơn bị từ chối</span>
           </div>
         );
       case 'INACTIVE':
         return (
-          <div className="flex items-center px-2 py-1 rounded-md bg-red-100 dark:bg-red-900/30" title="Tài khoản của bạn đã bị vô hiệu hóa. Vui lòng liên hệ admin để được hỗ trợ.">
-            <svg className="w-3 h-3 mr-1 text-red-600 dark:text-red-400" fill="currentColor" viewBox="0 0 20 20">
+          <div className={`flex items-center px-2 py-1 rounded-md ${
+            isDarkMode ? 'bg-red-900/30' : 'bg-red-100'
+          }`} title="Tài khoản của bạn đã bị vô hiệu hóa. Vui lòng liên hệ admin để được hỗ trợ.">
+            <svg className={`w-3 h-3 mr-1 ${
+              isDarkMode ? 'text-red-400' : 'text-red-600'
+            }`} fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
             </svg>
-            <span className="text-xs text-red-700 dark:text-red-300 font-medium">Tài khoản không hoạt động</span>
+            <span className={`text-xs font-medium ${
+              isDarkMode ? 'text-red-300' : 'text-red-700'
+            }`}>Tài khoản không hoạt động</span>
           </div>
         );
       case 'REMOVED':
         return (
-          <div className="flex items-center px-2 py-1 rounded-md bg-red-100 dark:bg-red-900/30">
-            <span className="text-xs text-red-700 dark:text-red-300 font-medium">Đã bị xóa khỏi CLB</span>
+          <div className={`flex items-center px-2 py-1 rounded-md ${
+            isDarkMode ? 'bg-red-900/30' : 'bg-red-100'
+          }`}>
+            <span className={`text-xs font-medium ${
+              isDarkMode ? 'text-red-300' : 'text-red-700'
+            }`}>Đã bị xóa khỏi CLB</span>
           </div>
         );
       default:
@@ -507,20 +537,30 @@ export default function StudentNav() {
     <>
       {/* Warning banner for inactive accounts */}
       {membershipStatus === 'INACTIVE' && (
-        <div className="bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800">
+        <div className={`border-b ${
+          isDarkMode ? 'bg-red-900/20 border-red-800' : 'bg-red-50 border-red-200'
+        }`}>
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
-                <svg className="w-5 h-5 text-red-600 dark:text-red-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <svg className={`w-5 h-5 mr-2 ${
+                  isDarkMode ? 'text-red-400' : 'text-red-600'
+                }`} fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                 </svg>
-                <p className="text-sm text-red-700 dark:text-red-300">
+                <p className={`text-sm ${
+                  isDarkMode ? 'text-red-300' : 'text-red-700'
+                }`}>
                   <strong>Tài khoản không hoạt động:</strong> Tài khoản của bạn đã bị vô hiệu hóa. Vui lòng liên hệ admin để được hỗ trợ.
                 </p>
               </div>
               <button
                 onClick={() => router.push('/student/contact')}
-                className="text-sm text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200 font-medium underline"
+                className={`text-sm font-medium underline ${
+                  isDarkMode 
+                    ? 'text-red-400 hover:text-red-200' 
+                    : 'text-red-600 hover:text-red-800'
+                }`}
               >
                 Liên hệ ngay
               </button>
@@ -529,7 +569,9 @@ export default function StudentNav() {
         </div>
       )}
       
-      <nav className={`${isDarkMode ? 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800' : 'bg-white border-gray-200'} border-b sticky top-0 z-50 transition-all duration-300 shadow-sm`}>
+      <nav className={`border-b sticky top-0 z-50 transition-all duration-300 shadow-sm ${
+        isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'
+      }`}>
          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
            <div className="flex items-center justify-between h-14">
             
@@ -851,10 +893,14 @@ export default function StudentNav() {
                        <img
                          src={user.avatarUrl}
                          alt="Avatar"
-                         className="w-8 h-8 rounded-full object-cover ring-2 ring-gray-200 dark:ring-gray-600 shadow-sm"
+                         className={`w-8 h-8 rounded-full object-cover ring-2 shadow-sm ${
+                           isDarkMode ? 'ring-gray-600' : 'ring-gray-200'
+                         }`}
                        />
                      ) : (
-                       <div className="w-8 h-8 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full flex items-center justify-center ring-2 ring-gray-200 dark:ring-gray-600 shadow-sm">
+                       <div className={`w-8 h-8 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full flex items-center justify-center ring-2 shadow-sm ${
+                         isDarkMode ? 'ring-gray-600' : 'ring-gray-200'
+                       }`}>
                          <span className="text-white text-sm font-bold">
                            {user?.name?.split(' ').pop()?.charAt(0) || 'S'}
                          </span>
@@ -883,10 +929,14 @@ export default function StudentNav() {
                            <img
                              src={user.avatarUrl}
                              alt="Avatar"
-                             className="w-12 h-12 rounded-full object-cover ring-2 ring-gray-200 dark:ring-gray-600 shadow-sm"
+                             className={`w-12 h-12 rounded-full object-cover ring-2 shadow-sm ${
+                               isDarkMode ? 'ring-gray-600' : 'ring-gray-200'
+                             }`}
                            />
                          ) : (
-                           <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full flex items-center justify-center ring-2 ring-gray-200 dark:ring-gray-600 shadow-sm">
+                           <div className={`w-12 h-12 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full flex items-center justify-center ring-2 shadow-sm ${
+                             isDarkMode ? 'ring-gray-600' : 'ring-gray-200'
+                           }`}>
                              <span className="text-white text-xl font-bold">
                                {user?.name?.charAt(0) || 'S'}
                              </span>

@@ -15,6 +15,8 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     const type = searchParams.get('type');
     const search = searchParams.get('search');
+    const dateFrom = searchParams.get('dateFrom');
+    const dateTo = searchParams.get('dateTo');
     
     // Build filter object
     const filter: any = {};
@@ -35,6 +37,21 @@ export async function GET(request: NextRequest) {
       ];
     }
     
+    // Filter by date range
+    if (dateFrom || dateTo) {
+      filter.date = {};
+      if (dateFrom) {
+        const fromDate = new Date(dateFrom);
+        fromDate.setHours(0, 0, 0, 0);
+        filter.date.$gte = fromDate;
+      }
+      if (dateTo) {
+        const toDate = new Date(dateTo);
+        toDate.setHours(23, 59, 59, 999);
+        filter.date.$lte = toDate;
+      }
+    }
+    
     // Calculate skip value for pagination
     const skip = (page - 1) * limit;
     
@@ -43,8 +60,8 @@ export async function GET(request: NextRequest) {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate('responsiblePerson', 'name email')
-      .populate('createdBy', 'name email')
+      .populate('responsiblePerson', 'name email avatarUrl')
+      .populate('createdBy', 'name email avatarUrl')
       .lean();
     
     // Get total count for pagination
@@ -97,31 +114,94 @@ export async function POST(request: NextRequest) {
     }
     
     const body = await request.json();
-    console.log('Received activity data:', body);
     
-    // Validate required fields
-    if (!body.name || !body.description || !body.date || !body.responsiblePerson) {
+    // Validate required fields based on activity type
+    const missingFields: string[] = [];
+    if (!body.name) missingFields.push('name');
+    if (!body.description) missingFields.push('description');
+    if (!body.responsiblePerson) missingFields.push('responsiblePerson');
+    
+    // For single day activities, date is required
+    // For multiple days activities, startDate and endDate are required
+    if (body.type === 'multiple_days') {
+      if (!body.startDate) missingFields.push('startDate');
+      if (!body.endDate) missingFields.push('endDate');
+      if (!body.schedule || !Array.isArray(body.schedule) || body.schedule.length === 0) {
+        missingFields.push('schedule');
+      }
+      // Don't set date for multiple_days - it's optional
+      // Only set if explicitly provided
+    } else {
+      if (!body.date) missingFields.push('date');
+    }
+    
+    if (missingFields.length > 0) {
       return NextResponse.json(
         { 
           success: false, 
           message: 'Missing required fields',
-          details: ['name', 'description', 'date', 'responsiblePerson'].filter(field => !body[field])
+          details: missingFields
         },
         { status: 400 }
       );
     }
     
-    // Create new activity with user info
-    const activity = new Activity({
+    // Convert date strings to Date objects if needed
+    const activityData: any = {
       ...body,
       createdBy: new mongoose.Types.ObjectId(user.userId),
       updatedBy: new mongoose.Types.ObjectId(user.userId),
       createdAt: new Date(),
       updatedAt: new Date()
-    });
+    };
     
-    const savedActivity = await activity.save();
-    console.log('Activity created successfully:', savedActivity);
+    // Convert date strings to Date objects
+    if (activityData.date && typeof activityData.date === 'string') {
+      activityData.date = new Date(activityData.date);
+    }
+    if (activityData.startDate && typeof activityData.startDate === 'string') {
+      activityData.startDate = new Date(activityData.startDate);
+    }
+    if (activityData.endDate && typeof activityData.endDate === 'string') {
+      activityData.endDate = new Date(activityData.endDate);
+    }
+    if (activityData.schedule && Array.isArray(activityData.schedule)) {
+      activityData.schedule = activityData.schedule.map((item: any) => ({
+        ...item,
+        date: item.date instanceof Date ? item.date : new Date(item.date)
+      }));
+    }
+    
+    // For multiple_days, don't set date field (it's optional and may cause validation issues)
+    if (activityData.type === 'multiple_days') {
+      // Only keep date if it was explicitly provided, otherwise remove it
+      if (!body.date) {
+        delete activityData.date;
+      }
+    }
+    
+    // Create new activity with user info
+    const activity = new Activity(activityData);
+    
+    let savedActivity;
+    try {
+      savedActivity = await activity.save();
+    } catch (saveError: any) {
+      // Handle validation errors
+      if (saveError.name === 'ValidationError') {
+        const validationErrors = Object.values(saveError.errors || {}).map((err: any) => err.message);
+        return NextResponse.json(
+          { 
+            success: false, 
+            message: 'Validation failed',
+            details: validationErrors
+          },
+          { status: 400 }
+        );
+      }
+      
+      throw saveError;
+    }
     
     // Send notification to all club members about new activity
     try {

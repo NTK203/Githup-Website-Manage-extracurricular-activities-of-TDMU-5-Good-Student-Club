@@ -67,17 +67,22 @@ export function useAuth() {
           return updatedUser; // Return the updated user
         } else {
           console.error('Failed to refetch user data:', data.error);
-          logout();
+          // Chỉ logout nếu chắc chắn token không hợp lệ (401)
+          if (response.status === 401) {
+            logout();
+          }
         }
       } else if (response.status === 401) {
         console.warn('Token expired or invalid during refetch, logging out.');
         logout();
       } else {
-        console.error('Error refetching user data:', response.statusText);
+        // Không logout khi có lỗi server (500, 503, etc.) - chỉ log
+        console.error('Error refetching user data:', response.status, response.statusText);
       }
     } catch (error) {
+      // Không logout khi có network error - có thể là tạm thời
       console.error('Network error refetching user data:', error);
-      logout(); // Logout on network errors to prevent stale data
+      // Chỉ log, không logout để tránh redirect loop
     }
   };
 
@@ -114,7 +119,11 @@ export function useAuth() {
         });
         
         // IMPORTANT: Refetch user data from backend to ensure it's up-to-date
-        refetchUser();
+        // Delay refetch để không chậm quá trình load ban đầu
+        // Chỉ refetch sau khi UI đã render xong
+        setTimeout(() => {
+          refetchUser();
+        }, 1000); // 1 giây delay để trang load nhanh hơn
 
       } catch (error) {
         console.error('Error parsing user data:', error);
@@ -199,6 +208,19 @@ export function useAuth() {
   };
 
   const logout = () => {
+    const token = localStorage.getItem('token');
+    
+    // Call logout API để xóa session trước khi xóa token
+    if (token) {
+      fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      }).catch(console.error);
+    }
+    
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     
@@ -208,9 +230,6 @@ export function useAuth() {
       isAuthenticated: false,
       isLoading: false
     });
-
-    // Call logout API (optional)
-    fetch('/api/auth/logout', { method: 'POST' }).catch(console.error);
     
     // Redirect to login page
     router.push('/auth/login');

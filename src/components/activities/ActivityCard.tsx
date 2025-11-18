@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Calendar, MapPin, Users, Clock, Eye, Edit, Trash2, Lock, Unlock } from 'lucide-react';
 
 interface ActivityCardProps {
   activity: {
@@ -130,15 +131,15 @@ export default function ActivityCard({
   const currentParticipants = activity.participants.length;
 
   return (
-    <div className={`group relative overflow-hidden rounded-3xl border transition-all duration-500 hover:shadow-2xl hover:scale-[1.01] ${
+    <div className={`group relative overflow-hidden rounded-xl border transition-all duration-300 hover:shadow-lg ${
       isDarkMode 
-        ? 'bg-gradient-to-br from-gray-800/90 via-gray-800/80 to-gray-900/90 border-gray-700/40 hover:border-blue-500/30 shadow-xl' 
-        : 'bg-gradient-to-br from-white/95 via-white/90 to-gray-50/95 border-gray-200/40 hover:border-blue-400/30 shadow-lg'
-    } backdrop-blur-md`}>
+        ? 'bg-gray-800/90 border-gray-700/40 hover:border-blue-500/30 shadow-md' 
+        : 'bg-white border-gray-200/40 hover:border-blue-400/30 shadow-sm'
+    }`}>
       
       {/* Activity Image */}
       {activity.imageUrl && (
-        <div className="relative h-48 overflow-hidden">
+        <div className="relative h-32 overflow-hidden">
           <img
             src={activity.imageUrl}
             alt={activity.name}
@@ -159,106 +160,100 @@ export default function ActivityCard({
           
           {/* Visibility indicator */}
           <div className="absolute top-4 left-4">
-            <span className={`inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full ${
+            <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full ${
               activity.visibility === 'public' 
                 ? 'bg-green-100 text-green-800 dark:bg-green-700 dark:text-green-200' 
                 : 'bg-orange-100 text-orange-800 dark:bg-orange-700 dark:text-orange-200'
             }`}>
-              {activity.visibility === 'public' ? '🔓 Công khai' : '🔒 Riêng tư'}
+              {activity.visibility === 'public' ? (
+                <>
+                  <Unlock size={12} />
+                  Công khai
+                </>
+              ) : (
+                <>
+                  <Lock size={12} />
+                  Riêng tư
+                </>
+              )}
             </span>
           </div>
         </div>
       )}
 
-      {/* Content Section - Harmonious Layout */}
-      <div className="p-6 lg:p-8">
-        <div className="flex flex-col lg:flex-row items-start space-y-6 lg:space-y-0 lg:space-x-8">
+      {/* Content Section - Compact Layout */}
+      <div className="p-4">
+        <div className="flex flex-col lg:flex-row items-start space-y-4 lg:space-y-0 lg:space-x-4">
           {/* Left Side - Main Info */}
           <div className="flex-1 min-w-0 w-full lg:w-auto">
             {/* Title and Description */}
-            <div className="mb-6">
-              <h3 className={`text-2xl font-bold mb-3 line-clamp-2 leading-tight ${
-                isDarkMode ? 'text-white' : 'text-gray-900'
-              }`}>
-                {activity.name}
-              </h3>
-              <p className={`text-base leading-relaxed line-clamp-2 ${
-                isDarkMode ? 'text-gray-300' : 'text-gray-600'
-              }`}>
-                {activity.description}
-              </p>
-            </div>
+          <div className="mb-3">
+            <h3 className={`text-lg font-bold mb-1.5 line-clamp-2 leading-tight ${
+              isDarkMode ? 'text-white' : 'text-gray-900'
+            }`}>
+              {activity.name}
+            </h3>
+            <p className={`text-sm leading-relaxed line-clamp-2 ${
+              isDarkMode ? 'text-gray-300' : 'text-gray-600'
+            }`}>
+              {activity.description}
+            </p>
+          </div>
 
-            {/* Key Information - Elegant Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-              <div className={`flex items-center space-x-3 p-4 rounded-2xl border transition-all duration-300 hover:scale-105 ${
-                isDarkMode ? 'bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/15' : 'bg-blue-50/80 border-blue-200/50 hover:bg-blue-100/80'
+            {/* Key Information - Compact Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+              <div className={`flex items-center space-x-2 p-2 rounded-lg border transition-all duration-300 ${
+                isDarkMode ? 'bg-blue-500/10 border-blue-500/20' : 'bg-blue-50/80 border-blue-200/50'
               }`}>
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                  isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
-                }`}>
-                  <span className="text-xl">📅</span>
-                </div>
-                <div>
-                  <p className={`text-xs font-semibold uppercase tracking-wide ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
-                    Ngày diễn ra
+                <Calendar size={16} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-[10px] font-medium ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
+                    Ngày
                   </p>
-                  <p className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  <p className={`text-xs font-bold truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                     {formatDate(activity.date)}
                   </p>
                 </div>
               </div>
               
-              <div className={`flex items-center space-x-3 p-4 rounded-2xl border transition-all duration-300 hover:scale-105 ${
-                isDarkMode ? 'bg-green-500/10 border-green-500/20 hover:bg-green-500/15' : 'bg-green-50/80 border-green-200/50 hover:bg-green-100/80'
+              <div className={`flex items-center space-x-2 p-2 rounded-lg border transition-all duration-300 ${
+                isDarkMode ? 'bg-green-500/10 border-green-500/20' : 'bg-green-50/80 border-green-200/50'
               }`}>
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                  isDarkMode ? 'bg-green-500/20' : 'bg-green-100'
-                }`}>
-                  <span className="text-xl">📍</span>
-                </div>
+                <MapPin size={16} className={isDarkMode ? 'text-green-400' : 'text-green-600'} />
                 <div className="flex-1 min-w-0">
-                  <p className={`text-xs font-semibold uppercase tracking-wide ${isDarkMode ? 'text-green-300' : 'text-green-600'}`}>
+                  <p className={`text-[10px] font-medium ${isDarkMode ? 'text-green-300' : 'text-green-600'}`}>
                     Địa điểm
                   </p>
-                  <p className={`text-sm font-bold line-clamp-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  <p className={`text-xs font-bold truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                     {activity.location}
                   </p>
                 </div>
               </div>
               
-              <div className={`flex items-center space-x-3 p-4 rounded-2xl border transition-all duration-300 hover:scale-105 ${
-                isDarkMode ? 'bg-purple-500/10 border-purple-500/20 hover:bg-purple-500/15' : 'bg-purple-50/80 border-purple-200/50 hover:bg-purple-100/80'
+              <div className={`flex items-center space-x-2 p-2 rounded-lg border transition-all duration-300 ${
+                isDarkMode ? 'bg-purple-500/10 border-purple-500/20' : 'bg-purple-50/80 border-purple-200/50'
               }`}>
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                  isDarkMode ? 'bg-purple-500/20' : 'bg-purple-100'
-                }`}>
-                  <span className="text-xl">👥</span>
-                </div>
-                <div>
-                  <p className={`text-xs font-semibold uppercase tracking-wide ${isDarkMode ? 'text-purple-300' : 'text-purple-600'}`}>
+                <Users size={16} className={isDarkMode ? 'text-purple-400' : 'text-purple-600'} />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-[10px] font-medium ${isDarkMode ? 'text-purple-300' : 'text-purple-600'}`}>
                     Tham gia
                   </p>
-                  <p className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                     {currentParticipants}/{activity.maxParticipants}
                   </p>
                 </div>
               </div>
               
-              <div className={`flex items-center space-x-3 p-4 rounded-2xl border transition-all duration-300 hover:scale-105 ${
-                isDarkMode ? 'bg-orange-500/10 border-orange-500/20 hover:bg-orange-500/15' : 'bg-orange-50/80 border-orange-200/50 hover:bg-orange-100/80'
+              <div className={`flex items-center space-x-2 p-2 rounded-lg border transition-all duration-300 ${
+                isDarkMode ? 'bg-orange-500/10 border-orange-500/20' : 'bg-orange-50/80 border-orange-200/50'
               }`}>
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                  isDarkMode ? 'bg-orange-500/20' : 'bg-orange-100'
-                }`}>
-                  <span className="text-xl">🕒</span>
-                </div>
-                <div>
-                  <p className={`text-xs font-semibold uppercase tracking-wide ${isDarkMode ? 'text-orange-300' : 'text-orange-600'}`}>
+                <Clock size={16} className={isDarkMode ? 'text-orange-400' : 'text-orange-600'} />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-[10px] font-medium ${isDarkMode ? 'text-orange-300' : 'text-orange-600'}`}>
                     Số buổi
                   </p>
-                  <p className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    {activeTimeSlots.length} buổi
+                  <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    {activeTimeSlots.length}
                   </p>
                 </div>
               </div>
@@ -268,49 +263,38 @@ export default function ActivityCard({
           {/* Right Side - Time Slots & Actions */}
           <div className="w-full lg:w-96 flex-shrink-0">
 
-            {/* Time Slots - Elegant Design */}
+            {/* Time Slots - Compact Design */}
             {activeTimeSlots.length > 0 && (
-              <div className="mb-6">
-                <h4 className={`text-lg font-bold mb-4 flex items-center ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                  <span className="mr-2">🕒</span>
+              <div className="mb-4">
+                <h4 className={`text-sm font-bold mb-2 flex items-center ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  <Clock size={14} className="mr-1.5" />
                   Lịch trình
                 </h4>
                 <div className="space-y-3">
                   {activeTimeSlots.map((slot, index) => (
-                    <div key={index} className={`flex items-center justify-between p-4 rounded-2xl border transition-all duration-300 hover:scale-105 ${
+                    <div key={index} className={`flex items-center justify-between p-2 rounded-lg border ${
                       isDarkMode 
-                        ? 'bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border-indigo-500/20 hover:from-indigo-500/15 hover:to-purple-500/15' 
-                        : 'bg-gradient-to-r from-indigo-50/80 to-purple-50/80 border-indigo-200/50 hover:from-indigo-100/80 hover:to-purple-100/80'
+                        ? 'bg-indigo-500/10 border-indigo-500/20' 
+                        : 'bg-indigo-50/80 border-indigo-200/50'
                     }`}>
-                      <div className="flex items-center space-x-3">
-                        <span className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold ${
+                      <div className="flex items-center space-x-2">
+                        <span className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold ${
                           isDarkMode 
-                            ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg' 
-                            : 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg'
+                            ? 'bg-indigo-500 text-white' 
+                            : 'bg-indigo-500 text-white'
                         }`}>
                           {index + 1}
                         </span>
                         <div>
-                          <span className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                          <span className={`text-xs font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                             {slot.name}
                           </span>
-                          <p className={`text-xs ${isDarkMode ? 'text-indigo-300' : 'text-indigo-600'}`}>
-                            Thời gian hoạt động
-                          </p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <span className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                        <span className={`text-xs font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                           {slot.startTime} - {slot.endTime}
                         </span>
-                        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                          {(() => {
-                            const start = new Date(`2000-01-01T${slot.startTime}`);
-                            const end = new Date(`2000-01-01T${slot.endTime}`);
-                            const diff = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
-                            return `${diff.toFixed(1)} giờ`;
-                          })()}
-                        </p>
                       </div>
                     </div>
                   ))}
@@ -318,44 +302,47 @@ export default function ActivityCard({
               </div>
             )}
 
-            {/* Action Buttons - Balanced Design */}
-            <div className="flex items-center justify-end space-x-2">
+            {/* Action Buttons - Compact Design */}
+            <div className="flex items-center justify-end space-x-1.5">
               {onView && (
                 <button
                   onClick={() => onView(activity._id)}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-300 ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-300 flex items-center gap-1 ${
                     isDarkMode
-                      ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white shadow-md hover:shadow-lg'
-                      : 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white shadow-md hover:shadow-lg'
-                  } hover:scale-105`}
+                      ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                      : 'bg-blue-500 hover:bg-blue-600 text-white'
+                  }`}
                 >
-                  👁️ Xem
+                  <Eye size={12} />
+                  Xem
                 </button>
               )}
               
               {onEdit && (
                 <button
                   onClick={() => onEdit(activity._id)}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-300 ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-300 flex items-center gap-1 ${
                     isDarkMode
-                      ? 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white shadow-md hover:shadow-lg'
-                      : 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-400 hover:to-green-500 text-white shadow-md hover:shadow-lg'
-                  } hover:scale-105`}
+                      ? 'bg-green-600 hover:bg-green-500 text-white'
+                      : 'bg-green-500 hover:bg-green-600 text-white'
+                  }`}
                 >
-                  ✏️ Sửa
+                  <Edit size={12} />
+                  Sửa
                 </button>
               )}
               
               {onDelete && (
                 <button
                   onClick={() => onDelete(activity._id)}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-300 ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-300 flex items-center gap-1 ${
                     isDarkMode
-                      ? 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white shadow-md hover:shadow-lg'
-                      : 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-400 hover:to-red-500 text-white shadow-md hover:shadow-lg'
-                  } hover:scale-105`}
+                      ? 'bg-red-600 hover:bg-red-500 text-white'
+                      : 'bg-red-500 hover:bg-red-600 text-white'
+                  }`}
                 >
-                  🗑️ Xóa
+                  <Trash2 size={12} />
+                  Xóa
                 </button>
               )}
             </div>
