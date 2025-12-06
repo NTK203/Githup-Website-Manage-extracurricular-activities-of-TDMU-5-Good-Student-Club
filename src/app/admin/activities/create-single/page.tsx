@@ -140,6 +140,7 @@ export default function CreateSingleActivityPage() {
     location: '',
     detailedLocation: '', // Thêm trường địa điểm chi tiết
     maxParticipants: '',
+    registrationThreshold: '80', // Phần trăm tối thiểu để đăng ký (mặc định 80%)
     visibility: 'public', // 'public' or 'private'
     responsiblePerson: '',
     status: 'draft', // 'draft', 'published', 'ongoing', 'completed', 'cancelled', 'postponed'
@@ -333,7 +334,6 @@ export default function CreateSingleActivityPage() {
     const timeSlot = timeSlots.find((slot, idx) => idx === timeSlotIndex && slot != null && slot.id != null) || timeSlots[timeSlotIndex];
     
     if (!timeSlot || typeof timeSlot !== 'object' || !('isActive' in timeSlot) || !timeSlot.isActive) {
-      console.log('⚠️ Cannot select location for inactive time slot:', timeSlotKey);
       return; // Don't allow selection for inactive time slots
     }
     
@@ -355,7 +355,6 @@ export default function CreateSingleActivityPage() {
     const timeSlot = timeSlots.find((slot, idx) => idx === timeSlotIndex && slot != null && slot.id != null) || timeSlots[timeSlotIndex];
     
     if (!timeSlot || typeof timeSlot !== 'object' || !('isActive' in timeSlot) || !timeSlot.isActive) {
-      console.log('⚠️ Cannot select location for inactive time slot:', timeSlotKey);
       return; // Don't allow selection for inactive time slots
     }
     
@@ -411,6 +410,45 @@ export default function CreateSingleActivityPage() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    
+    // Validate registrationThreshold: must be between 0 and 100
+    if (name === 'registrationThreshold') {
+      const trimmedValue = value.trim();
+      
+      // Allow empty string while typing, but validate when it's a number
+      if (trimmedValue === '') {
+        setForm(prev => ({
+          ...prev,
+          [name]: ''
+        }));
+        return;
+      }
+      
+      const numValue = parseInt(trimmedValue);
+      if (!isNaN(numValue)) {
+        if (numValue > 100) {
+          setForm(prev => ({
+            ...prev,
+            [name]: '100'
+          }));
+          return;
+        }
+        if (numValue < 0) {
+          setForm(prev => ({
+            ...prev,
+            [name]: '0'
+          }));
+          return;
+        }
+        // Valid number, use trimmed value
+        setForm(prev => ({
+          ...prev,
+          [name]: trimmedValue
+        }));
+        return;
+      }
+    }
+    
     setForm(prev => ({
       ...prev,
       [name]: value
@@ -524,6 +562,14 @@ export default function CreateSingleActivityPage() {
         throw new Error('Ngày diễn ra là bắt buộc');
       }
       
+      // Validate registrationThreshold: must be between 0 and 100
+      if (form.registrationThreshold && form.registrationThreshold.trim() !== '') {
+        const thresholdValue = parseInt(form.registrationThreshold);
+        if (isNaN(thresholdValue) || thresholdValue < 0 || thresholdValue > 100) {
+          throw new Error('Ngưỡng đăng ký tối thiểu phải từ 0 đến 100%');
+        }
+      }
+      
       // Validate time slots first (needed for location validation)
       const activeTimeSlots = timeSlots.filter((slot): slot is TimeSlot => slot != null && typeof slot === 'object' && 'isActive' in slot && slot.isActive === true);
       if (activeTimeSlots.length === 0) {
@@ -560,7 +606,7 @@ export default function CreateSingleActivityPage() {
         }
       }
       
-      if (!form.responsiblePerson) {
+      if (!form.responsiblePerson || form.responsiblePerson.trim() === '') {
         throw new Error('Người phụ trách là bắt buộc');
       }
 
@@ -568,7 +614,6 @@ export default function CreateSingleActivityPage() {
       let imageUrl = form.imageUrl; // Keep existing URL if no new image selected
       if (selectedImage) {
         // Always upload new image if selected, even in edit mode
-        console.log('📤 Uploading new image to Cloudinary...');
         const token = localStorage.getItem('token');
         if (!token) {
           throw new Error('Không tìm thấy token xác thực. Vui lòng đăng nhập lại.');
@@ -591,7 +636,6 @@ export default function CreateSingleActivityPage() {
 
         const uploadResult = await uploadResponse.json();
         imageUrl = uploadResult.url;
-        console.log('✅ New image uploaded successfully:', imageUrl);
       }
 
       // Prepare activity data according to the Activity model
@@ -602,25 +646,32 @@ export default function CreateSingleActivityPage() {
           ? form.location 
           : (locationData ? locationData.address : '');
       
-      // Create date object - ensure it represents the selected date correctly
+      // Create date ISO string - ensure it represents the selected date correctly
       // form.date is in format "YYYY-MM-DD"
       // Create as ISO string with UTC time 00:00:00 to avoid timezone conversion issues
       // When server receives this, it will parse it correctly regardless of server timezone
-      const activityDate = form.date ? (() => {
-        // Create date string in ISO format: "YYYY-MM-DDTHH:mm:ss.sssZ"
-        // This ensures the date is interpreted correctly on the server
-        const dateString = `${form.date}T00:00:00.000Z`;
-        return new Date(dateString);
-      })() : null;
+      const activityDate = form.date ? `${form.date}T00:00:00.000Z` : null;
       
-      console.log('📅 Activity date:', activityDate);
+      console.log('📅 Activity date (ISO string):', activityDate);
       console.log('📅 Form date:', form.date);
-      console.log('📅 Date ISO string:', activityDate?.toISOString());
       
+      // Parse registrationThreshold - handle empty string, null, undefined, but allow 0
+      // Ensure value is between 0 and 100
+      let registrationThresholdValue = 80;
+      const thresholdStr = form.registrationThreshold?.toString().trim() || '';
+      
+      if (thresholdStr !== '') {
+        const parsedValue = parseInt(thresholdStr, 10);
+        
+        if (!isNaN(parsedValue)) {
+          registrationThresholdValue = Math.max(0, Math.min(100, parsedValue)); // Clamp between 0 and 100
+        }
+      }
+
       const activityData = {
-        name: form.name,
-        description: form.description,
-        date: activityDate,
+        name: form.name.trim(),
+        description: form.description.trim(),
+        date: activityDate, // ISO string format
         location: finalLocation,
         locationData: useMultiTimeLocation ? undefined : (locationData ? {
           lat: locationData.lat,
@@ -630,12 +681,13 @@ export default function CreateSingleActivityPage() {
         } : undefined),
         multiTimeLocations: useMultiTimeLocation ? multiTimeLocations : undefined,
         maxParticipants: form.maxParticipants ? parseInt(form.maxParticipants) : undefined,
+        registrationThreshold: registrationThresholdValue,
         visibility: form.visibility as 'public' | 'private',
-        responsiblePerson: form.responsiblePerson,
+        responsiblePerson: form.responsiblePerson.trim(), // Ensure it's a valid string
         status: form.status as 'draft' | 'published' | 'ongoing' | 'completed' | 'cancelled' | 'postponed',
         type: 'single_day' as ActivityType,
         imageUrl: imageUrl || undefined,
-        overview: form.overview || undefined,
+        overview: form.overview ? form.overview.trim() : undefined,
         timeSlots: timeSlots
           .filter((slot): slot is TimeSlot => slot != null && slot.id != null && slot.isActive === true)
           .map(slot => {
@@ -720,6 +772,13 @@ export default function CreateSingleActivityPage() {
       const result = await response.json();
       console.log(`Activity ${isEditMode ? 'updated' : 'created'}:`, result);
       
+      
+      // Reload activity data after successful update to reflect changes
+      if (isEditMode && activityId) {
+        console.log('🔄 Reloading activity data after update...');
+        await loadActivityData(activityId);
+      }
+      
       // Show success modal instead of alert
       setSuccessMessage(`Hoạt động đã được ${isEditMode ? 'cập nhật' : 'tạo'} thành công!`);
       setShowSuccessModal(true);
@@ -733,6 +792,7 @@ export default function CreateSingleActivityPage() {
           location: '',
           detailedLocation: '',
           maxParticipants: '',
+          registrationThreshold: '80',
           visibility: 'public',
           responsiblePerson: '',
           status: 'draft',
@@ -796,7 +856,11 @@ export default function CreateSingleActivityPage() {
       
       if (result.success && result.data.activity) {
         const activity = result.data.activity;
-        console.log('Loaded activity data:', activity);
+        // Parse registrationThreshold
+        let registrationThresholdValue = '80';
+        if (activity.registrationThreshold !== undefined && activity.registrationThreshold !== null) {
+          registrationThresholdValue = activity.registrationThreshold.toString();
+        }
         
         // Fill form data - handle MongoDB data structure
         setForm({
@@ -806,41 +870,20 @@ export default function CreateSingleActivityPage() {
           location: activity.location || '',
           detailedLocation: activity.detailedLocation || '',
           maxParticipants: activity.maxParticipants?.toString() || '50',
+          registrationThreshold: registrationThresholdValue,
           visibility: activity.visibility || 'public',
           responsiblePerson: activity.responsiblePerson?._id || activity.responsiblePerson || '',
           status: activity.status || 'draft',
           imageUrl: activity.imageUrl || '',
           overview: activity.overview || '',
         });
-        
-        console.log('Form data set:', {
-          name: activity.name || '',
-          description: activity.description || '',
-          date: activity.date ? new Date(activity.date).toISOString().split('T')[0] : '',
-          location: activity.location || '',
-          detailedLocation: activity.detailedLocation || '',
-          maxParticipants: activity.maxParticipants?.toString() || '50',
-          visibility: activity.visibility || 'public',
-          responsiblePerson: activity.responsiblePerson?._id || activity.responsiblePerson || '',
-          status: activity.status || 'draft',
-          imageUrl: activity.imageUrl || '',
-          overview: activity.overview || '',
-        });
-        
-        console.log('📝 Raw overview from activity:', activity.overview);
-        console.log('📝 Form overview set to:', activity.overview || '');
         
         // Auto-show additional notes if there's existing overview data
         if (activity.overview && activity.overview.trim()) {
           setShowAdditionalNotes(true);
-          console.log('📝 Auto-showing additional notes because overview exists:', activity.overview);
         }
-        
-        console.log('🖼️ Image URL from activity:', activity.imageUrl);
-        console.log('🖼️ Form imageUrl set to:', activity.imageUrl || '');
 
         // Fill time slots - handle MongoDB data structure
-        console.log('🕐 Raw time slots from activity:', activity.timeSlots);
         
         // Default time slots structure
         const defaultTimeSlots: TimeSlot[] = [
@@ -1580,6 +1623,97 @@ export default function CreateSingleActivityPage() {
                         } focus:outline-none transition-all duration-300 backdrop-blur-sm`}
                         placeholder="Nhập số lượng tối đa..."
                       />
+                    </div>
+                  </div>
+
+                  {/* Row 2.5: Ngưỡng đăng ký - Enhanced */}
+                  <div className={`p-4 rounded-xl ${isDarkMode ? 'bg-gradient-to-br from-orange-900/20 to-amber-900/10 border border-orange-500/30' : 'bg-gradient-to-br from-orange-50/80 to-amber-50/60 border border-orange-200/50'} backdrop-blur-sm shadow-sm`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <label className={`flex items-center gap-2 text-xs font-bold ${isDarkMode ? 'text-orange-200' : 'text-orange-700'}`}>
+                        <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-orange-500/20' : 'bg-orange-100'}`}>
+                          <Trophy className="w-4 h-4 text-orange-500" strokeWidth={2} />
+                        </div>
+                        <span>Ngưỡng đăng ký tối thiểu</span>
+                      </label>
+                      {form.registrationThreshold && (
+                        <div className={`px-3 py-1 rounded-full text-xs font-bold ${
+                          parseInt(form.registrationThreshold) >= 80
+                            ? isDarkMode ? 'bg-green-500/30 text-green-200 border border-green-500/50' : 'bg-green-100 text-green-700 border border-green-300'
+                            : isDarkMode ? 'bg-yellow-500/30 text-yellow-200 border border-yellow-500/50' : 'bg-yellow-100 text-yellow-700 border border-yellow-300'
+                        }`}>
+                          {form.registrationThreshold}%
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Progress Bar */}
+                    <div className="mb-3">
+                      <div className={`w-full h-2 rounded-full overflow-hidden ${isDarkMode ? 'bg-gray-700/50' : 'bg-gray-200'}`}>
+                        <div 
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            parseInt(form.registrationThreshold || '0') >= 80
+                              ? 'bg-gradient-to-r from-green-500 to-emerald-500'
+                              : parseInt(form.registrationThreshold || '0') >= 50
+                              ? 'bg-gradient-to-r from-yellow-500 to-orange-500'
+                              : 'bg-gradient-to-r from-red-500 to-pink-500'
+                          }`}
+                          style={{ width: `${Math.min(parseInt(form.registrationThreshold || '0'), 100)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Input và Quick Select */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          name="registrationThreshold"
+                          value={form.registrationThreshold}
+                          onChange={handleChange}
+                          min="0"
+                          max="100"
+                          className={`flex-1 px-3 py-2.5 rounded-lg border-2 text-sm font-semibold text-center ${
+                            isDarkMode 
+                              ? 'bg-gray-800/60 border-orange-500/50 text-white placeholder-gray-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-500/30' 
+                              : 'bg-white border-orange-300 text-gray-900 placeholder-gray-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20'
+                          } focus:outline-none transition-all duration-300`}
+                          placeholder="80"
+                        />
+                        <span className={`text-sm font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>%</span>
+                      </div>
+
+                      {/* Quick Select Buttons */}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`text-[10px] font-medium mr-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Chọn nhanh:</span>
+                        {[50, 70, 80, 90, 100].map((value) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setForm(prev => ({ ...prev, registrationThreshold: value.toString() }))}
+                            className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all duration-200 ${
+                              form.registrationThreshold === value.toString()
+                                ? isDarkMode
+                                  ? 'bg-orange-500 text-white shadow-md scale-105'
+                                  : 'bg-orange-500 text-white shadow-md scale-105'
+                                : isDarkMode
+                                ? 'bg-gray-700/50 text-gray-300 hover:bg-gray-600/50 border border-gray-600/50'
+                                : 'bg-white text-gray-600 hover:bg-orange-50 border border-gray-300'
+                            }`}
+                          >
+                            {value}%
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Info Text */}
+                    <div className={`mt-3 p-2.5 rounded-lg ${isDarkMode ? 'bg-blue-900/20 border border-blue-500/30' : 'bg-blue-50 border border-blue-200'}`}>
+                      <div className="flex items-start gap-2">
+                        <Info className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`} strokeWidth={2} />
+                        <p className={`text-[10px] leading-relaxed ${isDarkMode ? 'text-blue-200' : 'text-blue-700'}`}>
+                          Sinh viên phải đăng ký <strong>≥{form.registrationThreshold || '80'}%</strong> tổng số buổi mới được tham gia hoạt động này.
+                        </p>
+                      </div>
                     </div>
                   </div>
 

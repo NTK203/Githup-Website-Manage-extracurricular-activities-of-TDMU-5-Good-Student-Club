@@ -32,6 +32,8 @@ export default function Footer({ isDarkMode: propIsDarkMode }: FooterProps) {
   const [refreshingStats, setRefreshingStats] = useState(false);
   const currentYear = new Date().getFullYear();
   const isAuthPage = pathname?.startsWith('/auth/') || false;
+  // Check if this is an admin page (has sidebar on the left)
+  const isAdminPage = pathname?.startsWith('/admin/') || false;
 
   // Listen for theme changes
   useEffect(() => {
@@ -236,7 +238,12 @@ export default function Footer({ isDarkMode: propIsDarkMode }: FooterProps) {
     return () => window.removeEventListener('resize', checkDesktop);
   }, []);
 
+  // Only listen to sidebar state if this is an admin page
   useEffect(() => {
+    if (!isAdminPage) {
+      return; // Don't listen to sidebar changes if not admin page
+    }
+
     const savedSidebarState = localStorage.getItem('sidebarOpen');
     if (savedSidebarState !== null) {
       setIsSidebarOpen(savedSidebarState === 'true');
@@ -271,7 +278,7 @@ export default function Footer({ isDarkMode: propIsDarkMode }: FooterProps) {
       window.removeEventListener('sidebarStateChange', handleSidebarChange);
       clearInterval(intervalId);
     };
-  }, []);
+  }, [isAdminPage]);
 
   // Statistics data configuration
   const statsConfig = [
@@ -326,8 +333,9 @@ export default function Footer({ isDarkMode: propIsDarkMode }: FooterProps) {
     <footer 
       className={`relative transition-all duration-300 ${isDarkMode ? 'bg-slate-900 text-slate-300' : 'bg-white text-slate-600'} border-t ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}
       style={{
-        marginLeft: isDesktop ? (isSidebarOpen ? '288px' : '80px') : '0',
-        width: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%'
+        // Only apply sidebar margin for admin pages, otherwise full width
+        marginLeft: isAdminPage && isDesktop ? (isSidebarOpen ? '288px' : '80px') : '0',
+        width: isAdminPage && isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%'
       }}
     >
       <div className="relative z-10 max-w-6xl mx-auto px-6 py-4">

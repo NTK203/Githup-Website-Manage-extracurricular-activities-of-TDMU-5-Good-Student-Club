@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 
 // Dynamically import Leaflet components to avoid SSR issues
@@ -94,6 +94,19 @@ export default function ReadOnlyMultiTimeLocationViewer({
   // Default center (TDMU coordinates)
   const defaultCenter: [number, number] = [10.7325, 106.6992];
 
+  const validLocations = useMemo(() => {
+    return locations.filter((location) => {
+      if (!location || !location.location) return false;
+      const { lat, lng } = location.location;
+      return (
+        typeof lat === 'number' &&
+        typeof lng === 'number' &&
+        !isNaN(lat) &&
+        !isNaN(lng)
+      );
+    });
+  }, [locations]);
+
   useEffect(() => {
     // Fix Leaflet icon issue
     if (typeof window !== 'undefined') {
@@ -106,8 +119,8 @@ export default function ReadOnlyMultiTimeLocationViewer({
     }
   }, []);
 
-  const center: [number, number] = locations.length > 0
-    ? [locations[0].location.lat, locations[0].location.lng]
+  const center: [number, number] = validLocations.length > 0
+    ? [validLocations[0].location.lat, validLocations[0].location.lng]
     : defaultCenter;
 
   const handleZoom = () => {
@@ -127,7 +140,7 @@ export default function ReadOnlyMultiTimeLocationViewer({
   const groupOverlappingLocations = (): Map<string, LocationData[]> => {
     const groups = new Map<string, LocationData[]>();
     
-    locations.forEach((location) => {
+    validLocations.forEach((location) => {
       let foundGroup = false;
       // Tìm nhóm có vị trí trùng
       for (const [key, group] of groups.entries()) {
@@ -187,6 +200,18 @@ export default function ReadOnlyMultiTimeLocationViewer({
 
   return (
     <div className="relative rounded-xl overflow-hidden border-2 focus:outline-none bg-gray-50/50 dark:bg-gray-800/50" style={{ height: '400px' }}>
+      {validLocations.length === 0 ? (
+        <div className="h-full flex flex-col items-center justify-center text-center px-6">
+          <div className="text-3xl mb-2">📍</div>
+          <p className="text-sm font-semibold text-gray-600 dark:text-gray-200">
+            Không có dữ liệu vị trí bản đồ hợp lệ
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Vui lòng kiểm tra lại thông tin địa điểm hoặc liên hệ quản trị viên.
+          </p>
+        </div>
+      ) : (
+        <>
       <MapContainer
         center={center}
         zoom={currentZoom}
@@ -196,8 +221,8 @@ export default function ReadOnlyMultiTimeLocationViewer({
           if (mapRef.current) {
             mapRef.current.on('zoomend', handleZoom);
             // Optional: fit bounds to all markers if there are locations
-            if (locations.length > 0) {
-              const bounds = L.latLngBounds(locations.map(loc => [loc.location.lat, loc.location.lng]));
+            if (validLocations.length > 0) {
+              const bounds = L.latLngBounds(validLocations.map(loc => [loc.location.lat, loc.location.lng]));
               mapRef.current.fitBounds(bounds, { padding: [50, 50] });
             }
           }
@@ -229,7 +254,7 @@ export default function ReadOnlyMultiTimeLocationViewer({
           // Render theo nhóm: mỗi nhóm trùng vị trí chỉ render 1 lần với label tổng hợp
           const renderedGroups = new Set<string>();
           
-          return locations.map((location) => {
+          return validLocations.map((location) => {
             const groupInfo = locationToGroupInfo.get(location.id);
             const groupSize = groupInfo?.group.length || 1;
             const indexInGroup = groupInfo?.index || 0;
@@ -506,6 +531,8 @@ export default function ReadOnlyMultiTimeLocationViewer({
           }
         `
       }} />
+        </>
+      )}
     </div>
   );
 }

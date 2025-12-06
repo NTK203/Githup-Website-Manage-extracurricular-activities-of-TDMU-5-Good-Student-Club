@@ -58,8 +58,7 @@ const membershipSchema = new Schema<IMembership>({
   userId: {
     type: Schema.Types.ObjectId,
     ref: 'User',
-    required: [true, 'User ID là bắt buộc'],
-    index: true
+    required: [true, 'User ID là bắt buộc']
   },
   status: {
     type: String,
@@ -68,8 +67,7 @@ const membershipSchema = new Schema<IMembership>({
       message: 'Trạng thái phải là PENDING, ACTIVE, REJECTED, INACTIVE hoặc REMOVED'
     },
     required: [true, 'Trạng thái là bắt buộc'],
-    default: 'PENDING',
-    index: true
+    default: 'PENDING'
   },
   joinedAt: {
     type: Date,
@@ -226,7 +224,7 @@ const membershipSchema = new Schema<IMembership>({
 });
 
 // Indexes for better query performance
-membershipSchema.index({ userId: 1, status: 1 });
+// Note: { userId: 1, status: 1 } index is defined below with unique constraint
 membershipSchema.index({ status: 1 });
 membershipSchema.index({ approvedBy: 1 });
 membershipSchema.index({ rejectedBy: 1 });

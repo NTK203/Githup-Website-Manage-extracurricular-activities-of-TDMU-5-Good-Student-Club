@@ -105,6 +105,22 @@ export async function POST(
 
     await membership.save();
 
+    // Downgrade user role to STUDENT if they are not SUPER_ADMIN
+    // This prevents removed members from accessing club features
+    if (membership.userId) {
+      const userToUpdate = await User.findById(membership.userId);
+      if (userToUpdate && userToUpdate.role !== 'SUPER_ADMIN') {
+        // Only downgrade if user has a club role
+        if (['CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER', 'CLUB_STUDENT'].includes(userToUpdate.role)) {
+          const oldRole = userToUpdate.role;
+          userToUpdate.role = 'STUDENT';
+          userToUpdate.isClubMember = false;
+          await userToUpdate.save();
+          console.log(`Downgraded user ${userToUpdate._id} role from ${oldRole} to STUDENT due to removal`);
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: 'Đã xóa thành viên thành công',

@@ -30,12 +30,19 @@ export interface IParticipant {
   email: string;
   role: ParticipantRole;
   joinedAt: Date;
-  approvalStatus?: 'pending' | 'approved' | 'rejected';
+  approvalStatus?: 'pending' | 'approved' | 'rejected' | 'removed';
   approvedBy?: mongoose.Types.ObjectId;
   approvedAt?: Date;
   rejectedBy?: mongoose.Types.ObjectId;
   rejectedAt?: Date;
   rejectionReason?: string;
+  removedBy?: mongoose.Types.ObjectId;
+  removedAt?: Date;
+  // Registration slots for multiple_days activities
+  registeredDaySlots?: Array<{
+    day: number;
+    slot: 'morning' | 'afternoon' | 'evening';
+  }>;
   // Attendance fields
   checkedIn?: boolean;
   checkedInAt?: Date;
@@ -77,6 +84,7 @@ export interface IActivity extends Document {
   locationData?: ILocationData; // GPS coordinates for attendance tracking
   multiTimeLocations?: IMultiTimeLocation[]; // Multiple locations for different time slots
   maxParticipants?: number;
+  registrationThreshold?: number; // Phần trăm tối thiểu để đăng ký (0-100)
   visibility: ActivityVisibility;
   responsiblePerson: mongoose.Types.ObjectId;
   status: ActivityStatus;
@@ -193,8 +201,8 @@ const participantSchema = new Schema<IParticipant>({
   approvalStatus: {
     type: String,
     enum: {
-      values: ['pending', 'approved', 'rejected'],
-      message: 'Trạng thái duyệt phải là pending, approved hoặc rejected'
+      values: ['pending', 'approved', 'rejected', 'removed'],
+      message: 'Trạng thái duyệt phải là pending, approved, rejected hoặc removed'
     },
     default: 'pending'
   },
@@ -222,6 +230,29 @@ const participantSchema = new Schema<IParticipant>({
     maxlength: [500, 'Lý do từ chối không được quá 500 ký tự'],
     default: null
   },
+  removedBy: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  removedAt: {
+    type: Date,
+    default: null
+  },
+  // Registration slots for multiple_days activities
+  registeredDaySlots: [{
+    day: {
+      type: Number,
+      required: true,
+      min: [1, 'Số ngày phải lớn hơn 0']
+    },
+    slot: {
+      type: String,
+      required: true,
+      enum: ['morning', 'afternoon', 'evening'],
+      message: 'Buổi phải là morning, afternoon hoặc evening'
+    }
+  }],
   // Attendance fields
   checkedIn: {
     type: Boolean,
@@ -398,6 +429,12 @@ const activitySchema = new Schema<IActivity>({
     min: [1, 'Số lượng tối đa phải lớn hơn 0'],
     max: [1000, 'Số lượng tối đa không được quá 1000']
   },
+  registrationThreshold: {
+    type: Number,
+    min: [0, 'Ngưỡng đăng ký phải từ 0 đến 100'],
+    max: [100, 'Ngưỡng đăng ký phải từ 0 đến 100'],
+    default: 80
+  },
   visibility: {
     type: String,
     enum: {
@@ -457,9 +494,13 @@ const activitySchema = new Schema<IActivity>({
   timeSlots: {
     type: [timeSlotSchema],
     validate: {
-      validator: function(v: ITimeSlot[]) {
-        if (this.type === 'single_day' && (!v || v.length === 0)) {
-          return false;
+      validator: function(v: ITimeSlot[] | undefined) {
+        // Only validate if type is single_day
+        if (this.type === 'single_day') {
+          // Check if v is undefined, null, or empty array
+          if (v === undefined || v === null || !Array.isArray(v) || v.length === 0) {
+            return false;
+          }
         }
         return true;
       },
@@ -513,9 +554,13 @@ const activitySchema = new Schema<IActivity>({
       }
     }],
     validate: {
-      validator: function(v: any[]) {
-        if (this.type === 'multiple_days' && (!v || v.length === 0)) {
-          return false;
+      validator: function(v: any[] | undefined) {
+        // Only validate if type is multiple_days
+        if (this.type === 'multiple_days') {
+          // Check if v is undefined, null, or empty array
+          if (v === undefined || v === null || !Array.isArray(v) || v.length === 0) {
+            return false;
+          }
         }
         return true;
       },
@@ -556,19 +601,28 @@ activitySchema.index({ 'participants.userId': 1 });
 
 // Virtual for current participants count
 activitySchema.virtual('currentParticipantsCount').get(function() {
+  if (!this.participants || !Array.isArray(this.participants)) {
+    return 0;
+  }
   return this.participants.length;
 });
 
 // Virtual for checking if activity is full
 activitySchema.virtual('isFull').get(function() {
   if (!this.maxParticipants) return false;
+  if (!this.participants || !Array.isArray(this.participants)) {
+    return false;
+  }
   return this.participants.length >= this.maxParticipants;
 });
 
 // Virtual for checking if user can join
 activitySchema.methods.canUserJoin = function(userId: mongoose.Types.ObjectId) {
   if (this.isFull) return false;
-  return !this.participants.some((p: any) => p.userId.equals(userId));
+  if (!this.participants || !Array.isArray(this.participants)) {
+    return true; // Can join if no participants array
+  }
+  return !this.participants.some((p: any) => p && p.userId && p.userId.equals(userId));
 };
 
 // Static method to find activities by visibility and user role

@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Calendar, Clock, MapPin, Users, User, BookOpen, Target, FileText, CheckCircle2, XCircle, AlertCircle, Sunrise, Sun, Moon, ArrowLeft, Eye, UserPlus, UserMinus, ClipboardCheck, X, Loader2, StickyNote, ChevronLeft, ChevronRight, CalendarRange, Globe } from 'lucide-react';
 import StudentNav from '@/components/student/StudentNav';
 import Footer from '@/components/common/Footer';
+import RegistrationModal from '@/components/student/RegistrationModal';
 import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import dynamic from 'next/dynamic';
@@ -95,6 +96,8 @@ interface ActivityDetail {
   overview?: string;
   numberOfSessions?: number;
   registeredParticipantsCount?: number;
+  maxParticipants?: number;
+  registrationThreshold?: number; // Phần trăm tối thiểu để đăng ký (mặc định 80)
   organizer?: string;
   participants: Participant[];
   locationData?: LocationData;
@@ -119,13 +122,31 @@ export default function ActivityDetailPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isRegistered, setIsRegistered] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
-  const [approvalStatus, setApprovalStatus] = useState<'pending' | 'approved' | 'rejected' | undefined>(undefined);
+  const [approvalStatus, setApprovalStatus] = useState<'pending' | 'approved' | 'rejected' | 'removed' | undefined>(undefined);
+  const [rejectionReason, setRejectionReason] = useState<string | undefined>(undefined);
+  const [rejectedAt, setRejectedAt] = useState<string | undefined>(undefined);
+  const [removedAt, setRemovedAt] = useState<string | undefined>(undefined);
+  const [removedBy, setRemovedBy] = useState<string | { _id: string; name: string; email: string } | undefined>(undefined);
+  const [removalReason, setRemovalReason] = useState<string | undefined>(undefined);
   const [checkedIn, setCheckedIn] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [locationPickerKey, setLocationPickerKey] = useState(0);
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<'morning' | 'afternoon' | 'evening' | null>(null);
   const [selectedDaySlot, setSelectedDaySlot] = useState<{ day: number; slot: 'morning' | 'afternoon' | 'evening' } | null>(null);
   const [currentWeekIndex, setCurrentWeekIndex] = useState(0); // Index của tuần hiện tại đang xem
+  const [selectedDaySlotsForRegistration, setSelectedDaySlotsForRegistration] = useState<Array<{ day: number; slot: 'morning' | 'afternoon' | 'evening' }>>([]);
+  const [userRegisteredDaySlots, setUserRegisteredDaySlots] = useState<Array<{ day: number; slot: 'morning' | 'afternoon' | 'evening' }>>([]);
+  const [showRegistrationModal, setShowRegistrationModal] = useState(false);
+  const [overlapWarning, setOverlapWarning] = useState<{
+    show: boolean;
+    overlappingActivities: Array<{ activityName: string; day: number; slot: string; date?: string; startTime?: string; endTime?: string }>;
+    day: number;
+    slot: string;
+    date?: string; // Add date for the selected day
+    currentActivityName?: string; // Add current activity name
+    currentSlotStartTime?: string; // Add current slot start time
+    currentSlotEndTime?: string; // Add current slot end time
+  } | null>(null);
   
   // Parse schedule data for multiple days into structured format
   const [parsedScheduleData, setParsedScheduleData] = useState<Array<{
@@ -299,7 +320,12 @@ export default function ActivityDetailPage() {
           imageUrl: rawActivity.imageUrl,
           overview: rawActivity.overview,
           numberOfSessions: isMultipleDays ? schedule.length : (rawActivity.timeSlots?.filter((slot: { isActive: boolean; }) => slot.isActive).length || 0),
-          registeredParticipantsCount: rawActivity.participants?.length || 0,
+          registeredParticipantsCount: rawActivity.participants?.filter((p: any) => {
+            const approvalStatus = p.approvalStatus || 'pending';
+            return approvalStatus === 'approved';
+          }).length || 0,
+          maxParticipants: rawActivity.maxParticipants,
+          registrationThreshold: rawActivity.registrationThreshold !== undefined && rawActivity.registrationThreshold !== null ? rawActivity.registrationThreshold : 80,
           organizer: rawActivity.responsiblePerson?.name || rawActivity.participants?.find((p: { role: string; }) => p.role === 'Trưởng Nhóm')?.name || rawActivity.participants?.[0]?.name || 'N/A',
           participants: rawActivity.participants || [],
           locationData: rawActivity.locationData,
@@ -357,8 +383,28 @@ export default function ActivityDetailPage() {
                 const startTime = slotMatch[2];
                 const endTime = slotMatch[3];
                 
-                const activitiesMatch = trimmed.match(/-\s*([^-]+?)(?:\s*-\s*Địa điểm chi tiết|$)/);
-                const activities = activitiesMatch ? activitiesMatch[1].trim() : undefined;
+                // Extract activities description - more precise pattern
+                // Pattern: "Buổi Sáng (07:00-11:30) - mô tả hoạt động - Địa điểm..."
+                const timePattern = /\(\d{2}:\d{2}-\d{2}:\d{2}\)/;
+                const timeMatch = trimmed.match(timePattern);
+                let activities: string | undefined = undefined;
+                if (timeMatch) {
+                  const afterTime = trimmed.substring(trimmed.indexOf(timeMatch[0]) + timeMatch[0].length);
+                  const activitiesMatch = afterTime.match(/-\s*([^-]*?)(?:\s*-\s*Địa điểm|$)/);
+                  if (activitiesMatch && activitiesMatch[1]) {
+                    const extracted = activitiesMatch[1].trim();
+                    // Only set if it's not empty and doesn't look like it's part of location info
+                    if (extracted && 
+                        extracted.length > 0 && 
+                        !extracted.includes('Địa điểm') && 
+                        !extracted.includes('Bán kính') &&
+                        !extracted.includes('(') &&
+                        !extracted.match(/^\d+\.\d+/)
+                    ) {
+                      activities = extracted;
+                    }
+                  }
+                }
                 
                 const detailedMatch = trimmed.match(/Địa điểm chi tiết:\s*(.+?)(?:\s*-\s*Địa điểm map|$)/);
                 const detailedLocation = detailedMatch ? detailedMatch[1].trim() : undefined;
@@ -454,16 +500,37 @@ export default function ActivityDetailPage() {
         if (userParticipant) {
           setIsRegistered(true);
           setApprovalStatus(userParticipant.approvalStatus || 'pending');
+          setRejectionReason(userParticipant.rejectionReason);
+          setRejectedAt(userParticipant.rejectedAt);
+          setRemovedAt(userParticipant.removedAt);
+          setRemovedBy(userParticipant.removedBy);
+          setRemovalReason(userParticipant.removalReason);
           setCheckedIn(userParticipant.checkedIn || false);
+          
+          // Store registeredDaySlots if available
+          if (userParticipant.registeredDaySlots && Array.isArray(userParticipant.registeredDaySlots)) {
+            setUserRegisteredDaySlots(userParticipant.registeredDaySlots);
+          } else {
+            setUserRegisteredDaySlots([]);
+          }
         } else {
           setIsRegistered(false);
           setApprovalStatus(undefined);
+          setRejectionReason(undefined);
+          setRejectedAt(undefined);
+          setRemovedAt(undefined);
+          setRemovedBy(undefined);
+          setRemovalReason(undefined);
           setCheckedIn(false);
+          setUserRegisteredDaySlots([]);
         }
         
-        // Load attendance records if user is registered and approved
+        // Load attendance records if user is registered and approved (fetch song song để tối ưu)
         if (userParticipant && userParticipant.approvalStatus === 'approved') {
-          await loadAttendanceRecords();
+          // Fetch trong background, không block UI
+          loadAttendanceRecords().catch(err => {
+            console.error('Error loading attendance records:', err);
+          });
         }
         
         if (!isMounted) return;
@@ -834,26 +901,263 @@ export default function ActivityDetailPage() {
   // Day labels
   const dayLabels = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ nhật'];
 
+  // Helper function to get registration threshold (default 80 if not set)
+  const getRegistrationThreshold = useCallback((): number => {
+    if (!activity) return 80;
+    return activity.registrationThreshold !== undefined && activity.registrationThreshold !== null ? activity.registrationThreshold : 80;
+  }, [activity]);
+
+  // Calculate registration rate for a specific day and slot
+  const calculateRegistrationRate = useCallback((day: number, slot: 'morning' | 'afternoon' | 'evening'): number => {
+    if (!activity) {
+      return 0;
+    }
+
+    // If maxParticipants is not set or is 0, we can't calculate a meaningful rate
+    // Return 0% to indicate no limit (or show as 0% until maxParticipants is set)
+    if (!activity.maxParticipants || activity.maxParticipants === 0 || activity.maxParticipants === Infinity) {
+      return 0;
+    }
+
+    // Count participants registered for this specific day and slot
+    // For multiple_days activities, count participants who registered for this specific day/slot
+    // For single_day activities, count all participants
+    // Only count approved participants
+    let registeredCount = 0;
+    
+    if (!activity.participants || activity.participants.length === 0) {
+      return 0;
+    }
+    
+    if (activity.type === 'multiple_days') {
+      // Count participants who have registered for this specific day and slot
+      // Only count approved participants
+      registeredCount = activity.participants.filter((p: any) => {
+        const approvalStatus = p.approvalStatus || 'pending';
+        // Only count approved participants
+        if (approvalStatus !== 'approved') {
+          return false;
+        }
+        
+        // Check if participant has registeredDaySlots and includes this day/slot
+        if (p.registeredDaySlots && Array.isArray(p.registeredDaySlots) && p.registeredDaySlots.length > 0) {
+          return p.registeredDaySlots.some((ds: any) => ds.day === day && ds.slot === slot);
+        }
+        // If no registeredDaySlots, assume they registered for all slots (backward compatibility)
+        // This handles old registrations that didn't specify day/slot
+        // For new system, we should count them for all days/slots
+        return true;
+      }).length;
+    } else {
+      // For single_day activities, count only approved participants
+      registeredCount = activity.participants.filter((p: any) => {
+        const approvalStatus = p.approvalStatus || 'pending';
+        return approvalStatus === 'approved';
+      }).length;
+    }
+
+    const rate = (registeredCount / activity.maxParticipants) * 100;
+    return Math.round(rate);
+  }, [activity]);
+
+  // Check if registration is allowed (rate < registrationThreshold and not full)
+  const canRegister = useCallback((day: number, slot: 'morning' | 'afternoon' | 'evening'): boolean => {
+    if (!activity) return false;
+    
+    // Check if activity has maxParticipants limit
+    if (activity.maxParticipants && activity.maxParticipants !== Infinity) {
+      // Count approved participants for this specific day and slot
+      let approvedCount = 0;
+      
+      if (activity.type === 'multiple_days') {
+        approvedCount = activity.participants?.filter((p: any) => {
+          const approvalStatus = p.approvalStatus || 'pending';
+          if (approvalStatus !== 'approved') return false;
+          
+          if (p.registeredDaySlots && Array.isArray(p.registeredDaySlots) && p.registeredDaySlots.length > 0) {
+            return p.registeredDaySlots.some((ds: any) => ds.day === day && ds.slot === slot);
+          }
+          return true; // If no registeredDaySlots, assume registered for all
+        }).length || 0;
+      } else {
+        approvedCount = activity.participants?.filter((p: any) => {
+          const approvalStatus = p.approvalStatus || 'pending';
+          return approvalStatus === 'approved';
+        }).length || 0;
+      }
+      
+      // If already full, cannot register
+      if (approvedCount >= activity.maxParticipants) {
+        return false;
+      }
+    }
+    
+    // Check registration rate threshold
+    const rate = calculateRegistrationRate(day, slot);
+    const threshold = getRegistrationThreshold();
+    return rate < threshold;
+  }, [calculateRegistrationRate, activity, getRegistrationThreshold]);
+
   const handleRegisterToggle = async () => {
     if (!isAuthenticated || !token || !activity || !user) {
       alert("Bạn cần đăng nhập để đăng ký hoặc hủy đăng ký hoạt động.");
       return;
     }
 
+    // Check if activity has ended - don't allow registration if it has
+    const timeStatus = getActivityTimeStatus();
+    if (!isRegistered && timeStatus === 'after') {
+      alert("Hoạt động này đã kết thúc. Bạn không thể đăng ký tham gia.");
+      return;
+    }
+
+    // If unregistering, proceed directly
+    if (isRegistered) {
     setIsRegistering(true);
     setError(null);
 
     try {
       const url = `/api/activities/${activity._id}/register`;
-      const method = isRegistered ? 'DELETE' : 'POST';
+        const response = await fetch(url, {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ userId: user._id }),
+        });
 
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || 'Failed to unregister from activity');
+        }
+
+        const result = await response.json();
+        alert(result.message);
+
+        if (activityId && user) {
+          const updatedActivityResponse = await fetch(`/api/activities/${activityId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const updatedActivityData = await updatedActivityResponse.json();
+          const rawUpdatedActivity = updatedActivityData.data.activity;
+
+          if (rawUpdatedActivity) {
+            const isMultiTimeMode = rawUpdatedActivity.location === 'Nhiều địa điểm' || (rawUpdatedActivity.multiTimeLocations && rawUpdatedActivity.multiTimeLocations.length > 0);
+            const updatedActivityDetails: ActivityDetail = {
+              _id: rawUpdatedActivity._id,
+              name: rawUpdatedActivity.name,
+              description: rawUpdatedActivity.description,
+              date: rawUpdatedActivity.date?.$date ? new Date(rawUpdatedActivity.date.$date).toLocaleDateString('vi-VN') : new Date(rawUpdatedActivity.date).toLocaleDateString('vi-VN'),
+              location: rawUpdatedActivity.location,
+              timeSlots: rawUpdatedActivity.timeSlots?.map((slot: any) => ({ 
+                ...slot, 
+                activities: slot.activities || '',
+                detailedLocation: slot.detailedLocation || {} 
+              })) || [],
+              points: rawUpdatedActivity.points || 0,
+              status: rawUpdatedActivity.status,
+              type: rawUpdatedActivity.type,
+              visibility: rawUpdatedActivity.visibility,
+              imageUrl: rawUpdatedActivity.imageUrl,
+              overview: rawUpdatedActivity.overview,
+              numberOfSessions: rawUpdatedActivity.timeSlots?.filter((slot: { isActive: boolean; }) => slot.isActive).length || 0,
+              registeredParticipantsCount: rawUpdatedActivity.participants?.length || 0,
+              maxParticipants: rawUpdatedActivity.maxParticipants,
+              registrationThreshold: rawUpdatedActivity.registrationThreshold !== undefined && rawUpdatedActivity.registrationThreshold !== null ? rawUpdatedActivity.registrationThreshold : 80,
+              organizer: rawUpdatedActivity.responsiblePerson?.name || rawUpdatedActivity.participants?.find((p: { role: string; }) => p.role === 'Trưởng Nhóm')?.name || rawUpdatedActivity.participants?.[0]?.name || 'N/A',
+              participants: rawUpdatedActivity.participants || [],
+              locationData: rawUpdatedActivity.locationData,
+              multiTimeLocations: rawUpdatedActivity.multiTimeLocations?.map((mtl: any) => {
+                const actualRadius = mtl.radius !== undefined && mtl.radius !== null ? mtl.radius : undefined;
+                return {
+                  ...mtl, 
+                  lat: mtl.location?.lat ?? 0, 
+                  lng: mtl.location?.lng ?? 0, 
+                  address: mtl.location?.address ?? '', 
+                  radius: actualRadius
+                };
+              }) || [],
+              detailedLocation: rawUpdatedActivity.detailedLocation,
+              isMultiTimeLocation: isMultiTimeMode,
+            };
+            setActivity(updatedActivityDetails);
+            
+            const userParticipant = rawUpdatedActivity.participants.find(
+              (p: any) => {
+                const participantUserId = typeof p.userId === 'object' && p.userId !== null
+                  ? (p.userId._id || p.userId.$oid || String(p.userId))
+                  : (p.userId?.$oid || p.userId || String(p.userId));
+                return participantUserId === user._id;
+              }
+            );
+            
+            if (userParticipant) {
+              setIsRegistered(true);
+              setApprovalStatus(userParticipant.approvalStatus || 'pending');
+              setRejectionReason(userParticipant.rejectionReason);
+              setRejectedAt(userParticipant.rejectedAt);
+              setRemovedAt(userParticipant.removedAt);
+              setRemovedBy(userParticipant.removedBy);
+              setRemovalReason(userParticipant.removalReason);
+              setCheckedIn(userParticipant.checkedIn || false);
+              
+              // Store registeredDaySlots if available
+              if (userParticipant.registeredDaySlots && Array.isArray(userParticipant.registeredDaySlots)) {
+                setUserRegisteredDaySlots(userParticipant.registeredDaySlots);
+              } else {
+                setUserRegisteredDaySlots([]);
+              }
+            } else {
+              setIsRegistered(false);
+              setApprovalStatus(undefined);
+              setRejectionReason(undefined);
+              setRejectedAt(undefined);
+              setRemovedAt(undefined);
+              setRemovedBy(undefined);
+              setRemovalReason(undefined);
+              setCheckedIn(false);
+              setUserRegisteredDaySlots([]);
+            }
+          }
+        }
+
+        setSuccessMessage(result.message);
+        setTimeout(() => setSuccessMessage(null), 3000);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Có lỗi xảy ra');
+      } finally {
+        setIsRegistering(false);
+      }
+      return;
+    }
+
+    // If registering for multiple_days activity, show modal to select days/slots
+    if (activity.type === 'multiple_days' && activity.schedule && activity.schedule.length > 0) {
+      setShowRegistrationModal(true);
+      setSelectedDaySlotsForRegistration([]);
+      return;
+    }
+
+    // For single_day activities, proceed with registration
+    setIsRegistering(true);
+    setError(null);
+
+    try {
+      const url = `/api/activities/${activity._id}/register`;
       const response = await fetch(url, {
-        method: method,
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ userId: user._id, name: user.name, email: user.email, role: 'Người Tham Gia' }),
+        body: JSON.stringify({ 
+          userId: user._id, 
+          name: user.name, 
+          email: user.email, 
+          role: 'Người Tham Gia',
+          daySlots: [] // Empty for single_day
+        }),
       });
 
       if (!response.ok) {
@@ -892,6 +1196,7 @@ export default function ActivityDetailPage() {
             overview: rawUpdatedActivity.overview,
             numberOfSessions: rawUpdatedActivity.timeSlots?.filter((slot: { isActive: boolean; }) => slot.isActive).length || 0,
             registeredParticipantsCount: rawUpdatedActivity.participants?.length || 0,
+            maxParticipants: rawUpdatedActivity.maxParticipants,
             organizer: rawUpdatedActivity.responsiblePerson?.name || rawUpdatedActivity.participants?.find((p: { role: string; }) => p.role === 'Trưởng Nhóm')?.name || rawUpdatedActivity.participants?.[0]?.name || 'N/A',
             participants: rawUpdatedActivity.participants || [],
             locationData: rawUpdatedActivity.locationData,
@@ -924,7 +1229,29 @@ export default function ActivityDetailPage() {
           if (userParticipant) {
             setIsRegistered(true);
             setApprovalStatus(userParticipant.approvalStatus || 'pending');
+            setRejectionReason(userParticipant.rejectionReason);
+            setRejectedAt(userParticipant.rejectedAt);
+            setRemovedAt(userParticipant.removedAt);
+            setRemovedBy(userParticipant.removedBy);
             setCheckedIn(userParticipant.checkedIn || false);
+            
+            // Store registeredDaySlots if available
+            if (userParticipant.registeredDaySlots && Array.isArray(userParticipant.registeredDaySlots)) {
+              setUserRegisteredDaySlots(userParticipant.registeredDaySlots);
+              console.log('✅ Loaded user registeredDaySlots (handleRegisterWithDaySlots):', {
+                registeredDaySlots: userParticipant.registeredDaySlots,
+                length: userParticipant.registeredDaySlots.length,
+                activityType: activity.type
+              });
+            } else {
+              setUserRegisteredDaySlots([]);
+              console.log('⚠️ No registeredDaySlots found (handleRegisterWithDaySlots):', {
+                hasRegisteredDaySlots: !!userParticipant.registeredDaySlots,
+                isArray: Array.isArray(userParticipant.registeredDaySlots),
+                activityType: activity.type,
+                userParticipantKeys: Object.keys(userParticipant)
+              });
+            }
             
             // Load attendance records if user is approved
             if (userParticipant.approvalStatus === 'approved') {
@@ -935,8 +1262,13 @@ export default function ActivityDetailPage() {
           } else {
             setIsRegistered(false);
             setApprovalStatus(undefined);
+            setRejectionReason(undefined);
+            setRejectedAt(undefined);
+            setRemovedAt(undefined);
+            setRemovedBy(undefined);
             setCheckedIn(false);
             setAttendanceRecords([]);
+            setUserRegisteredDaySlots([]);
           }
           
           setLocationPickerKey(prev => prev + 1);
@@ -953,6 +1285,329 @@ export default function ActivityDetailPage() {
       alert(err instanceof Error ? err.message : String(err));
     } finally {
       setIsRegistering(false);
+    }
+  };
+
+  // Calculate total registration rate based on selected slots (not participants)
+  // Rate = number of selected slots / total available slots * 100
+  const calculateTotalRegistrationRate = useCallback((): number => {
+    if (!activity || selectedDaySlotsForRegistration.length === 0) {
+      return 0;
+    }
+
+    if (activity.type === 'multiple_days' && parsedScheduleData.length > 0) {
+      // Count total available slots across all days
+      let totalAvailableSlots = 0;
+      parsedScheduleData.forEach((dayData) => {
+        // Count active slots for this day
+        const activeSlots = dayData.slots.filter(s => s.slotKey).length;
+        totalAvailableSlots += activeSlots;
+      });
+
+      if (totalAvailableSlots === 0) {
+        return 0;
+      }
+
+      // Rate = selected slots / total available slots * 100
+      const selectedSlotsCount = selectedDaySlotsForRegistration.length;
+      const totalRate = (selectedSlotsCount / totalAvailableSlots) * 100;
+      return Math.round(totalRate);
+    }
+
+    // For single_day activities, use maxParticipants logic
+    if (!activity.maxParticipants || activity.maxParticipants === 0) {
+      return 0;
+    }
+
+    // Count total unique participants across all selected day slots
+    const uniqueParticipants = new Set<string>();
+    
+    selectedDaySlotsForRegistration.forEach(({ day, slot }) => {
+      if (activity.participants && activity.participants.length > 0) {
+        activity.participants.forEach((p: any) => {
+          const approvalStatus = p.approvalStatus || 'pending';
+          if (approvalStatus === 'rejected' || approvalStatus === 'removed') {
+            return;
+          }
+          
+          const participantId = typeof p.userId === 'object' && p.userId !== null
+            ? (p.userId._id || p.userId.$oid || String(p.userId))
+            : (p.userId?.$oid || p.userId || String(p.userId));
+          
+          // Check if participant has registered for this day/slot
+          if (p.registeredDaySlots && Array.isArray(p.registeredDaySlots) && p.registeredDaySlots.length > 0) {
+            if (p.registeredDaySlots.some((ds: any) => ds.day === day && ds.slot === slot)) {
+              uniqueParticipants.add(participantId);
+            }
+          } else {
+            // Backward compatibility: assume registered for all slots
+            uniqueParticipants.add(participantId);
+          }
+        });
+      }
+    });
+
+    const totalRegisteredCount = uniqueParticipants.size;
+    const totalRate = (totalRegisteredCount / activity.maxParticipants) * 100;
+    return Math.round(totalRate);
+  }, [activity, selectedDaySlotsForRegistration, parsedScheduleData]);
+
+  // Handle registration with selected day slots (also handles update if already registered)
+  const handleRegisterWithDaySlots = async () => {
+    if (!isAuthenticated || !token || !activity || !user) {
+      alert("Bạn cần đăng nhập để đăng ký hoặc hủy đăng ký hoạt động.");
+      return;
+    }
+
+    // Check if activity has ended - don't allow registration if it has
+    const timeStatus = getActivityTimeStatus();
+    if (!isRegistered && timeStatus === 'after') {
+      alert("Hoạt động này đã kết thúc. Bạn không thể đăng ký tham gia.");
+      return;
+    }
+
+    if (selectedDaySlotsForRegistration.length === 0) {
+      alert("Vui lòng chọn ít nhất một ngày và buổi để đăng ký.");
+      return;
+    }
+
+    // Check total registration rate for all selected slots
+    // For multiple_days: rate = selected slots / total available slots
+    // Must be >= registrationThreshold% to register
+    const totalRate = calculateTotalRegistrationRate();
+    const threshold = getRegistrationThreshold();
+    if (totalRate < threshold) {
+      alert(`Tổng tỷ lệ đăng ký của các buổi đã chọn là ${totalRate}%. Bạn phải chọn đủ buổi để tổng tỷ lệ đạt ít nhất ${threshold}% mới có thể đăng ký.`);
+      return;
+    }
+
+    setIsRegistering(true);
+    setError(null);
+
+    try {
+      const url = `/api/activities/${activity._id}/register`;
+      // Use PATCH if already registered, POST if new registration
+      const method = isRegistered ? 'PATCH' : 'POST';
+      const response = await fetch(url, {
+        method: method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ 
+          userId: user._id, 
+          name: user.name, 
+          email: user.email, 
+          role: 'Người Tham Gia',
+          daySlots: selectedDaySlotsForRegistration
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to register for activity');
+      }
+
+      const result = await response.json();
+      alert(result.message);
+
+      // Refresh activity data (same as handleRegisterToggle)
+      if (activityId && user) {
+        const updatedActivityResponse = await fetch(`/api/activities/${activityId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const updatedActivityData = await updatedActivityResponse.json();
+        const rawUpdatedActivity = updatedActivityData.data.activity;
+
+        if (rawUpdatedActivity) {
+          const isMultiTimeMode = rawUpdatedActivity.location === 'Nhiều địa điểm' || (rawUpdatedActivity.multiTimeLocations && rawUpdatedActivity.multiTimeLocations.length > 0);
+          const updatedActivityDetails: ActivityDetail = {
+            _id: rawUpdatedActivity._id,
+            name: rawUpdatedActivity.name,
+            description: rawUpdatedActivity.description,
+            date: rawUpdatedActivity.date?.$date ? new Date(rawUpdatedActivity.date.$date).toLocaleDateString('vi-VN') : new Date(rawUpdatedActivity.date).toLocaleDateString('vi-VN'),
+            location: rawUpdatedActivity.location,
+            timeSlots: rawUpdatedActivity.timeSlots?.map((slot: any) => ({ 
+              ...slot, 
+              activities: slot.activities || '',
+              detailedLocation: slot.detailedLocation || {} 
+            })) || [],
+            points: rawUpdatedActivity.points || 0,
+            status: rawUpdatedActivity.status,
+            type: rawUpdatedActivity.type,
+            visibility: rawUpdatedActivity.visibility,
+            imageUrl: rawUpdatedActivity.imageUrl,
+            overview: rawUpdatedActivity.overview,
+            numberOfSessions: rawUpdatedActivity.timeSlots?.filter((slot: { isActive: boolean; }) => slot.isActive).length || 0,
+            registeredParticipantsCount: rawUpdatedActivity.participants?.length || 0,
+            maxParticipants: rawUpdatedActivity.maxParticipants,
+            organizer: rawUpdatedActivity.responsiblePerson?.name || rawUpdatedActivity.participants?.find((p: { role: string; }) => p.role === 'Trưởng Nhóm')?.name || rawUpdatedActivity.participants?.[0]?.name || 'N/A',
+            participants: rawUpdatedActivity.participants || [],
+            locationData: rawUpdatedActivity.locationData,
+            multiTimeLocations: rawUpdatedActivity.multiTimeLocations?.map((mtl: any) => {
+              const actualRadius = mtl.radius !== undefined && mtl.radius !== null ? mtl.radius : undefined;
+              return {
+                ...mtl, 
+                lat: mtl.location?.lat ?? 0, 
+                lng: mtl.location?.lng ?? 0, 
+                address: mtl.location?.address ?? '', 
+                radius: actualRadius
+              };
+            }) || [],
+            detailedLocation: rawUpdatedActivity.detailedLocation,
+            isMultiTimeLocation: isMultiTimeMode,
+          };
+          setActivity(updatedActivityDetails);
+          
+          const userParticipant = rawUpdatedActivity.participants.find(
+            (p: any) => {
+              const participantUserId = typeof p.userId === 'object' && p.userId !== null
+                ? (p.userId._id || p.userId.$oid || String(p.userId))
+                : (p.userId?.$oid || p.userId || String(p.userId));
+              return participantUserId === user._id;
+            }
+          );
+          
+          if (userParticipant) {
+            setIsRegistered(true);
+            setApprovalStatus(userParticipant.approvalStatus || 'pending');
+            setRejectionReason(userParticipant.rejectionReason);
+            setRejectedAt(userParticipant.rejectedAt);
+            setRemovedAt(userParticipant.removedAt);
+            setRemovedBy(userParticipant.removedBy);
+            setRemovalReason(userParticipant.removalReason);
+            setCheckedIn(userParticipant.checkedIn || false);
+            
+            // Store registeredDaySlots if available
+            if (userParticipant.registeredDaySlots && Array.isArray(userParticipant.registeredDaySlots)) {
+              setUserRegisteredDaySlots(userParticipant.registeredDaySlots);
+              console.log('✅ Loaded user registeredDaySlots:', userParticipant.registeredDaySlots);
+            } else {
+              setUserRegisteredDaySlots([]);
+            }
+            
+            if (userParticipant.approvalStatus === 'approved') {
+              await loadAttendanceRecords();
+            } else {
+              setAttendanceRecords([]);
+            }
+          } else {
+            setIsRegistered(false);
+            setApprovalStatus(undefined);
+            setRejectionReason(undefined);
+            setRejectedAt(undefined);
+            setRemovedAt(undefined);
+            setRemovedBy(undefined);
+            setRemovalReason(undefined);
+            setCheckedIn(false);
+            setAttendanceRecords([]);
+            setUserRegisteredDaySlots([]);
+          }
+        }
+      }
+
+      setShowRegistrationModal(false);
+      setSelectedDaySlotsForRegistration([]);
+      setSuccessMessage(result.message);
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Có lỗi xảy ra');
+    } finally {
+      setIsRegistering(false);
+    }
+  };
+
+  // Toggle day slot selection for registration
+  const toggleDaySlotSelection = async (day: number, slot: 'morning' | 'afternoon' | 'evening') => {
+    const exists = selectedDaySlotsForRegistration.find(ds => ds.day === day && ds.slot === slot);
+    
+    if (exists) {
+      setSelectedDaySlotsForRegistration(prev => prev.filter(ds => !(ds.day === day && ds.slot === slot)));
+    } else {
+      // Check if registration is allowed (rate < registrationThreshold)
+      if (!canRegister(day, slot)) {
+        if (!activity) return;
+        const slotName = slot === 'morning' ? 'Sáng' : slot === 'afternoon' ? 'Chiều' : 'Tối';
+        const threshold = getRegistrationThreshold();
+        alert(`Tỷ lệ đăng ký cho ngày ${day}, buổi ${slotName} đã đạt ${calculateRegistrationRate(day, slot)}%. Chỉ có thể đăng ký khi tỷ lệ dưới ${threshold}%.`);
+        return;
+      }
+
+      // Check for overlapping slots with other activities
+      if (user && activity && activity._id) {
+        try {
+          const response = await fetch('/api/activities/check-slot-overlap', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              activityId: activity._id,
+              day: day,
+              slot: slot,
+              schedule: activity.schedule
+            }),
+          });
+
+          const result = await response.json();
+          
+          if (result.success && result.hasOverlap && result.overlappingActivities && result.overlappingActivities.length > 0) {
+            const slotNames: { [key: string]: string } = {
+              'morning': 'Sáng',
+              'afternoon': 'Chiều',
+              'evening': 'Tối'
+            };
+
+            const overlapMessages = result.overlappingActivities.map((overlap: any) => {
+              const slotName = slotNames[overlap.slot] || overlap.slot;
+              let message = `"${overlap.activityName}" (Ngày ${overlap.day}, Buổi ${slotName})`;
+              if (overlap.date) {
+                const date = new Date(overlap.date);
+                message += ` - ${date.toLocaleDateString('vi-VN')}`;
+              }
+              return message;
+            });
+
+            const slotName = slotNames[slot] || slot;
+            
+            // Find the actual date and time for the selected day from parsedScheduleData
+            let selectedDayDate: string | undefined;
+            let currentSlotStartTime: string | undefined;
+            let currentSlotEndTime: string | undefined;
+            if (parsedScheduleData && parsedScheduleData.length > 0) {
+              const dayData = parsedScheduleData.find(d => d.day === day);
+              if (dayData) {
+                selectedDayDate = dayData.date;
+                // Find the slot time
+                const slotData = dayData.slots.find(s => s.slotKey === slot);
+                if (slotData) {
+                  currentSlotStartTime = slotData.startTime;
+                  currentSlotEndTime = slotData.endTime;
+                }
+              }
+            }
+            
+            // Show beautiful warning modal instead of alert
+            setOverlapWarning({
+              show: true,
+              overlappingActivities: result.overlappingActivities,
+              day: day,
+              slot: slotName,
+              date: selectedDayDate,
+              currentActivityName: activity.name,
+              currentSlotStartTime: currentSlotStartTime,
+              currentSlotEndTime: currentSlotEndTime
+            });
+            return; // Block registration - don't add to selection
+          }
+        } catch (error) {
+          console.error('Error checking slot overlap:', error);
+          // Continue with selection even if check fails
+        }
+      }
+
+      setSelectedDaySlotsForRegistration(prev => [...prev, { day, slot }]);
     }
   };
 
@@ -1164,6 +1819,56 @@ export default function ActivityDetailPage() {
     );
   }
 
+  // Helper function to render status badge
+  const renderStatusBadge = () => {
+    if (!isAuthenticated || !isRegistered || !approvalStatus) return null;
+    
+    return (
+      <div className="absolute top-2 right-2 z-10">
+        {approvalStatus === 'approved' && (
+          <div className={`px-2 py-0.5 rounded-full text-[8px] font-semibold flex items-center gap-1 shadow-lg ${
+            isDarkMode 
+              ? 'bg-green-600/90 text-white' 
+              : 'bg-green-600 text-white'
+          }`}>
+            <CheckCircle2 size={9} />
+            <span>Đã duyệt</span>
+          </div>
+        )}
+        {approvalStatus === 'pending' && (
+          <div className={`px-2 py-0.5 rounded-full text-[8px] font-semibold flex items-center gap-1 shadow-lg ${
+            isDarkMode 
+              ? 'bg-blue-600/90 text-white' 
+              : 'bg-blue-600 text-white'
+          }`}>
+            <Clock size={9} />
+            <span>Chờ duyệt</span>
+          </div>
+        )}
+        {approvalStatus === 'rejected' && (
+          <div className={`px-2 py-0.5 rounded-full text-[8px] font-semibold flex items-center gap-1 shadow-lg ${
+            isDarkMode 
+              ? 'bg-red-600/90 text-white' 
+              : 'bg-red-600 text-white'
+          }`}>
+            <XCircle size={9} />
+            <span>Từ chối</span>
+          </div>
+        )}
+        {approvalStatus === 'removed' && (
+          <div className={`px-2 py-0.5 rounded-full text-[8px] font-semibold flex items-center gap-1 shadow-lg ${
+            isDarkMode 
+              ? 'bg-orange-600/90 text-white' 
+              : 'bg-orange-600 text-white'
+          }`}>
+            <UserMinus size={9} />
+            <span>Đã xóa</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   if (!activity) {
     return (
       <div className={`min-h-screen flex items-center justify-center ${isDarkMode ? 'bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white' : 'bg-gradient-to-br from-blue-50 via-white to-purple-50 text-gray-900'}`}>
@@ -1184,22 +1889,23 @@ export default function ActivityDetailPage() {
     <div className={`min-h-screen flex flex-col ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
       <StudentNav key="student-nav" />
       <main className="flex-1 max-w-4xl mx-auto px-3 sm:px-4 py-3 sm:py-4 w-full">
-        {/* Hero Section - Compact & Smart */}
-        <div className={`mb-3 rounded-xl overflow-hidden border-2 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
+        {/* Hero Section */}
+        <div className={`mb-2 rounded-lg overflow-hidden border ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
           {activity.imageUrl && (
-            <div className="relative h-48 sm:h-56 overflow-hidden">
+            <div className="relative h-40 sm:h-48 overflow-hidden">
               <img
                 src={activity.imageUrl}
                 alt={activity.name}
                 className="w-full h-full object-cover"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"></div>
-              <div className="absolute bottom-0 left-0 right-0 p-4">
-                <h1 className={`text-xl sm:text-2xl font-bold text-white mb-1.5 drop-shadow-lg`}>
+              {renderStatusBadge()}
+              <div className="absolute bottom-0 left-0 right-0 p-3">
+                <h1 className={`text-lg sm:text-xl font-bold text-white mb-1 drop-shadow-lg`}>
                   {activity.name}
                 </h1>
                 {activity.overview && (
-                  <p className={`text-sm text-white/95 line-clamp-2 drop-shadow-md`}>
+                  <p className={`text-xs text-white/95 line-clamp-2 drop-shadow-md`}>
                     {activity.overview}
                   </p>
                 )}
@@ -1207,12 +1913,13 @@ export default function ActivityDetailPage() {
             </div>
           )}
           {!activity.imageUrl && (
-            <div className={`p-4 ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
-              <h1 className={`text-xl sm:text-2xl font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+            <div className={`relative p-3 ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
+              {renderStatusBadge()}
+              <h1 className={`text-lg sm:text-xl font-bold mb-1.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                 {activity.name}
               </h1>
               {activity.overview && (
-                <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
                   {activity.overview}
                 </p>
               )}
@@ -1220,51 +1927,60 @@ export default function ActivityDetailPage() {
           )}
         </div>
 
-        {/* Quick Action Buttons - Sticky on Mobile */}
-        <div className="sticky top-0 z-20 mb-3 -mx-3 sm:mx-0 px-3 sm:px-0">
-          <div className={`rounded-xl border-2 p-2 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-300'}`}>
-            <div className="flex flex-col sm:flex-row gap-2">
+        {/* Quick Action Buttons */}
+        <div className="sticky top-0 z-20 mb-2 -mx-3 sm:mx-0 px-3 sm:px-0">
+          <div className={`rounded-lg border p-0.5 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-300'}`}>
+            <div className="flex flex-col sm:flex-row gap-0.5">
               {/* Attendance/Check-in Button */}
               {isAuthenticated && user && (() => {
                 const timeStatus = getActivityTimeStatus();
-                const hasAttendanceRecords = attendanceRecords.length > 0;
                 
-                if (isRegistered && timeStatus === 'after' && hasAttendanceRecords) {
+                // Hiển thị button điểm danh khi đã đăng ký và được duyệt (không cần chờ đến ngày)
+                if (isRegistered && approvalStatus === 'approved') {
+                  if (timeStatus === 'after') {
                   return (
                     <button
                       onClick={() => router.push(`/student/attendance/${activityId}`)}
-                      className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg ${
+                        className={`flex-1 py-1 px-2 rounded text-[10px] font-medium transition-all flex items-center justify-center gap-1 ${
                         isDarkMode
-                          ? 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white shadow-blue-500/50'
-                          : 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white shadow-blue-500/30'
+                            ? 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white'
+                            : 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white'
                       }`}
                     >
-                      <Eye size={16} />
+                        <Eye size={11} />
                       <span>Xem điểm danh</span>
                     </button>
                   );
                 }
                 
-                if (isRegistered && approvalStatus === 'approved' && timeStatus === 'during') {
                   return (
                     <button
                       onClick={handleCheckIn}
                       disabled={isCheckingIn}
-                      className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg ${
+                      className={`flex-1 py-1 px-2 rounded text-[10px] font-medium transition-all flex items-center justify-center gap-1 ${
                         isDarkMode
-                          ? 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white shadow-blue-500/50'
-                          : 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white shadow-blue-500/30'
+                          ? 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white'
+                          : 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white'
                       } ${isCheckingIn ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       {isCheckingIn ? (
                         <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <Loader2 className="w-2.5 h-2.5 animate-spin" />
                           <span>Đang xử lý...</span>
                         </>
                       ) : (
                         <>
-                          <ClipboardCheck size={16} />
+                          {timeStatus === 'during' ? (
+                            <>
+                              <ClipboardCheck size={11} />
                           <span>Điểm danh</span>
+                            </>
+                          ) : (
+                            <>
+                              <Eye size={11} />
+                              <span>Xem điểm danh</span>
+                            </>
+                          )}
                         </>
                       )}
                     </button>
@@ -1277,35 +1993,60 @@ export default function ActivityDetailPage() {
               {/* Register/Unregister Button */}
               {isAuthenticated && user && (
                 <>
-                  {!isRegistered && (
+                  {!isRegistered && (() => {
+                    const timeStatus = getActivityTimeStatus();
+                    // Don't show register button if activity has ended
+                    if (timeStatus === 'after') {
+                      return null;
+                    }
+                    
+                    return (
                     <button
                       onClick={handleRegisterToggle}
                       disabled={isRegistering}
-                      className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg ${
+                        className={`flex-1 py-1 px-2 rounded text-[10px] font-medium transition-all flex items-center justify-center gap-1 ${
                         isDarkMode
-                          ? 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white shadow-blue-500/50'
-                          : 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white shadow-blue-500/30'
+                            ? 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white'
+                            : 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white'
                       } ${isRegistering ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       {isRegistering ? (
                         <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
+                            <Loader2 className="w-2.5 h-2.5 animate-spin" />
                           <span>Đang đăng ký...</span>
                         </>
                       ) : (
                         <>
-                          <UserPlus size={16} />
+                            <UserPlus size={11} />
                           <span>Đăng ký tham gia</span>
                         </>
                       )}
                     </button>
+                    );
+                  })()}
+                  
+                  {isRegistered && activity.type === 'multiple_days' && (
+                    <button
+                      onClick={() => {
+                        setSelectedDaySlotsForRegistration([...userRegisteredDaySlots]);
+                        setShowRegistrationModal(true);
+                      }}
+                      className={`flex-1 py-1 px-2 rounded text-[10px] font-medium transition-all flex items-center justify-center gap-1 ${
+                        isDarkMode
+                          ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                          : 'bg-blue-500 hover:bg-blue-600 text-white'
+                      }`}
+                    >
+                      <Eye size={11} />
+                      <span>Xem/Chỉnh sửa buổi đã đăng ký</span>
+                    </button>
                   )}
                   
-                  {isRegistered && approvalStatus !== 'approved' && (
+                  {isRegistered && approvalStatus === 'pending' && (
                     <button
                       onClick={handleRegisterToggle}
                       disabled={isRegistering}
-                      className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+                      className={`flex-1 py-1 px-2 rounded text-[10px] font-medium transition-all flex items-center justify-center gap-1 ${
                         isDarkMode
                           ? 'bg-red-600 hover:bg-red-500 text-white'
                           : 'bg-red-500 hover:bg-red-600 text-white'
@@ -1313,12 +2054,12 @@ export default function ActivityDetailPage() {
                     >
                       {isRegistering ? (
                         <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <Loader2 className="w-2.5 h-2.5 animate-spin" />
                           <span>Đang hủy...</span>
                         </>
                       ) : (
                         <>
-                          <UserMinus size={16} />
+                          <UserMinus size={11} />
                           <span>Hủy đăng ký</span>
                         </>
                       )}
@@ -1327,130 +2068,150 @@ export default function ActivityDetailPage() {
                 </>
               )}
               
-              {/* Back Button */}
               <button
                 onClick={() => window.history.back()}
-                className={`py-2.5 px-4 rounded-lg text-sm font-semibold transition-all border flex items-center justify-center gap-2 ${
+                className={`py-1 px-2 rounded text-[10px] font-medium transition-all border flex items-center justify-center gap-1 ${
                   isDarkMode 
                     ? 'border-gray-600 text-gray-100 hover:bg-gray-700/50' 
                     : 'border-gray-300 text-gray-800 hover:bg-gray-50'
                 }`}
               >
-                <ArrowLeft size={16} />
+                <ArrowLeft size={11} />
                 <span className="hidden sm:inline">Quay lại</span>
               </button>
             </div>
           </div>
         </div>
 
-        {/* Main Info Cards Grid - Smart & Compact */}
-        <div className={`mb-3 rounded-xl border-2 p-3 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-            {/* Ngày diễn ra */}
-            <div key="date-card" className={`p-2.5 rounded-lg border-2 ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
-              <div className="flex items-start gap-2">
-                <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-50'}`}>
-                  <Calendar size={18} className="text-blue-500" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-[10px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                    {activity.type === 'multiple_days' ? 'Thời gian' : 'Ngày'}
-                  </p>
-                  <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'} truncate leading-tight`}>
-                    {activity.type === 'multiple_days' 
-                      ? activity.startDate && activity.endDate 
-                        ? `${activity.startDate} - ${activity.endDate}`
-                        : 'N/A'
-                      : activity.date}
-                  </p>
+        {/* Rejection/Removal Reason Section */}
+        {isAuthenticated && isRegistered && (
+          <>
+            {approvalStatus === 'rejected' && rejectionReason && (
+              <div className={`mb-2 rounded-lg border p-2 ${isDarkMode ? 'border-red-700 bg-red-900/10' : 'border-red-300 bg-red-50'}`}>
+                <div className="flex items-start gap-1.5">
+                  <XCircle size={14} className={`mt-0.5 flex-shrink-0 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />
+                  <div className="flex-1 min-w-0">
+                    <h3 className={`text-xs font-bold mb-0.5 ${isDarkMode ? 'text-red-300' : 'text-red-800'}`}>
+                      Lý do từ chối
+                    </h3>
+                    <p className={`text-[10px] leading-relaxed ${isDarkMode ? 'text-red-200' : 'text-red-700'}`}>
+                      {rejectionReason}
+                    </p>
+                    {rejectedAt && (
+                      <p className={`text-[9px] mt-1 ${isDarkMode ? 'text-red-300/70' : 'text-red-600/70'}`}>
+                        {new Date(rejectedAt).toLocaleString('vi-VN')}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-
-            {/* Thời gian */}
-            <div key="time-card" className={`p-2.5 rounded-lg border-2 ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
-              <div className="flex items-start gap-2">
-                <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-orange-500/20' : 'bg-orange-50'}`}>
-                  <Clock size={18} className="text-orange-500" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-[10px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Thời gian</p>
-                  {activity.timeSlots.filter(slot => slot.isActive).length > 0 ? (
-                    <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'} truncate leading-tight`}>
-                      {activity.timeSlots.filter(slot => slot.isActive).map(slot => `${slot.startTime}-${slot.endTime}`).join(', ')}
+            )}
+            
+            {approvalStatus === 'removed' && removalReason && (
+              <div className={`mb-2 rounded-lg border p-2 ${isDarkMode ? 'border-orange-700 bg-orange-900/10' : 'border-orange-300 bg-orange-50'}`}>
+                <div className="flex items-start gap-1.5">
+                  <UserMinus size={14} className={`mt-0.5 flex-shrink-0 ${isDarkMode ? 'text-orange-400' : 'text-orange-600'}`} />
+                  <div className="flex-1 min-w-0">
+                    <h3 className={`text-xs font-bold mb-0.5 ${isDarkMode ? 'text-orange-300' : 'text-orange-800'}`}>
+                      Lý do xóa đăng ký
+                    </h3>
+                    <p className={`text-[10px] leading-relaxed ${isDarkMode ? 'text-orange-200' : 'text-orange-700'}`}>
+                      {removalReason}
                     </p>
-                  ) : (
-                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>N/A</p>
-                  )}
+                    {removedAt && (
+                      <p className={`text-[9px] mt-1 ${isDarkMode ? 'text-orange-300/70' : 'text-orange-600/70'}`}>
+                        {new Date(removedAt).toLocaleString('vi-VN')}
+                        {removedBy && (
+                          <span> • {typeof removedBy === 'object' ? removedBy.name : removedBy}</span>
+                        )}
+                      </p>
+                    )}
+                  </div>
                 </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Main Info Cards Grid */}
+        <div className={`mb-2 rounded-lg border p-2 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
+          <div className="flex flex-wrap gap-2">
+            {/* Ngày diễn ra */}
+            <div key="date-card" className={`flex-1 min-w-[120px] rounded-lg border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+              <div className="p-2 flex flex-col items-center text-center h-full">
+                <Calendar size={16} className="text-blue-500 mb-1" strokeWidth={2} />
+                <p className={`text-[9px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                  {activity.type === 'multiple_days' ? 'Thời gian' : 'Ngày'}
+                </p>
+                <p className={`text-[10px] font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'} line-clamp-2 leading-tight`}>
+                  {activity.type === 'multiple_days' 
+                    ? activity.startDate && activity.endDate 
+                      ? `${activity.startDate} - ${activity.endDate}`
+                      : 'N/A'
+                    : activity.date}
+                </p>
               </div>
             </div>
 
             {/* Địa điểm - Single Location */}
             {!activity.isMultiTimeLocation && (
-              <div key="single-location-card" className={`p-2.5 rounded-lg border-2 ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
-                <div className="flex items-start gap-2">
-                  <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-red-500/20' : 'bg-red-50'}`}>
-                    <MapPin size={18} className="text-red-500" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-[10px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Địa điểm</p>
-                    <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'} truncate leading-tight`}>
-                      {activity.locationData?.address || activity.location}
-                    </p>
-                  </div>
+              <div key="single-location-card" className={`flex-1 min-w-[120px] rounded-lg border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                <div className="p-2 flex flex-col items-center text-center h-full">
+                  <MapPin size={16} className="text-red-500 mb-1" strokeWidth={2} />
+                  <p className={`text-[9px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Địa điểm
+                  </p>
+                  <p className={`text-[10px] font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'} line-clamp-2 leading-tight`}>
+                    {activity.locationData?.address || activity.location || 'N/A'}
+                  </p>
                 </div>
               </div>
             )}
 
             {/* Số buổi */}
             {activity.numberOfSessions !== undefined && activity.numberOfSessions > 0 && (
-              <div key="number-of-sessions-card" className={`p-2.5 rounded-lg border-2 ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
-                <div className="flex items-start gap-2">
-                  <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-purple-500/20' : 'bg-purple-50'}`}>
-                    <BookOpen size={18} className="text-purple-500" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-[10px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Số buổi</p>
-                    <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{activity.numberOfSessions}</p>
-                  </div>
+              <div key="number-of-sessions-card" className={`flex-1 min-w-[120px] rounded-lg border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                <div className="p-2 flex flex-col items-center text-center h-full">
+                  <BookOpen size={16} className="text-purple-500 mb-1" strokeWidth={2} />
+                  <p className={`text-[9px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Số buổi
+                  </p>
+                  <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    {activity.numberOfSessions}
+                  </p>
                 </div>
               </div>
             )}
-
             {/* Đã đăng ký */}
             {activity.registeredParticipantsCount !== undefined && (
-              <div key="registered-count-card" className={`p-2.5 rounded-lg border-2 ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
-                <div className="flex items-start gap-2">
-                  <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-green-500/20' : 'bg-green-50'}`}>
-                    <Users size={18} className="text-green-500" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-[10px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Đã đăng ký</p>
-                    <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{activity.registeredParticipantsCount}</p>
-                  </div>
+              <div key="registered-count-card" className={`flex-1 min-w-[120px] rounded-lg border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                <div className="p-2 flex flex-col items-center text-center h-full">
+                  <Users size={16} className="text-green-500 mb-1" strokeWidth={2} />
+                  <p className={`text-[9px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Đã đăng ký
+                  </p>
+                  <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    {activity.registeredParticipantsCount}/{activity.maxParticipants || 0}
+                  </p>
                 </div>
               </div>
             )}
 
-            {/* Trạng thái điểm danh - Chỉ hiển thị khi đã đăng ký và được duyệt */}
+            {/* Trạng thái điểm danh */}
             {isRegistered && approvalStatus === 'approved' && (() => {
               const timeStatus = getActivityTimeStatus();
               
-              // Nếu chưa đến ngày hoặc đã qua ngày, hiển thị trạng thái đặc biệt
               if (timeStatus === 'before') {
                 return (
-                  <div key="attendance-status-card" className={`p-2.5 rounded-lg border-2 ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
-                    <div className="flex items-start gap-2">
-                      <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-amber-500/20' : 'bg-amber-50'}`}>
-                        <Clock size={18} className="text-amber-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-[10px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Trạng thái điểm danh</p>
-                        <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                          Chưa đến ngày
-                        </p>
-                      </div>
+                  <div key="attendance-status-card" className={`flex-1 min-w-[120px] rounded-lg border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                    <div className="p-2 flex flex-col items-center text-center h-full">
+                      <Clock size={16} className="text-amber-500 mb-1" strokeWidth={2} />
+                      <p className={`text-[9px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                        Trạng thái
+                      </p>
+                      <p className={`text-[10px] font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'} line-clamp-2 leading-tight`}>
+                        Chưa đến ngày
+                      </p>
                     </div>
                   </div>
                 );
@@ -1458,23 +2219,20 @@ export default function ActivityDetailPage() {
 
               if (timeStatus === 'after') {
                 return (
-                  <div key="attendance-status-card" className={`p-2.5 rounded-lg border-2 ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
-                    <div className="flex items-start gap-2">
-                      <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-red-500/20' : 'bg-red-50'}`}>
-                        <XCircle size={18} className="text-red-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-[10px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Trạng thái</p>
-                        <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                          Đã kết thúc
-                        </p>
-                      </div>
+                  <div key="attendance-status-card" className={`flex-1 min-w-[120px] rounded-lg border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                    <div className="p-2 flex flex-col items-center text-center h-full">
+                      <XCircle size={16} className="text-red-500 mb-1" strokeWidth={2} />
+                      <p className={`text-[9px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                        Trạng thái
+                      </p>
+                      <p className={`text-[10px] font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'} line-clamp-2 leading-tight`}>
+                        Đã kết thúc
+                      </p>
                     </div>
                   </div>
                 );
               }
 
-              // Đang trong thời gian hoạt động - hiển thị thông tin điểm danh
               const totalSlots = activity?.timeSlots?.filter(slot => slot.isActive).length || 0;
               let completedSlots = 0;
 
@@ -1498,26 +2256,23 @@ export default function ActivityDetailPage() {
 
               const StatusIcon = isCompleted ? CheckCircle2 : hasAnyAttendance ? Clock : AlertCircle;
               const iconColor = isCompleted ? 'text-green-500' : hasAnyAttendance ? 'text-blue-500' : 'text-gray-500';
-              const bgColor = isCompleted ? (isDarkMode ? 'bg-green-500/20' : 'bg-green-50') : hasAnyAttendance ? (isDarkMode ? 'bg-blue-500/20' : 'bg-blue-50') : (isDarkMode ? 'bg-gray-500/20' : 'bg-gray-50');
               
               return (
-                <div key="attendance-status-card" className={`p-2.5 rounded-lg border-2 ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
-                  <div className="flex items-start gap-2">
-                    <div className={`p-1.5 rounded-lg ${bgColor}`}>
-                      <StatusIcon size={18} className={iconColor} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-[10px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Trạng thái điểm danh</p>
-                      <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                        {isCompleted
-                          ? 'Đã hoàn thành'
-                          : totalSlots === 1
-                          ? 'Chưa hoàn thành'
-                          : totalSlots > 1
-                          ? `${completedSlots}/${totalSlots} buổi`
-                          : 'Chưa điểm danh'}
-                      </p>
-                    </div>
+                <div key="attendance-status-card" className={`flex-1 min-w-[120px] rounded-lg border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                  <div className="p-2 flex flex-col items-center text-center h-full">
+                    <StatusIcon size={16} className={iconColor} strokeWidth={2} />
+                    <p className={`text-[9px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Trạng thái
+                    </p>
+                    <p className={`text-[10px] font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'} line-clamp-2 leading-tight`}>
+                      {isCompleted
+                        ? 'Đã hoàn thành'
+                        : totalSlots === 1
+                        ? 'Chưa hoàn thành'
+                        : totalSlots > 1
+                        ? `${completedSlots}/${totalSlots} buổi`
+                        : 'Chưa điểm danh'}
+                    </p>
                   </div>
                 </div>
               );
@@ -1525,15 +2280,15 @@ export default function ActivityDetailPage() {
           </div>
         </div>
 
-        {/* Schedule Section for Multiple Days - Card View */}
+        {/* Schedule Section for Multiple Days */}
         {activity.type === 'multiple_days' && parsedScheduleData.length > 0 && (
-          <div className={`mb-3 rounded-xl border-2 p-3 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-50'}`}>
-                  <Calendar size={18} className="text-blue-500" />
+          <div className={`mb-2 rounded-lg border p-2 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5">
+                <div className={`p-1 rounded-lg ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-50'}`}>
+                  <Calendar size={14} className="text-blue-500" />
                 </div>
-                <h2 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                <h2 className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                   Lịch trình hoạt động
                 </h2>
               </div>
@@ -1559,49 +2314,49 @@ export default function ActivityDetailPage() {
               )}
             </div>
             
-            {/* Week Navigation - Luôn hiển thị */}
+            {/* Week Navigation */}
             {weeks.length > 0 && (
-              <div className={`mb-3 rounded-lg border ${isDarkMode ? 'border-gray-600 bg-gray-800/50' : 'border-gray-300 bg-gray-50'} p-2`}>
-                <div className="flex items-center justify-between gap-3">
+              <div className={`mb-2 rounded-lg border ${isDarkMode ? 'border-gray-600 bg-gray-800/50' : 'border-gray-300 bg-gray-50'} p-1.5`}>
+                <div className="flex items-center justify-between gap-2">
                   {/* Nút Previous */}
                   <button
                     onClick={() => setCurrentWeekIndex(prev => Math.max(0, prev - 1))}
                     disabled={!weekInfo.canGoPrev}
-                    className={`flex items-center justify-center w-10 h-10 rounded-lg transition-all ${
+                    className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all ${
                       weekInfo.canGoPrev
                         ? isDarkMode 
-                          ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 hover:scale-105 border border-blue-500/30' 
-                          : 'bg-blue-50 text-blue-600 hover:bg-blue-100 hover:scale-105 border border-blue-200'
+                          ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 border border-blue-500/30' 
+                          : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200'
                         : isDarkMode 
                           ? 'bg-gray-800/50 text-gray-500 opacity-50 cursor-not-allowed border border-gray-700' 
                           : 'bg-gray-100 text-gray-400 opacity-50 cursor-not-allowed border border-gray-300'
                     }`}
                     title="Tuần trước"
                   >
-                    <ChevronLeft size={20} strokeWidth={2.5} />
+                    <ChevronLeft size={16} strokeWidth={2} />
                   </button>
                   
-                  {/* Week Info Card - Enhanced */}
-                  <div className={`flex-1 flex items-center justify-center gap-3 px-4 py-3 rounded-lg ${
+                  {/* Week Info Card */}
+                  <div className={`flex-1 flex items-center justify-center gap-2 px-2 py-1.5 rounded-lg ${
                     isDarkMode 
                       ? 'bg-gradient-to-r from-purple-500/20 to-indigo-500/20 border border-purple-500/30' 
                       : 'bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200'
                   }`}>
-                    <CalendarRange size={20} strokeWidth={2.5} className={isDarkMode ? 'text-purple-300' : 'text-purple-600'} />
-                    <div className="flex flex-col items-center gap-1">
-                      <div className={`flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                        <span className="text-base font-bold">Tuần</span>
-                        <span className="text-lg font-extrabold">{weekInfo.currentWeek?.weekNumber || 1}</span>
+                    <CalendarRange size={14} strokeWidth={2} className={isDarkMode ? 'text-purple-300' : 'text-purple-600'} />
+                    <div className="flex flex-col items-center gap-0.5">
+                      <div className={`flex items-center gap-1.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                        <span className="text-xs font-bold">Tuần</span>
+                        <span className="text-sm font-extrabold">{weekInfo.currentWeek?.weekNumber || 1}</span>
                         {weekInfo.totalWeeks > 1 && (
                           <>
-                            <span className="text-sm opacity-70">/</span>
-                            <span className="text-sm opacity-70">{weekInfo.totalWeeks}</span>
+                            <span className="text-[10px] opacity-70">/</span>
+                            <span className="text-[10px] opacity-70">{weekInfo.totalWeeks}</span>
                           </>
                         )}
                       </div>
                       {weekInfo.currentWeek && weekInfo.startDateStr && weekInfo.endDateStr && (
-                        <div className={`flex items-center gap-1.5 text-xs font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                          <Calendar size={12} strokeWidth={2} />
+                        <div className={`flex items-center gap-1 text-[9px] font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                          <Calendar size={10} strokeWidth={2} />
                           <span>{weekInfo.startDateStr} - {weekInfo.endDateStr}</span>
                         </div>
                       )}
@@ -1612,25 +2367,25 @@ export default function ActivityDetailPage() {
                   <button
                     onClick={() => setCurrentWeekIndex(prev => Math.min(weekInfo.totalWeeks - 1, prev + 1))}
                     disabled={!weekInfo.canGoNext}
-                    className={`flex items-center justify-center w-10 h-10 rounded-lg transition-all ${
+                    className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all ${
                       weekInfo.canGoNext
                         ? isDarkMode 
-                          ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 hover:scale-105 border border-blue-500/30' 
-                          : 'bg-blue-50 text-blue-600 hover:bg-blue-100 hover:scale-105 border border-blue-200'
+                          ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 border border-blue-500/30' 
+                          : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200'
                         : isDarkMode 
                           ? 'bg-gray-800/50 text-gray-500 opacity-50 cursor-not-allowed border border-gray-700' 
                           : 'bg-gray-100 text-gray-400 opacity-50 cursor-not-allowed border border-gray-300'
                     }`}
                     title="Tuần tiếp theo"
                   >
-                    <ChevronRight size={20} strokeWidth={2.5} />
+                    <ChevronRight size={16} strokeWidth={2} />
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Day Tabs - Hiển thị đầy đủ từ Thứ 2 đến Chủ nhật */}
-            <div className="flex justify-center overflow-x-auto gap-1.5 mb-3 no-scrollbar">
+            {/* Day Tabs */}
+            <div className="flex justify-center overflow-x-auto gap-1 mb-2 no-scrollbar">
               {currentWeekDays.map((weekDay, idx) => {
                 const dayLabel = dayLabels[idx];
                 const dayData = weekDay.data;
@@ -1640,16 +2395,16 @@ export default function ActivityDetailPage() {
                 if (!dayData) {
                   return (
                     <div
-                      key={`day-tab-${weekDay.dayKey}`}
-                      className={`flex-shrink-0 px-3 py-2 rounded-lg text-xs font-semibold border-2 ${
+                      key={`day-tab-out-${idx}-${weekDay.dayKey}`}
+                      className={`flex-shrink-0 px-2 py-1 rounded-lg text-[10px] font-semibold border ${
                         isDarkMode
                           ? 'bg-gray-800/40 text-gray-400 opacity-60 border-gray-700/50'
                           : 'bg-gray-50 text-gray-400 opacity-60 border-gray-200'
                       }`}
                     >
-                      <div className="flex flex-col items-center gap-1">
+                      <div className="flex flex-col items-center gap-0.5">
                         <span className="font-bold">{dayLabel}</span>
-                        <span className={`text-[9px] italic ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                        <span className={`text-[8px] italic ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
                           Ngoài phạm vi
                         </span>
                       </div>
@@ -1664,12 +2419,12 @@ export default function ActivityDetailPage() {
 
                 return (
                   <button
-                    key={`day-tab-${dayData.day}`}
+                    key={`day-tab-${dayData.day}-${idx}`}
                     type="button"
                     onClick={() => {
                       setSelectedDaySlot(isSelected ? null : { day: dayData.day, slot: 'morning' });
                     }}
-                    className={`flex-shrink-0 px-3 py-2 rounded-lg text-xs font-semibold transition-all relative border-2 ${
+                    className={`flex-shrink-0 px-2 py-1 rounded-lg text-[10px] font-semibold transition-all relative border ${
                       isSelected
                         ? isDarkMode
                           ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md border-blue-400'
@@ -1679,10 +2434,10 @@ export default function ActivityDetailPage() {
                           : 'bg-white text-gray-600 hover:bg-gray-100 border-gray-300'
                     }`}
                   >
-                    <div className="flex flex-col items-center gap-1">
-                      <div className="flex items-center gap-1.5">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <div className="flex items-center gap-1">
                         <span className="font-bold">{dayLabel}</span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                        <span className={`text-[9px] px-1 py-0.5 rounded-full font-semibold ${
                           activeSlots > 0
                             ? isSelected
                               ? isDarkMode ? 'bg-white/20 text-white' : 'bg-white/30 text-white'
@@ -1692,7 +2447,7 @@ export default function ActivityDetailPage() {
                               : isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-500'
                         }`}>{activeSlots}/{totalSlots}</span>
                       </div>
-                      <span className={`text-[10px] font-medium ${
+                      <span className={`text-[9px] font-medium ${
                         isSelected
                           ? isDarkMode ? 'text-white/90' : 'text-white'
                           : isDarkMode ? 'text-gray-400' : 'text-gray-500'
@@ -1711,7 +2466,7 @@ export default function ActivityDetailPage() {
               if (!dayData) return null;
 
               return (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-stretch">
                   {['morning', 'afternoon', 'evening'].map((slotKey) => {
                     const slot = dayData.slots.find(s => s.slotKey === slotKey);
                     const slotName = slotKey === 'morning' ? 'Buổi Sáng' : slotKey === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
@@ -1801,24 +2556,41 @@ export default function ActivityDetailPage() {
                     return (
                       <div
                         key={slotKey}
-                        className={`rounded-xl border-2 p-4 transition-all duration-300 hover:scale-[1.02] ${styles.border} ${styles.bg} ${styles.shadow} ${
+                        onClick={() => {
+                          if (isActive && hasLocation) {
+                            setSelectedDaySlot({ day: dayData.day, slot: slotKey as 'morning' | 'afternoon' | 'evening' });
+                            setTimeout(() => {
+                              const mapSection = document.getElementById('map-section');
+                              if (mapSection) {
+                                mapSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                              }
+                            }, 100);
+                          }
+                        }}
+                        className={`rounded-lg border p-2.5 transition-all duration-300 ${styles.border} ${
+                          isDarkMode ? 'bg-gray-800' : 'bg-white'
+                        } ${
                           !isActive ? 'opacity-60' : ''
-                        }`}
+                        } ${
+                          isActive && hasLocation ? 'cursor-pointer hover:shadow-lg' : 'cursor-default'
+                        } flex flex-col h-full`}
                       >
-                        {/* Slot Header - Enhanced */}
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex items-center gap-3 flex-1">
-                            {/* Icon với background gradient đẹp */}
-                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${styles.iconBg} ${styles.shadow} transition-transform duration-300 ${isSelected ? 'scale-110' : ''}`}>
-                              <SlotIcon size={20} strokeWidth={2.5} className={styles.iconColor} />
+                        {/* Slot Header */}
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-2 flex-1">
+                            {/* Icon */}
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                              isDarkMode ? 'bg-gray-700' : 'bg-gray-100'
+                            } transition-transform duration-300 ${isSelected ? 'scale-105' : ''}`}>
+                              <SlotIcon size={16} strokeWidth={2} className={styles.iconColor} />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <p className={`text-sm font-bold ${isActive ? (isDarkMode ? 'text-white' : 'text-gray-900') : (isDarkMode ? 'text-gray-500' : 'text-gray-400')}`}>
+                              <div className="flex items-center gap-1.5 mb-0.5">
+                                <p className={`text-xs font-bold ${isActive ? (isDarkMode ? 'text-white' : 'text-gray-900') : (isDarkMode ? 'text-gray-500' : 'text-gray-400')}`}>
                                   {slotName}
                                 </p>
                                 {isActive && (
-                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                                  <span className={`px-1.5 py-0.5 rounded-full text-[8px] font-semibold ${
                                     isDarkMode 
                                       ? 'bg-green-500/30 text-green-200 border border-green-500/50' 
                                       : 'bg-green-100 text-green-700 border border-green-300'
@@ -1828,9 +2600,9 @@ export default function ActivityDetailPage() {
                                 )}
                               </div>
                               {slot && (
-                                <div className="flex items-center gap-1.5">
-                                  <Clock size={12} strokeWidth={2} className={styles.timeColor} />
-                                  <p className={`text-xs font-semibold ${styles.timeColor}`}>
+                                <div className="flex items-center gap-1">
+                                  <Clock size={10} strokeWidth={2} className={styles.timeColor} />
+                                  <p className={`text-[10px] font-semibold ${styles.timeColor}`}>
                                     {slot.startTime} - {slot.endTime}
                                   </p>
                                 </div>
@@ -1838,7 +2610,7 @@ export default function ActivityDetailPage() {
                             </div>
                           </div>
                           {isSelected && isActive && (
-                            <div className={`w-2.5 h-2.5 rounded-full ${
+                            <div className={`w-2 h-2 rounded-full ${
                               slotKey === 'morning' 
                                 ? isDarkMode ? 'bg-yellow-400' : 'bg-yellow-500'
                                 : slotKey === 'afternoon'
@@ -1848,42 +2620,42 @@ export default function ActivityDetailPage() {
                           )}
                         </div>
 
-                        {/* Slot Content - Enhanced */}
+                        {/* Slot Content */}
                         {isActive && slot ? (
-                          <div className={`space-y-3 pt-3 border-t ${isDarkMode ? 'border-gray-700/50' : 'border-gray-200'}`}>
+                          <div className={`space-y-2 pt-2 border-t flex-1 flex flex-col ${isDarkMode ? 'border-gray-700/50' : 'border-gray-200'}`}>
                             {/* Activity Description */}
-                            {slot.activities && (
-                              <div className={`p-2.5 rounded-lg ${isDarkMode ? 'bg-gray-800/40' : 'bg-white/60'}`}>
-                                <label className={`block mb-1.5 text-[11px] font-bold uppercase tracking-wide flex items-center gap-1.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                  <BookOpen size={11} strokeWidth={2} />
-                                  <span>Mô tả hoạt động</span>
-                                </label>
-                                <p className={`text-xs leading-relaxed ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                  {slot.activities}
-                                </p>
-                              </div>
-                            )}
+                            <div className={`p-2 rounded-lg min-h-[60px] flex flex-col ${
+                              isDarkMode ? 'border border-gray-700' : 'border border-gray-200'
+                            }`}>
+                              <label className={`block mb-1 text-[9px] font-bold uppercase tracking-wide flex items-center gap-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                <BookOpen size={9} strokeWidth={2} />
+                                <span>Mô tả hoạt động</span>
+                              </label>
+                              <p className={`text-[10px] leading-relaxed flex-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                {slot.activities || <span className="italic opacity-60">Chưa cập nhật</span>}
+                              </p>
+                            </div>
 
                             {/* Detailed Location */}
-                            {(slot.detailedLocation || dayData.dayDetailedLocation) && (
-                              <div className={`p-2.5 rounded-lg ${isDarkMode ? 'bg-gray-800/40' : 'bg-white/60'}`}>
-                                <label className={`block mb-1.5 text-[11px] font-bold uppercase tracking-wide flex items-center gap-1.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                  <FileText size={11} strokeWidth={2} />
-                                  <span>Địa điểm chi tiết</span>
-                                </label>
-                                <p className={`text-xs leading-relaxed ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                  {slot.detailedLocation || dayData.dayDetailedLocation}
-                                </p>
-                              </div>
-                            )}
+                            <div className={`p-2 rounded-lg min-h-[50px] flex flex-col ${
+                              isDarkMode ? 'border border-gray-700' : 'border border-gray-200'
+                            }`}>
+                              <label className={`block mb-1 text-[9px] font-bold uppercase tracking-wide flex items-center gap-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                <FileText size={9} strokeWidth={2} />
+                                <span>Địa điểm chi tiết</span>
+                              </label>
+                              <p className={`text-[10px] leading-relaxed flex-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                {(slot.detailedLocation || dayData.dayDetailedLocation) || <span className="italic opacity-60">Chưa cập nhật</span>}
+                              </p>
+                            </div>
 
-                            {/* Map Location - Enhanced Button */}
-                            {hasLocation && (
-                              <div>
-                                <label className={`block mb-2 text-[11px] font-bold uppercase tracking-wide flex items-center gap-1.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                  <Globe size={11} strokeWidth={2} />
-                                  <span>Địa điểm trên bản đồ</span>
-                                </label>
+                            {/* Map Location */}
+                            <div className="flex-1 flex flex-col">
+                              <label className={`block mb-1.5 text-[9px] font-bold uppercase tracking-wide flex items-center gap-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                <Globe size={9} strokeWidth={2} />
+                                <span>Địa điểm trên bản đồ</span>
+                              </label>
+                              {hasLocation ? (
                                 <button
                                   onClick={() => {
                                     setSelectedDaySlot({ day: dayData.day, slot: slotKey as 'morning' | 'afternoon' | 'evening' });
@@ -1894,35 +2666,27 @@ export default function ActivityDetailPage() {
                                       }
                                     }, 100);
                                   }}
-                                  className={`w-full rounded-lg border-2 px-3 py-2.5 text-left transition-all duration-300 hover:scale-[1.02] ${
+                                  className={`w-full rounded-lg border px-2 py-1.5 text-left transition-all duration-300 ${
                                     isSelected
-                                      ? slotKey === 'morning'
-                                        ? isDarkMode
-                                          ? 'border-yellow-500/50 bg-yellow-500/20 text-yellow-200 shadow-lg shadow-yellow-500/20'
-                                          : 'border-yellow-400 bg-yellow-50 text-yellow-800 shadow-lg shadow-yellow-300/30'
-                                        : slotKey === 'afternoon'
-                                        ? isDarkMode
-                                          ? 'border-orange-500/50 bg-orange-500/20 text-orange-200 shadow-lg shadow-orange-500/20'
-                                          : 'border-orange-400 bg-orange-50 text-orange-800 shadow-lg shadow-orange-300/30'
-                                        : isDarkMode
-                                          ? 'border-blue-500/50 bg-blue-500/20 text-blue-200 shadow-lg shadow-blue-500/20'
-                                          : 'border-blue-400 bg-blue-50 text-blue-800 shadow-lg shadow-blue-300/30'
+                                      ? isDarkMode
+                                        ? 'border-blue-500 bg-blue-500/10 text-blue-200'
+                                        : 'border-blue-400 bg-blue-50 text-blue-800'
                                       : isDarkMode
-                                        ? 'border-green-500/30 bg-green-500/10 text-green-200 hover:bg-green-500/20 hover:border-green-500/50'
-                                        : 'border-green-300 bg-green-50 text-green-700 hover:bg-green-100 hover:border-green-400'
+                                        ? 'border-gray-600 text-gray-300 hover:border-gray-500'
+                                        : 'border-gray-300 text-gray-700 hover:border-gray-400'
                                   }`}
                                 >
-                                  <div className="flex items-start gap-2 mb-1.5">
-                                    <MapPin size={14} strokeWidth={2.5} className="mt-0.5 flex-shrink-0" />
+                                  <div className="flex items-start gap-1.5">
+                                    <MapPin size={12} strokeWidth={2} className="mt-0.5 flex-shrink-0" />
                                     <div className="flex-1 min-w-0">
-                                      <p className={`font-semibold text-xs mb-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                                      <p className={`font-semibold text-[10px] mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                                         {location.address}
                                       </p>
-                                      <div className="flex items-center gap-2 flex-wrap">
-                                        <span className={`text-[10px] font-mono ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className={`text-[9px] font-mono ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                                           {location.lat?.toFixed(5)}, {location.lng?.toFixed(5)}
                                         </span>
-                                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                                        <span className={`text-[9px] px-1 py-0.5 rounded-full font-semibold ${
                                           isDarkMode 
                                             ? 'bg-gray-700/50 text-gray-300' 
                                             : 'bg-gray-200 text-gray-700'
@@ -1942,16 +2706,28 @@ export default function ActivityDetailPage() {
                                     )}
                                   </div>
                                 </button>
-                              </div>
-                            )}
+                              ) : (
+                                <div className={`w-full rounded-lg border border-dashed px-2 py-1.5 min-h-[50px] flex items-center ${
+                                  isDarkMode ? 'border-gray-600' : 'border-gray-300'
+                                }`}>
+                                  <p className={`text-[10px] italic ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                                    Chưa có địa điểm trên bản đồ
+                                  </p>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         ) : (
-                          /* Empty State - Enhanced */
-                          <div className={`text-center py-8 rounded-lg ${isDarkMode ? 'bg-gray-800/30' : 'bg-gray-100/50'}`}>
-                            <div className={`w-10 h-10 mx-auto mb-2 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-gray-700/50' : 'bg-gray-200'}`}>
-                              <XCircle size={18} className={isDarkMode ? 'text-gray-500' : 'text-gray-400'} strokeWidth={2} />
+                          /* Empty State */
+                          <div className={`text-center py-6 rounded-lg flex-1 flex flex-col items-center justify-center ${
+                            isDarkMode ? 'border border-gray-700' : 'border border-gray-200'
+                          }`}>
+                            <div className={`w-8 h-8 mx-auto mb-1.5 rounded-full flex items-center justify-center ${
+                              isDarkMode ? 'bg-gray-700' : 'bg-gray-200'
+                            }`}>
+                              <XCircle size={14} className={isDarkMode ? 'text-gray-500' : 'text-gray-400'} strokeWidth={2} />
                             </div>
-                            <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                            <p className={`text-[10px] font-medium ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
                               Buổi này chưa được kích hoạt
                             </p>
                           </div>
@@ -1965,10 +2741,10 @@ export default function ActivityDetailPage() {
 
             {/* Info Message */}
             {selectedDaySlot && (
-              <div className={`mt-3 p-2 rounded-lg border ${isDarkMode ? 'bg-blue-500/10 border-blue-500/30' : 'bg-blue-50 border-blue-200'}`}>
-                <div className="flex items-center gap-2">
-                  <AlertCircle size={14} className="text-blue-500" />
-                  <p className={`text-xs font-medium ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`}>
+              <div className={`mt-2 p-1.5 rounded-lg border ${isDarkMode ? 'bg-blue-500/10 border-blue-500/30' : 'bg-blue-50 border-blue-200'}`}>
+                <div className="flex items-center gap-1.5">
+                  <AlertCircle size={12} className="text-blue-500" />
+                  <p className={`text-[10px] font-medium ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`}>
                     Đang hiển thị địa điểm cho {selectedDaySlot.slot === 'morning' ? 'Buổi Sáng' : selectedDaySlot.slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối'} - Ngày {selectedDaySlot.day} trên bản đồ
                   </p>
                 </div>
@@ -1977,14 +2753,14 @@ export default function ActivityDetailPage() {
           </div>
         )}
         
-        {/* Legacy Schedule Section - Fallback if parsedScheduleData is empty */}
+        {/* Legacy Schedule Section */}
         {activity.type === 'multiple_days' && parsedScheduleData.length === 0 && activity.schedule && activity.schedule.length > 0 && (
-          <div className={`mb-3 rounded-xl border-2 p-3 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
-            <div className="flex items-center gap-2 mb-3">
-              <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-50'}`}>
-                <Calendar size={18} className="text-blue-500" />
+          <div className={`mb-2 rounded-lg border p-2 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
+            <div className="flex items-center gap-1.5 mb-2">
+              <div className={`p-1 rounded-lg ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-50'}`}>
+                <Calendar size={14} className="text-blue-500" />
               </div>
-              <h2 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+              <h2 className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                 Lịch trình theo ngày
               </h2>
             </div>
@@ -2032,9 +2808,28 @@ export default function ActivityDetailPage() {
                     const startTime = slotMatch[2];
                     const endTime = slotMatch[3];
                     
-                    // Extract mô tả hoạt động (phần sau dấu - đầu tiên, trước "Địa điểm chi tiết")
-                    const activitiesMatch = trimmed.match(/-\s*([^-]+?)(?:\s*-\s*Địa điểm chi tiết|$)/);
-                    const activities = activitiesMatch ? activitiesMatch[1].trim() : undefined;
+                    // Extract mô tả hoạt động - more precise pattern
+                    // Pattern: "Buổi Sáng (07:00-11:30) - mô tả hoạt động - Địa điểm..."
+                    const timePattern = /\(\d{2}:\d{2}-\d{2}:\d{2}\)/;
+                    const timeMatch = trimmed.match(timePattern);
+                    let activities: string | undefined = undefined;
+                    if (timeMatch) {
+                      const afterTime = trimmed.substring(trimmed.indexOf(timeMatch[0]) + timeMatch[0].length);
+                      const activitiesMatch = afterTime.match(/-\s*([^-]*?)(?:\s*-\s*Địa điểm|$)/);
+                      if (activitiesMatch && activitiesMatch[1]) {
+                        const extracted = activitiesMatch[1].trim();
+                        // Only set if it's not empty and doesn't look like it's part of location info
+                        if (extracted && 
+                            extracted.length > 0 && 
+                            !extracted.includes('Địa điểm') && 
+                            !extracted.includes('Bán kính') &&
+                            !extracted.includes('(') &&
+                            !extracted.match(/^\d+\.\d+/)
+                        ) {
+                          activities = extracted;
+                        }
+                      }
+                    }
                     
                     // Extract địa điểm chi tiết: "Địa điểm chi tiết: ..."
                     const detailedMatch = trimmed.match(/Địa điểm chi tiết:\s*(.+?)(?:\s*-\s*Địa điểm map|$)/);
@@ -2246,17 +3041,17 @@ export default function ActivityDetailPage() {
           </div>
         )}
 
-        {/* Combined Time Slots and Locations Section - For Single Day */}
+        {/* Combined Time Slots and Locations Section */}
         {activity.type === 'single_day' && activity.timeSlots && activity.timeSlots.length > 0 && (
-          <div className={`mb-4 p-3 rounded-lg border-2 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
-            <div className="flex items-center gap-2 mb-4">
-              <Clock size={18} className="text-orange-500" />
-              <h2 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+          <div className={`mb-2 p-2 rounded-lg border ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
+            <div className="flex items-center gap-1.5 mb-2">
+              <Clock size={14} className="text-orange-500" />
+              <h2 className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                 Lịch trình hoạt động và Địa điểm
               </h2>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               {['Buổi Sáng', 'Buổi Chiều', 'Buổi Tối'].map((slotName) => {
                 const slot = activity.timeSlots.find(s => s.name === slotName);
                 const isActive = slot?.isActive || false;
@@ -2310,6 +3105,21 @@ export default function ActivityDetailPage() {
                   return `${hour12}:${minutes} ${ampm}`;
                 };
 
+                const slotDetailedText = (() => {
+                  if (!slot?.detailedLocation) return '';
+                  if (typeof slot.detailedLocation === 'string') return slot.detailedLocation;
+                  return (
+                    slot.detailedLocation?.[slotMapName] ||
+                    slot.detailedLocation?.default ||
+                    slot.detailedLocation?.general ||
+                    ''
+                  );
+                })();
+
+                const hasActivities = Boolean(slot?.activities?.trim());
+                const hasDetailedLocation = Boolean(slotDetailedText?.trim());
+                const hasLocation = Boolean(location);
+
                 return (
                   <div
                     key={slotName}
@@ -2317,110 +3127,123 @@ export default function ActivityDetailPage() {
                       isActive
                         ? `${config.borderColor}`
                         : isDarkMode
-                        ? 'border-gray-600 opacity-50'
-                        : 'border-gray-300 opacity-50'
+                        ? 'border-gray-600 opacity-60'
+                        : 'border-gray-300 opacity-60'
                     }`}
                   >
                     {/* Header */}
-                    <div className={`p-2 border-b ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <config.Icon size={16} className={config.iconColor} />
-                          <div>
-                            <h3 className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                              {slotName}
-                            </h3>
-                            <p className={`text-[10px] font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                              {isActive ? 'Đang hoạt động' : 'Không hoạt động'}
-                            </p>
-                          </div>
+                    <div className={`p-1.5 border-b ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                      <div className="flex items-start gap-1.5">
+                        <config.Icon size={14} className={`${config.iconColor} mt-0.5`} />
+                        <div className="flex-1">
+                          <h3 className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                            {slotName}
+                          </h3>
+                          <p className={`text-[10px] font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                            {isActive ? 'Đang hoạt động' : 'Không hoạt động'}
+                          </p>
                         </div>
                       </div>
                     </div>
 
                     {/* Content */}
-                    <div className="p-2 space-y-1.5">
+                    <div className="p-2 space-y-1.5 text-left">
                       {/* Time */}
                       <div>
-                        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                        <p className={`text-[10px] uppercase tracking-wide font-semibold mb-0.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                          Thời gian
+                        </p>
+                        <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
                           {slot?.startTime || '--:--'} - {slot?.endTime || '--:--'}
                         </p>
                       </div>
 
                       {/* Activity Description */}
-                      {slot?.activities && (
-                        <div>
-                          <p className={`text-[10px] ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} line-clamp-2`}>
-                            {slot.activities}
-                          </p>
-                        </div>
-                      )}
+                      <div className={`pt-2 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+                        <p className={`text-[10px] font-semibold mb-1 uppercase tracking-wide ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                          Mô tả hoạt động
+                        </p>
+                        <p className={`text-[11px] leading-relaxed ${hasActivities ? (isDarkMode ? 'text-gray-300' : 'text-gray-700') : 'italic text-gray-500'}`}>
+                          {hasActivities ? slot?.activities : 'Chưa cập nhật'}
+                        </p>
+                      </div>
+
+                      <div className={`pt-2 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+                        <p className={`text-[10px] font-semibold mb-1 uppercase tracking-wide ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                          Địa điểm chi tiết
+                        </p>
+                        <p className={`text-[11px] leading-relaxed ${hasDetailedLocation ? (isDarkMode ? 'text-gray-300' : 'text-gray-700') : 'italic text-gray-500'}`}>
+                          {hasDetailedLocation ? slotDetailedText : 'Chưa cập nhật'}
+                        </p>
+                      </div>
 
                       {/* Location Information - Địa điểm riêng cho mỗi buổi (nếu có multiTimeLocation) */}
-                      {activity.isMultiTimeLocation && isActive && location && (
-                        <div className={`pt-2 border-t ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
-                          <div className="mb-1">
-                            <p className={`text-[10px] font-semibold mb-1 flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                              <MapPin size={10} />
-                              Địa điểm riêng
-                            </p>
+                      {activity.isMultiTimeLocation && isActive && (
+                        <div className={`pt-2 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+                          <div className="mb-2 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                            <MapPin size={10} />
+                            Địa điểm riêng
                           </div>
-                          <button
-                            onClick={() => {
-                              if (activity.multiTimeLocations && activity.multiTimeLocations.length === 1) {
-                                setSelectedTimeSlot(slotMapName);
-                              } else {
-                                setSelectedTimeSlot(isSelected ? null : slotMapName);
-                              }
-                              setTimeout(() => {
-                                const mapSection = document.getElementById('map-section');
-                                if (mapSection) {
-                                  mapSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          {hasLocation ? (
+                            <button
+                              onClick={() => {
+                                if (activity.multiTimeLocations && activity.multiTimeLocations.length === 1) {
+                                  setSelectedTimeSlot(slotMapName);
+                                } else {
+                                  setSelectedTimeSlot(isSelected ? null : slotMapName);
                                 }
-                              }, 100);
-                            }}
-                            className={`w-full p-1.5 rounded text-left transition-all duration-300 border ${
-                              isSelected
-                                ? isDarkMode
-                                  ? 'border-blue-500'
-                                  : 'border-blue-400'
-                                : isDarkMode
-                                ? 'border-gray-600 hover:border-gray-500'
-                                : 'border-gray-300 hover:border-gray-400'
-                            }`}
-                          >
-                            <div className="flex items-start space-x-1.5">
-                              <MapPin size={12} className="text-red-500 mt-0.5" />
-                              <div className="flex-1 min-w-0">
-                                <p className={`text-xs font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'} truncate`}>
-                                  {location.address || 'Không có địa chỉ'}
-                                </p>
-                                {location.radius && (
-                                  <p className={`text-[10px] mt-0.5 flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                    <Target size={10} />
-                                    {location.radius}m
+                                setTimeout(() => {
+                                  const mapSection = document.getElementById('map-section');
+                                  if (mapSection) {
+                                    mapSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                  }
+                                }, 100);
+                              }}
+                              className={`w-full p-2 rounded text-left transition-all duration-300 border ${
+                                isSelected
+                                  ? isDarkMode
+                                    ? 'border-blue-500'
+                                    : 'border-blue-400'
+                                  : isDarkMode
+                                  ? 'border-gray-600 hover:border-gray-500'
+                                  : 'border-gray-300 hover:border-gray-400'
+                              }`}
+                            >
+                              <div className="flex items-start gap-2">
+                                <MapPin size={14} className="text-red-500 mt-0.5" />
+                                <div>
+                                  <p className={`text-xs font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                                    {location?.address || 'Không có địa chỉ'}
                                   </p>
-                                )}
+                                  {location?.radius && (
+                                    <p className={`text-[10px] mt-0.5 flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                      <Target size={10} />
+                                      {location.radius}m
+                                    </p>
+                                  )}
+                                </div>
                               </div>
+                            </button>
+                          ) : (
+                            <div className={`w-full p-2 rounded border-2 border-dashed ${isDarkMode ? 'border-gray-600 text-gray-500' : 'border-gray-300 text-gray-500'} text-sm italic`}>
+                              Chưa có địa điểm riêng
                             </div>
-                          </button>
+                          )}
                         </div>
                       )}
 
                       {/* Single Location Information - Địa điểm chung cho tất cả các buổi */}
                       {!activity.isMultiTimeLocation && activity.locationData && isActive && (
-                        <div className={`pt-2 border-t ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
-                          <div className="mb-1">
-                            <p className={`text-[10px] font-semibold mb-1 flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                              <MapPin size={10} />
-                              Địa điểm chung
-                            </p>
+                        <div className={`pt-2 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+                          <div className="mb-2 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                            <MapPin size={10} />
+                            Hoạt động diễn ra cùng 1 địa điểm
                           </div>
-                          <div className={`w-full p-1.5 rounded border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
-                            <div className="flex items-start space-x-1.5">
+                          <div className={`w-full p-2 rounded border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                            <div className="flex items-start gap-2">
                               <MapPin size={12} className="text-red-500 mt-0.5" />
-                              <div className="flex-1 min-w-0">
-                                <p className={`text-xs font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'} truncate`}>
+                              <div>
+                                <p className={`text-xs font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                                   {activity.locationData.address || activity.location || 'Không có địa chỉ'}
                                 </p>
                                 {activity.locationData.radius && (
@@ -2440,6 +3263,20 @@ export default function ActivityDetailPage() {
               })}
             </div>
 
+            {/* Thông báo địa điểm chung (nằm phía dưới các card) */}
+            {!activity.isMultiTimeLocation && activity.locationData && (
+              <div className={`mt-3 flex items-center justify-center gap-2 text-xs sm:text-sm font-semibold ${
+                isDarkMode ? 'text-green-200' : 'text-green-700'
+              }`}>
+                <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full ${
+                  isDarkMode ? 'bg-green-500/30 text-green-200' : 'bg-green-100 text-green-600'
+                }`}>
+                  <MapPin size={14} strokeWidth={2} />
+                </span>
+                <span>Hoạt động diễn ra cùng 1 địa điểm</span>
+              </div>
+            )}
+
             {selectedTimeSlot && activity.isMultiTimeLocation && activity.multiTimeLocations && activity.multiTimeLocations.length > 1 && (
               <div className={`mt-3 p-2 rounded border ${isDarkMode ? 'border-blue-500/50' : 'border-blue-400/50'}`}>
                 <div className="flex items-center space-x-2">
@@ -2453,22 +3290,22 @@ export default function ActivityDetailPage() {
           </div>
         )}
 
-        {/* Legacy Locations Section - Only show if multiTimeLocation but no timeSlots */}
+        {/* Legacy Locations Section */}
         {(!activity.timeSlots || activity.timeSlots.length === 0) && activity.isMultiTimeLocation && activity.multiTimeLocations && activity.multiTimeLocations.length > 0 && (
-          <div className={`mb-4 p-3 rounded-lg border-2 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
-            <div className="flex items-center gap-2 mb-3">
-              <MapPin size={18} className="text-red-500" />
+          <div className={`mb-2 p-2 rounded-lg border ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
+            <div className="flex items-center gap-1.5 mb-2">
+              <MapPin size={14} className="text-red-500" />
               <div>
-                <h2 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                <h2 className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                   Địa điểm theo từng buổi
                 </h2>
-                <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                   Nhấn vào địa điểm để xem trên bản đồ
                 </p>
               </div>
             </div>
             
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {(() => {
                 // Nhóm các locations theo địa điểm (so sánh lat, lng)
                 const areLocationsSame = (loc1: MultiTimeLocation, loc2: MultiTimeLocation): boolean => {
@@ -2764,12 +3601,10 @@ export default function ActivityDetailPage() {
             </div>
             
             {selectedTimeSlot && (
-              <div className={`mt-3 p-3 rounded-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-                <div className="flex items-center space-x-2">
-                  <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <p className={`text-sm font-medium ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`}>
+              <div className={`mt-2 p-1.5 rounded-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+                <div className="flex items-center gap-1.5">
+                  <AlertCircle size={12} className="text-blue-500" />
+                  <p className={`text-[10px] font-medium ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`}>
                     Đang hiển thị địa điểm cho {selectedTimeSlot === 'morning' ? 'Buổi Sáng' : selectedTimeSlot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối'} trên bản đồ
                   </p>
                 </div>
@@ -2779,62 +3614,78 @@ export default function ActivityDetailPage() {
         )}
 
         {/* Description Section */}
-        <div className={`mb-3 rounded-xl border-2 p-3 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
-          <div className="flex items-center gap-2 mb-3">
-            <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-cyan-500/20' : 'bg-cyan-50'}`}>
-              <FileText size={18} className="text-cyan-500" />
+        <div className={`mb-2 rounded-lg border p-2 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
+          <div className="flex items-center gap-1.5 mb-2">
+            <div className={`p-1 rounded-lg ${isDarkMode ? 'bg-cyan-500/20' : 'bg-cyan-50'}`}>
+              <FileText size={14} className="text-cyan-500" />
             </div>
-            <h2 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Mô tả chi tiết</h2>
+            <h2 className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Mô tả chi tiết</h2>
           </div>
           <div className={`prose prose-sm max-w-none ${isDarkMode ? 'prose-invert' : ''}`}>
-            <p className={`text-xs sm:text-sm leading-relaxed whitespace-pre-wrap ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+            <p className={`text-[10px] sm:text-xs leading-relaxed whitespace-pre-wrap ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
               {activity.description}
             </p>
           </div>
         </div>
 
         {/* Participants Section */}
-        {activity.participants && activity.participants.length > 0 && (
-          <div className={`mb-3 rounded-xl border-2 p-3 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
-            <div className="flex items-center gap-2 mb-3">
-              <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-green-500/20' : 'bg-green-50'}`}>
-                <Users size={18} className="text-green-500" />
+        {(() => {
+          const approvedParticipants = activity.participants?.filter((p: any) => {
+            const approvalStatus = p.approvalStatus || 'pending';
+            return approvalStatus === 'approved';
+          }) || [];
+          
+          return (
+            <div className={`mb-2 rounded-lg border p-2 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
+              <div className="flex items-center gap-1.5 mb-2">
+                <div className={`p-1 rounded-lg ${isDarkMode ? 'bg-green-500/20' : 'bg-green-50'}`}>
+                  <Users size={14} className="text-green-500" />
               </div>
-              <h2 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                Danh sách người đăng ký ({activity.participants.length})
+                <h2 className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  Danh sách người đăng ký ({approvedParticipants.length})
               </h2>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-              {activity.participants.map((participant, index) => (
+              {approvedParticipants.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5">
+                  {approvedParticipants.map((participant: any, index: number) => (
                 <div
                   key={participant._id || participant.userId || `participant-${index}`}
-                  className={`p-2 rounded-lg border-2 ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}
+                      className={`p-1.5 rounded-lg border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}
                 >
-                  <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                     <img
                       src={`https://ui-avatars.com/api/?name=${encodeURIComponent(participant.name)}&background=random&color=fff`}
                       alt={participant.name}
-                      className="w-8 h-8 rounded-full flex-shrink-0"
+                          className="w-6 h-6 rounded-full flex-shrink-0"
                     />
                     <div className="flex-1 min-w-0">
-                      <p className={`text-xs font-semibold truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{participant.name}</p>
-                      <p className={`text-[10px] truncate ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{participant.role}</p>
+                          <p className={`text-[10px] font-semibold truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{participant.name}</p>
+                          <p className={`text-[9px] truncate ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{participant.role}</p>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
+              ) : (
+                <div className={`text-center py-6 rounded-lg border border-dashed ${isDarkMode ? 'border-gray-600 bg-gray-800/30' : 'border-gray-300 bg-gray-50/50'}`}>
+                  <Users size={24} className={`mx-auto mb-1.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Chưa có người nào đăng ký
+                  </p>
           </div>
         )}
+            </div>
+          );
+        })()}
 
         {/* Map Section */}
-        <div id="map-section" className={`mb-3 rounded-xl border-2 p-3 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-red-500/20' : 'bg-red-50'}`}>
-                <MapPin size={18} className="text-red-500" />
+        <div id="map-section" className={`mb-2 rounded-lg border p-2 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1.5">
+              <div className={`p-1 rounded-lg ${isDarkMode ? 'bg-red-500/20' : 'bg-red-50'}`}>
+                <MapPin size={14} className="text-red-500" />
               </div>
-              <h2 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+              <h2 className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                 Vị trí hoạt động trên bản đồ
               </h2>
             </div>
@@ -2936,14 +3787,14 @@ export default function ActivityDetailPage() {
               }
               
               return (
-                <div className={`text-center py-16 rounded-xl border-2 border-dashed ${isDarkMode ? 'border-gray-600 bg-gray-700/30' : 'border-gray-300 bg-gray-50/50'}`}>
-                  <div className="w-16 h-16 mx-auto mb-4 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center">
-                    <MapPin className="w-8 h-8 text-gray-400" />
+                <div className={`text-center py-8 rounded-lg border border-dashed ${isDarkMode ? 'border-gray-600 bg-gray-700/30' : 'border-gray-300 bg-gray-50/50'}`}>
+                  <div className="w-12 h-12 mx-auto mb-2 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center">
+                    <MapPin className="w-6 h-6 text-gray-400" />
                   </div>
-                  <p className={`text-lg font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                     Chưa có dữ liệu vị trí bản đồ
                   </p>
-                  <p className={`text-sm mt-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                  <p className={`text-[10px] mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
                     Nhấn vào một buổi trong lịch trình để xem địa điểm
                   </p>
                 </div>
@@ -3031,14 +3882,14 @@ export default function ActivityDetailPage() {
             
             // No location data
             return (
-              <div key="no-location-data" className={`text-center py-16 rounded-xl border-2 border-dashed ${isDarkMode ? 'border-gray-600 bg-gray-700/30' : 'border-gray-300 bg-gray-50/50'}`}>
-                <div className="w-16 h-16 mx-auto mb-4 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div key="no-location-data" className={`text-center py-8 rounded-lg border border-dashed ${isDarkMode ? 'border-gray-600 bg-gray-700/30' : 'border-gray-300 bg-gray-50/50'}`}>
+                  <div className="w-12 h-12 mx-auto mb-2 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
                   </svg>
                 </div>
-                <p className={`text-lg font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Không có dữ liệu vị trí bản đồ</p>
-                <p className={`text-sm mt-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Vui lòng kiểm tra lại thông tin hoạt động</p>
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Không có dữ liệu vị trí bản đồ</p>
+                  <p className={`text-[10px] mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Vui lòng kiểm tra lại thông tin hoạt động</p>
               </div>
             );
           })()}
@@ -3084,6 +3935,250 @@ export default function ActivityDetailPage() {
         )}
 
       </main>
+
+      {/* Registration Modal for Multiple Days Activities */}
+      <RegistrationModal
+        isOpen={showRegistrationModal && activity?.type === 'multiple_days' && parsedScheduleData.length > 0}
+        onClose={() => {
+                  setShowRegistrationModal(false);
+                  setSelectedDaySlotsForRegistration([]);
+                }}
+        parsedScheduleData={parsedScheduleData as any}
+        selectedDaySlots={selectedDaySlotsForRegistration}
+        onToggleSlot={toggleDaySlotSelection}
+        onRegister={handleRegisterWithDaySlots}
+        isRegistering={isRegistering}
+        isRegistered={isRegistered}
+        activity={activity as any || null}
+        isDarkMode={isDarkMode}
+        calculateRegistrationRate={calculateRegistrationRate}
+        canRegister={canRegister}
+        getRegistrationThreshold={getRegistrationThreshold}
+        calculateTotalRegistrationRate={calculateTotalRegistrationRate}
+      />
+
+      {/* Overlap Warning Modal */}
+      {overlapWarning && overlapWarning.show && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+          <div className={`rounded-lg border shadow-xl max-w-md w-full ${
+            isDarkMode ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-300'
+          }`}>
+            {/* Header */}
+            <div className={`px-4 py-3 border-b flex items-center gap-3 ${
+              isDarkMode ? 'border-gray-700 bg-gray-750' : 'border-gray-200 bg-gray-50'
+            }`}>
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                isDarkMode ? 'bg-orange-500/20' : 'bg-orange-100'
+              }`}>
+                <AlertCircle size={20} className={isDarkMode ? 'text-orange-400' : 'text-orange-600'} strokeWidth={2.5} />
+              </div>
+              <div className="flex-1">
+                <h3 className={`text-base font-semibold ${
+                  isDarkMode ? 'text-gray-200' : 'text-gray-800'
+                }`}>
+                  Không thể đăng ký
+                </h3>
+                <p className={`text-xs mt-0.5 ${
+                  isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                }`}>
+                  Buổi này trùng với hoạt động khác
+                </p>
+              </div>
+              <button
+                onClick={() => setOverlapWarning(null)}
+                className={`p-1.5 rounded-lg transition-colors ${
+                  isDarkMode ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-600'
+                }`}
+              >
+                <X size={18} strokeWidth={2.5} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-4">
+              <div className={`mb-3 p-3 rounded-lg border ${
+                isDarkMode ? 'bg-gray-700/30 border-gray-600' : 'bg-gray-50 border-gray-200'
+              }`}>
+                <p className={`text-sm font-semibold mb-1 ${
+                  isDarkMode ? 'text-gray-200' : 'text-gray-800'
+                }`}>
+                  Ngày {overlapWarning.day}, Buổi {overlapWarning.slot}
+                  {overlapWarning.date && (
+                    <span className={`ml-2 text-xs font-normal ${
+                      isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                    }`}>
+                      ({new Date(overlapWarning.date).toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })})
+                    </span>
+                  )}
+                </p>
+                <p className={`text-xs ${
+                  isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                }`}>
+                  Buổi này đã được đăng ký trong các hoạt động sau:
+                </p>
+              </div>
+
+              {/* Overlapping Activities List */}
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {/* Current Activity Slot */}
+                {overlapWarning.currentActivityName && (
+                  <div
+                    className={`p-3 rounded-lg border ${
+                      isDarkMode ? 'bg-blue-900/20 border-blue-500/30' : 'bg-blue-50 border-blue-200'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <div className={`w-5 h-5 rounded flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                        isDarkMode ? 'bg-blue-500/30' : 'bg-blue-200'
+                      }`}>
+                        <Clock size={10} className={isDarkMode ? 'text-blue-300' : 'text-blue-600'} strokeWidth={2} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm font-semibold mb-1.5 ${
+                          isDarkMode ? 'text-blue-200' : 'text-blue-800'
+                        }`}>
+                          {overlapWarning.currentActivityName}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs mb-1.5">
+                          <span className={`px-2 py-0.5 rounded ${
+                            isDarkMode ? 'bg-blue-600/40 text-blue-300' : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            Ngày {overlapWarning.day}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded ${
+                            isDarkMode ? 'bg-blue-600/40 text-blue-300' : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            Buổi {overlapWarning.slot}
+                          </span>
+                          {overlapWarning.date && (
+                            <span className={`px-2 py-0.5 rounded ${
+                              isDarkMode ? 'bg-blue-600/40 text-blue-300' : 'bg-blue-100 text-blue-700'
+                            }`}>
+                              {new Date(overlapWarning.date).toLocaleDateString('vi-VN')}
+                            </span>
+                          )}
+                        </div>
+                        {overlapWarning.currentSlotStartTime && overlapWarning.currentSlotEndTime && (
+                          <div className={`flex items-center gap-1.5 text-xs mt-1 ${
+                            isDarkMode ? 'text-blue-300' : 'text-blue-700'
+                          }`}>
+                            <Clock size={11} strokeWidth={2} />
+                            <span className="font-medium">
+                              {overlapWarning.currentSlotStartTime} - {overlapWarning.currentSlotEndTime}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Other Overlapping Activities */}
+                {overlapWarning.overlappingActivities.map((overlap, index) => {
+                  const slotNames: { [key: string]: string } = {
+                    'morning': 'Sáng',
+                    'afternoon': 'Chiều',
+                    'evening': 'Tối'
+                  };
+                  const slotName = slotNames[overlap.slot] || overlap.slot;
+                  
+                  return (
+                    <div
+                      key={index}
+                      className={`p-3 rounded-lg border ${
+                        isDarkMode ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-50 border-gray-200'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className={`w-5 h-5 rounded flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                          isDarkMode ? 'bg-orange-500/30' : 'bg-orange-100'
+                        }`}>
+                          <AlertCircle size={10} className={isDarkMode ? 'text-orange-400' : 'text-orange-600'} strokeWidth={2} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-bold mb-2 ${
+                            isDarkMode ? 'text-gray-200' : 'text-gray-900'
+                          }`}>
+                            {overlap.activityName}
+                          </p>
+                          
+                          {/* Buổi bị trùng - Highlighted */}
+                          <div className={`mb-2 p-2 rounded ${
+                            isDarkMode ? 'bg-orange-900/20 border border-orange-500/30' : 'bg-orange-50 border border-orange-200'
+                          }`}>
+                            <p className={`text-xs font-semibold mb-1 ${
+                              isDarkMode ? 'text-orange-300' : 'text-orange-700'
+                            }`}>
+                              Buổi bị trùng:
+                            </p>
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                              <span className={`px-2 py-1 rounded font-semibold ${
+                                isDarkMode ? 'bg-orange-600/40 text-orange-200' : 'bg-orange-200 text-orange-800'
+                              }`}>
+                                Ngày {overlap.day}
+                              </span>
+                              <span className={`px-2 py-1 rounded font-semibold ${
+                                isDarkMode ? 'bg-orange-600/40 text-orange-200' : 'bg-orange-200 text-orange-800'
+                              }`}>
+                                Buổi {slotName}
+                              </span>
+                              {overlap.date && (
+                                <span className={`px-2 py-1 rounded font-semibold ${
+                                  isDarkMode ? 'bg-orange-600/40 text-orange-200' : 'bg-orange-200 text-orange-800'
+                                }`}>
+                                  {new Date(overlap.date).toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                                </span>
+                              )}
+                            </div>
+                            {overlap.startTime && overlap.endTime && (
+                              <div className={`flex items-center gap-1.5 text-xs mt-1.5 ${
+                                isDarkMode ? 'text-orange-300' : 'text-orange-700'
+                              }`}>
+                                <Clock size={11} strokeWidth={2} />
+                                <span className="font-semibold">
+                                  {overlap.startTime} - {overlap.endTime}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Footer Message */}
+              <div className={`mt-4 p-3 rounded-lg border ${
+                isDarkMode ? 'bg-gray-700/30 border-gray-600' : 'bg-gray-50 border-gray-200'
+              }`}>
+                <p className={`text-xs text-center ${
+                  isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                }`}>
+                  <span className="font-semibold">Vui lòng:</span> Chọn buổi khác hoặc hủy đăng ký hoạt động trùng lặp trước khi tiếp tục.
+                </p>
+              </div>
+            </div>
+
+            {/* Footer Button */}
+            <div className={`px-4 py-3 border-t flex justify-end ${
+              isDarkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50'
+            }`}>
+              <button
+                onClick={() => setOverlapWarning(null)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isDarkMode
+                    ? 'bg-gray-700 text-white hover:bg-gray-600'
+                    : 'bg-gray-700 text-white hover:bg-gray-600'
+                }`}
+              >
+                Đã hiểu
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Footer />
     </div>
   );

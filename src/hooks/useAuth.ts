@@ -78,6 +78,10 @@ export function useAuth() {
       } else {
         // Không logout khi có lỗi server (500, 503, etc.) - chỉ log
         console.error('Error refetching user data:', response.status, response.statusText);
+        // Nếu không phải lỗi server, có thể token không hợp lệ
+        if (response.status !== 500 && response.status !== 503 && response.status !== 502) {
+          logout();
+        }
       }
     } catch (error) {
       // Không logout khi có network error - có thể là tạm thời
@@ -111,26 +115,45 @@ export function useAuth() {
           return;
         }
         
-        setAuthState({
-          user,
-          token,
-          isAuthenticated: true,
-          isLoading: false
-        });
-        
-        // IMPORTANT: Refetch user data from backend to ensure it's up-to-date
-        // Delay refetch để không chậm quá trình load ban đầu
-        // Chỉ refetch sau khi UI đã render xong
-        setTimeout(() => {
-          refetchUser();
-        }, 1000); // 1 giây delay để trang load nhanh hơn
+        // Chỉ set authenticated nếu có cả token và user hợp lệ
+        if (user && user._id) {
+          setAuthState({
+            user,
+            token,
+            isAuthenticated: true,
+            isLoading: false
+          });
+          
+          // IMPORTANT: Refetch user data from backend to ensure it's up-to-date
+          // Delay refetch để không chậm quá trình load ban đầu
+          // Chỉ refetch sau khi UI đã render xong
+          setTimeout(() => {
+            refetchUser();
+          }, 1000); // 1 giây delay để trang load nhanh hơn
+        } else {
+          // User không hợp lệ, clear và set unauthenticated
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          setAuthState({
+            user: null,
+            token: null,
+            isAuthenticated: false,
+            isLoading: false
+          });
+        }
 
       } catch (error) {
         console.error('Error parsing user data:', error);
         logout();
       }
     } else {
-      setAuthState(prev => ({ ...prev, isLoading: false }));
+      // Không có token hoặc user, đảm bảo state là unauthenticated
+      setAuthState({
+        user: null,
+        token: null,
+        isAuthenticated: false,
+        isLoading: false
+      });
     }
   }, []);
 
@@ -144,7 +167,17 @@ export function useAuth() {
         body: JSON.stringify({ email, password }),
       });
 
+      console.log('Login response status:', response.status);
+      
+      // Check if response is ok
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Lỗi server. Vui lòng thử lại sau.' }));
+        console.error('Login error response:', errorData);
+        return { success: false, error: errorData.error || `Lỗi ${response.status}. Vui lòng thử lại.` };
+      }
+
       const data = await response.json();
+      console.log('Login response data:', data);
 
       if (data.success && data.user && data.token) {
         localStorage.setItem('token', data.token);
@@ -163,16 +196,19 @@ export function useAuth() {
 
         return { success: true, user: data.user };
       } else {
+        console.error('Login failed - missing data:', { success: data.success, hasUser: !!data.user, hasToken: !!data.token });
         return { success: false, error: data.error || 'Đăng nhập thất bại' };
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
-      return { success: false, error: 'Lỗi kết nối. Vui lòng thử lại.' };
+      console.error('Error details:', error.message, error.stack);
+      return { success: false, error: error.message || 'Lỗi kết nối. Vui lòng thử lại.' };
     }
   };
 
   const loginGoogle = async (access_token: string) => {
     try {
+      console.log('Calling Google OAuth API...');
       const response = await fetch('/api/auth/google', {
         method: 'POST',
         headers: {
@@ -181,7 +217,10 @@ export function useAuth() {
         body: JSON.stringify({ access_token }),
       });
 
+      console.log('Google OAuth response status:', response.status);
+      
       const data = await response.json();
+      console.log('Google OAuth response data:', data);
 
       if (data.success && data.user && data.token) {
         localStorage.setItem('token', data.token);
@@ -194,16 +233,29 @@ export function useAuth() {
           isLoading: false
         });
 
+        // Nếu user cần nhập password, không redirect ngay - để register page xử lý
+        if ((data as any).needsPassword) {
+          return { 
+            success: true, 
+            user: data.user, 
+            isNewUser: data.isNewUser,
+            needsPassword: true,
+            token: data.token
+          };
+        }
+
         const redirectUrl = data.redirectUrl || '/student/dashboard';
         router.push(redirectUrl);
 
         return { success: true, user: data.user, isNewUser: data.isNewUser };
       } else {
+        console.error('Google login failed:', data);
         return { success: false, error: data.error || 'Đăng nhập Google thất bại' };
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Google login error:', error);
-      return { success: false, error: 'Lỗi kết nối. Vui lòng thử lại.' };
+      console.error('Error details:', error.message, error.stack);
+      return { success: false, error: error.message || 'Lỗi kết nối. Vui lòng thử lại.' };
     }
   };
 

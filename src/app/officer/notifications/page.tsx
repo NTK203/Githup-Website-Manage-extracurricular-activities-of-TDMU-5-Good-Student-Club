@@ -5,6 +5,16 @@ import { useAuth } from '@/hooks/useAuth';
 import ProtectedRoute from '@/components/common/ProtectedRoute';
 import OfficerNav from '@/components/officer/OfficerNav';
 import Footer from '@/components/common/Footer';
+import {
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  Info,
+  Bell,
+  Inbox,
+  Clock,
+  User
+} from 'lucide-react';
 
 interface Notification {
   _id: string;
@@ -163,10 +173,10 @@ export default function OfficerNotificationsPage() {
 
   const getTypeIcon = (type: string) => {
     switch (type) {
-      case 'success': return '✅';
-      case 'warning': return '⚠️';
-      case 'error': return '❌';
-      default: return 'ℹ️';
+      case 'success': return CheckCircle2;
+      case 'warning': return AlertTriangle;
+      case 'error': return XCircle;
+      default: return Info;
     }
   };
 
@@ -219,13 +229,22 @@ export default function OfficerNotificationsPage() {
             {/* Header */}
             <div className={`px-6 py-4 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
               <div className="flex items-center justify-between flex-wrap gap-4">
-                <div>
-                  <h1 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    📢 Thông Báo
-                  </h1>
-                  <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                    {unreadCount > 0 ? `${unreadCount} thông báo chưa đọc` : 'Tất cả thông báo đã được đọc'}
-                  </p>
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${
+                    isDarkMode 
+                      ? 'bg-blue-500/20 text-blue-400' 
+                      : 'bg-blue-100 text-blue-600'
+                  }`}>
+                    <Bell size={24} strokeWidth={2.5} />
+                  </div>
+                  <div>
+                    <h1 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                      Thông Báo
+                    </h1>
+                    <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      {unreadCount > 0 ? `${unreadCount} thông báo chưa đọc` : 'Tất cả thông báo đã được đọc'}
+                    </p>
+                  </div>
                 </div>
                 
                 <div className="flex items-center gap-3 flex-wrap">
@@ -281,7 +300,7 @@ export default function OfficerNotificationsPage() {
               ) : notifications.length === 0 ? (
                 <div className="text-center py-12">
                   <div className={`w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
-                    <span className="text-3xl">📭</span>
+                    <Inbox size={32} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} strokeWidth={1.5} />
                   </div>
                   <p className={`text-lg font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                     {filter === 'unread' ? 'Không có thông báo chưa đọc' : filter === 'read' ? 'Không có thông báo đã đọc' : 'Không có thông báo nào'}
@@ -310,7 +329,10 @@ export default function OfficerNotificationsPage() {
                         <div className="flex items-start gap-4">
                           {/* Icon */}
                           <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 border ${getTypeColor(notification.type)}`}>
-                            <span className="text-xl">{getTypeIcon(notification.type)}</span>
+                            {(() => {
+                              const IconComponent = getTypeIcon(notification.type);
+                              return <IconComponent size={20} strokeWidth={2.5} />;
+                            })()}
                           </div>
 
                           {/* Content */}
@@ -337,16 +359,12 @@ export default function OfficerNotificationsPage() {
                             <div className="flex items-center justify-between mt-3">
                               <div className="flex items-center gap-4 text-xs flex-wrap">
                                 <span className={`flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                  </svg>
+                                  <Clock size={14} strokeWidth={2} />
                                   {formatDate(notification.createdAt)}
                                 </span>
                                 {notification.createdBy && typeof notification.createdBy === 'object' && notification.createdBy.name ? (
                                   <span className={`flex items-center gap-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                    </svg>
+                                    <User size={14} strokeWidth={2} />
                                     <span className="font-medium">Người gửi:</span>
                                     <span>{notification.createdBy.name || 'Không xác định'}</span>
                                     {notification.createdBy.studentId && (
@@ -357,9 +375,7 @@ export default function OfficerNotificationsPage() {
                                   </span>
                                 ) : (
                                   <span className={`flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
+                                    <Info size={14} strokeWidth={2} />
                                     Hệ thống
                                   </span>
                                 )}

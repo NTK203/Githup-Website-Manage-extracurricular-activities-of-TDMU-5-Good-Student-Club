@@ -36,6 +36,12 @@ import {
   CheckCircle2,
   AlertTriangle,
   XCircle,
+  Newspaper,
+  Heart,
+  MessageCircle,
+  Share2,
+  Sparkles,
+  Loader2,
   type LucideIcon
 } from 'lucide-react';
 
@@ -212,6 +218,11 @@ export default function AdminNav() {
 
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [pendingMembershipsCount, setPendingMembershipsCount] = useState(0);
+  const [showNewsDropdown, setShowNewsDropdown] = useState(false);
+  const [newsPosts, setNewsPosts] = useState<any[]>([]);
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [interactingPosts, setInteractingPosts] = useState<Set<string>>(new Set());
 
   // Load notifications
   const loadNotifications = async () => {
@@ -276,25 +287,54 @@ export default function AdminNav() {
     }
   };
 
+  // Load pending memberships count
+  const loadPendingMembershipsCount = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await fetch('/api/memberships?status=PENDING&limit=1', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data && data.data.pagination) {
+          setPendingMembershipsCount(data.data.pagination.totalCount || 0);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading pending memberships count:', error);
+    }
+  };
+
   // Load notifications on mount and when dropdown opens
   useEffect(() => {
     if (user) {
       loadUnreadCount();
+      loadPendingMembershipsCount();
+      loadNewsPosts();
       if (showNotifications) {
         loadNotifications();
       }
 
-      // Poll for new notifications every 30 seconds
+      // Poll for new notifications and pending memberships every 30 seconds
       const notificationInterval = setInterval(() => {
         loadUnreadCount();
+        loadPendingMembershipsCount();
         if (showNotifications) {
           loadNotifications();
+        }
+        if (showNewsDropdown) {
+          loadNewsPosts();
         }
       }, 30000);
 
       return () => clearInterval(notificationInterval);
     }
-  }, [user, showNotifications]);
+  }, [user, showNotifications, showNewsDropdown]);
 
   // Format date helper
   const formatDate = (date: Date) => {
@@ -323,6 +363,82 @@ export default function AdminNav() {
       'STUDENT': 'Thành Viên CLB'
     };
     return roleNames[role as keyof typeof roleNames] || role;
+  };
+
+  // Load news posts
+  const loadNewsPosts = async () => {
+    try {
+      setNewsLoading(true);
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      // TODO: Replace with actual API endpoint when ready
+      const response = await fetch('/api/news?limit=10', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data.posts) {
+          setNewsPosts(data.data.posts);
+        }
+      } else {
+        // For now, use empty array if API doesn't exist
+        setNewsPosts([]);
+      }
+    } catch (error) {
+      console.error('Error loading news posts:', error);
+      // Use empty array on error
+      setNewsPosts([]);
+    } finally {
+      setNewsLoading(false);
+    }
+  };
+
+  // Handle like/unlike post
+  const handleLikePost = async (postId: string, isLiked: boolean) => {
+    if (interactingPosts.has(postId)) return;
+    
+    try {
+      setInteractingPosts(prev => new Set(prev).add(postId));
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await fetch(`/api/news/${postId}/${isLiked ? 'unlike' : 'like'}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          // Update local state
+          setNewsPosts(prev =>
+            prev.map(post =>
+              post._id === postId
+                ? {
+                    ...post,
+                    isLiked: !isLiked,
+                    likesCount: isLiked ? post.likesCount - 1 : post.likesCount + 1
+                  }
+                : post
+            )
+          );
+        }
+      }
+    } catch (error) {
+      console.error('Error liking post:', error);
+    } finally {
+      setInteractingPosts(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(postId);
+        return newSet;
+      });
+    }
   };
 
   return (
@@ -393,7 +509,7 @@ export default function AdminNav() {
       {/* Sidebar */}
       <aside
         ref={sidebarRef}
-        className={`fixed left-0 top-0 h-screen ${isSidebarOpen ? 'w-72' : 'w-20'} ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-r z-[9999] sidebar-transition flex flex-col overflow-visible ${
+        className={`fixed left-0 top-0 h-screen ${isSidebarOpen ? 'w-72' : 'w-20'} ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-blue-600 border-blue-700'} border-r z-[9999] sidebar-transition flex flex-col overflow-visible ${
           isMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
         style={{
@@ -401,19 +517,19 @@ export default function AdminNav() {
         } as React.CSSProperties}
       >
         {/* Sidebar Header */}
-        <div className={`flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'} p-4 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+        <div className={`flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'} p-4 border-b ${isDarkMode ? 'border-gray-700' : 'border-blue-700'}`}>
           {isSidebarOpen && (
             <div className="flex items-center group flex-shrink-0">
               <img 
                 src="/logo_clb_sv_5T.jpg" 
                 alt="CLB Sinh viên 5 Tốt TDMU" 
-                className={`w-10 h-10 rounded-xl border ${isDarkMode ? 'border-gray-600/50' : 'border-gray-300/50'} group-hover:scale-105 transition-all duration-300`}
+                className={`w-10 h-10 rounded-xl border ${isDarkMode ? 'border-gray-600/50' : 'border-blue-500/50'} group-hover:scale-105 transition-all duration-300`}
               />
               <div className="ml-3">
-                <h1 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                <h1 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-white'}`}>
                   CLB SV 5 Tốt
                 </h1>
-                <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-blue-100'}`}>
                   TDMU
                 </p>
               </div>
@@ -428,13 +544,13 @@ export default function AdminNav() {
           )}
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className={`p-2 rounded-lg transition-all duration-200 ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-gray-900 hover:bg-gray-100'}`}
+            className={`p-2 rounded-lg transition-all duration-200 ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-white hover:bg-blue-700'}`}
             title={isSidebarOpen ? 'Thu gọn' : 'Mở rộng'}
           >
             {isSidebarOpen ? (
-              <ChevronLeft size={16} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={1.5} />
+              <ChevronLeft size={16} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
             ) : (
-              <ChevronRight size={16} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={1.5} />
+              <ChevronRight size={16} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
             )}
           </button>
         </div>
@@ -445,24 +561,24 @@ export default function AdminNav() {
             {/* Trang Chủ */}
             <a
               href="/admin/dashboard"
-              className={`${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-gray-900 hover:bg-gray-100'} ${isSidebarOpen ? 'justify-start px-3' : 'justify-center px-2'} py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-200`}
+              className={`${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-white hover:bg-blue-700'} ${isSidebarOpen ? 'justify-start px-3' : 'justify-center px-2'} py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-200`}
               title="Trang Chủ"
             >
-              <Home size={16} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={1.5} />
-              {isSidebarOpen && <span className={`ml-2 text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Trang Chủ</span>}
+              <Home size={16} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
+              {isSidebarOpen && <span className={`ml-2 text-sm ${isDarkMode ? 'text-white' : 'text-white'}`}>Trang Chủ</span>}
             </a>
 
             {/* Thành viên CLB Dropdown - Accordion Style */}
             <div className="relative dropdown-container overflow-visible" ref={memberDropdownRef}>
               <button
                 onClick={() => toggleDropdown('member')}
-                className={`w-full ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-gray-900 hover:bg-gray-100'} ${isSidebarOpen ? 'justify-between px-3' : 'justify-center px-2'} py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-200 ${activeDropdown === 'member' ? (isDarkMode ? 'bg-gray-700' : 'bg-gray-100') : ''}`}
+                className={`w-full ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-white hover:bg-blue-700'} ${isSidebarOpen ? 'justify-between px-3' : 'justify-center px-2'} py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-200 ${activeDropdown === 'member' ? (isDarkMode ? 'bg-gray-700' : 'bg-blue-700') : ''}`}
                 title={currentMemberPage ? memberMenuItems.find(item => item.key === currentMemberPage)?.name || 'Thành viên CLB' : 'Thành viên CLB'}
               >
-                <div className="flex items-center flex-1 min-w-0">
-                  <Users size={18} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={1.5} />
+                <div className="flex items-center flex-1 min-w-0 relative">
+                  <Users size={18} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
                   {isSidebarOpen && (
-                    <span className={`ml-2 text-sm font-semibold truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    <span className={`ml-2 text-sm font-semibold truncate ${isDarkMode ? 'text-white' : 'text-white'}`}>
                       {currentMemberPage ? 
                         (currentMemberPage === 'members' ? 'Danh sách' :
                          currentMemberPage === 'memberships' ? 'Xét duyệt' :
@@ -474,29 +590,44 @@ export default function AdminNav() {
                       }
                     </span>
                   )}
+                  {!isSidebarOpen && pendingMembershipsCount > 0 && (
+                    <span className={`absolute top-0.5 right-1 ${isDarkMode ? 'bg-red-400 text-white' : 'bg-red-600 text-white'} text-[10px] font-bold leading-none rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 border-2 ${isDarkMode ? 'border-gray-800' : 'border-white'} shadow-lg z-20`}>
+                      {pendingMembershipsCount > 9 ? '9+' : pendingMembershipsCount}
+                    </span>
+                  )}
+                  {isSidebarOpen && pendingMembershipsCount > 0 && (
+                    <span className={`absolute -top-1 right-0 ${isDarkMode ? 'bg-red-400 text-white' : 'bg-red-600 text-white'} text-[10px] font-bold leading-none rounded-full min-w-[20px] h-5 flex items-center justify-center px-1 border-2 ${isDarkMode ? 'border-gray-800' : 'border-white'} shadow-lg`}>
+                      {pendingMembershipsCount > 99 ? '99+' : pendingMembershipsCount}
+                    </span>
+                  )}
                 </div>
                 {isSidebarOpen && (
-                  <ChevronDown size={16} className={`flex-shrink-0 transition-all duration-300 ${isDarkMode ? 'text-white' : 'text-gray-900'} ${activeDropdown === 'member' ? 'rotate-180' : ''}`} strokeWidth={1.5} />
+                  <ChevronDown size={16} className={`flex-shrink-0 transition-all duration-300 ${isDarkMode ? 'text-white' : 'text-white'} ${activeDropdown === 'member' ? 'rotate-180' : ''}`} strokeWidth={1.5} />
                 )}
               </button>
               
               {/* Accordion Dropdown */}
               <div className={`overflow-hidden transition-all duration-300 ${activeDropdown === 'member' ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                <div className={`mt-2 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg py-2 dropdown-accordion`}>
+                <div className={`mt-2 ${isDarkMode ? 'bg-gray-700' : 'bg-blue-700'} rounded-lg py-2 dropdown-accordion`}>
                   <div className="px-2 space-y-1">
                     {memberMenuItems.map((item, index) => (
                       <a
                         key={item.name}
                         href={item.href}
                         onClick={() => handleMemberPageChange(item)}
-                        className={`block px-3 py-2 rounded-lg ${isDarkMode ? 'text-white hover:bg-gray-600' : 'text-gray-900 hover:bg-gray-200'} transition-all duration-200 ${currentMemberPage === item.key ? (isDarkMode ? 'bg-gray-600' : 'bg-gray-200') : ''}`}
+                        className={`block px-3 py-2 rounded-lg ${isDarkMode ? 'text-white hover:bg-gray-600' : 'text-white hover:bg-blue-500'} transition-all duration-200 ${currentMemberPage === item.key ? (isDarkMode ? 'bg-gray-600' : 'bg-blue-500') : ''}`}
                         style={{ animationDelay: `${index * 0.05}s` }}
                       >
                         <div className="flex items-center">
-                          <item.icon size={16} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={1.5} />
+                          <item.icon size={16} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
                           <div className="flex-1 min-w-0 ml-2">
-                            <span className={`font-medium text-sm block ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{item.name}</span>
+                            <span className={`font-medium text-sm block ${isDarkMode ? 'text-white' : 'text-white'}`}>{item.name}</span>
                           </div>
+                          {item.key === 'memberships' && pendingMembershipsCount > 0 && (
+                            <span className={`ml-2 px-1.5 py-0.5 rounded-full text-[10px] font-bold flex-shrink-0 ${isDarkMode ? 'bg-red-500' : 'bg-red-500'} text-white min-w-[18px] text-center`}>
+                              {pendingMembershipsCount > 99 ? '99+' : pendingMembershipsCount}
+                            </span>
+                          )}
                         </div>
                       </a>
                     ))}
@@ -509,13 +640,13 @@ export default function AdminNav() {
             <div className="relative dropdown-container overflow-visible" ref={activityDropdownRef}>
               <button
                 onClick={() => toggleDropdown('activity')}
-                className={`w-full ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-gray-900 hover:bg-gray-100'} ${isSidebarOpen ? 'justify-between px-3' : 'justify-center px-2'} py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-200 ${activeDropdown === 'activity' ? (isDarkMode ? 'bg-gray-700' : 'bg-gray-100') : ''}`}
+                className={`w-full ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-white hover:bg-blue-700'} ${isSidebarOpen ? 'justify-between px-3' : 'justify-center px-2'} py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-200 ${activeDropdown === 'activity' ? (isDarkMode ? 'bg-gray-700' : 'bg-blue-700') : ''}`}
                 title={currentActivityPage ? activityMenuItems.find(item => item.key === currentActivityPage)?.name || 'Tạo hoạt động' : 'Tạo hoạt động'}
               >
                 <div className="flex items-center flex-1 min-w-0">
-                  <Target size={18} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={1.5} />
+                  <Target size={18} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
                   {isSidebarOpen && (
-                    <span className={`ml-2 text-sm font-semibold truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    <span className={`ml-2 text-sm font-semibold truncate ${isDarkMode ? 'text-white' : 'text-white'}`}>
                       {currentActivityPage ? 
                         (currentActivityPage === 'create-single' ? 'Tạo 1 ngày' :
                          currentActivityPage === 'create-multiple' ? 'Tạo nhiều ngày' :
@@ -526,26 +657,26 @@ export default function AdminNav() {
                   )}
                 </div>
                 {isSidebarOpen && (
-                  <ChevronDown size={16} className={`flex-shrink-0 transition-all duration-300 ${isDarkMode ? 'text-white' : 'text-gray-900'} ${activeDropdown === 'activity' ? 'rotate-180' : ''}`} strokeWidth={1.5} />
+                  <ChevronDown size={16} className={`flex-shrink-0 transition-all duration-300 ${isDarkMode ? 'text-white' : 'text-white'} ${activeDropdown === 'activity' ? 'rotate-180' : ''}`} strokeWidth={1.5} />
                 )}
               </button>
               
               {/* Accordion Dropdown */}
               <div className={`overflow-hidden transition-all duration-300 ${activeDropdown === 'activity' ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                <div className={`mt-2 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg py-2 dropdown-accordion`}>
+                <div className={`mt-2 ${isDarkMode ? 'bg-gray-700' : 'bg-blue-700'} rounded-lg py-2 dropdown-accordion`}>
                   <div className="px-2 space-y-1">
                     {activityMenuItems.map((item, index) => (
                       <a
                         key={item.name}
                         href={item.href}
                         onClick={() => handleActivityPageChange(item)}
-                        className={`block px-3 py-2 rounded-lg ${isDarkMode ? 'text-white hover:bg-gray-600' : 'text-gray-900 hover:bg-gray-200'} transition-all duration-200 ${currentActivityPage === item.key ? (isDarkMode ? 'bg-gray-600' : 'bg-gray-200') : ''}`}
+                        className={`block px-3 py-2 rounded-lg ${isDarkMode ? 'text-white hover:bg-gray-600' : 'text-white hover:bg-blue-500'} transition-all duration-200 ${currentActivityPage === item.key ? (isDarkMode ? 'bg-gray-600' : 'bg-blue-500') : ''}`}
                         style={{ animationDelay: `${index * 0.05}s` }}
                       >
                         <div className="flex items-center">
-                          <item.icon size={16} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={1.5} />
+                          <item.icon size={16} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
                           <div className="flex-1 min-w-0 ml-2">
-                            <span className={`font-medium text-sm block ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{item.name}</span>
+                            <span className={`font-medium text-sm block ${isDarkMode ? 'text-white' : 'text-white'}`}>{item.name}</span>
                           </div>
                         </div>
                       </a>
@@ -558,21 +689,31 @@ export default function AdminNav() {
             {/* Quản lý người dùng */}
             <a
               href="/admin/users"
-              className={`${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-gray-900 hover:bg-gray-100'} ${isSidebarOpen ? 'justify-start px-3' : 'justify-center px-2'} py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-200`}
+              className={`${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-white hover:bg-blue-700'} ${isSidebarOpen ? 'justify-start px-3' : 'justify-center px-2'} py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-200`}
               title="Quản lý người dùng"
             >
-              <User size={16} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={1.5} />
-              {isSidebarOpen && <span className={`ml-2 text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Quản lý người dùng</span>}
+              <User size={16} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
+              {isSidebarOpen && <span className={`ml-2 text-sm ${isDarkMode ? 'text-white' : 'text-white'}`}>Quản lý người dùng</span>}
             </a>
 
             {/* Báo Cáo Thống Kê */}
             <a
               href="/admin/reports"
-              className={`${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-gray-900 hover:bg-gray-100'} ${isSidebarOpen ? 'justify-start px-3' : 'justify-center px-2'} py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-200`}
+              className={`${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-white hover:bg-blue-700'} ${isSidebarOpen ? 'justify-start px-3' : 'justify-center px-2'} py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-200`}
               title="Báo Cáo Thống Kê"
             >
-              <BarChart3 size={16} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={1.5} />
-              {isSidebarOpen && <span className={`ml-2 text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Báo Cáo Thống Kê</span>}
+              <BarChart3 size={16} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
+              {isSidebarOpen && <span className={`ml-2 text-sm ${isDarkMode ? 'text-white' : 'text-white'}`}>Báo Cáo Thống Kê</span>}
+            </a>
+
+            {/* Bản tin - News */}
+            <a
+              href="/admin/news"
+              className={`${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-white hover:bg-blue-700'} ${isSidebarOpen ? 'justify-start px-3' : 'justify-center px-2'} py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-200`}
+              title="Bản tin"
+            >
+              <Newspaper size={16} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
+              {isSidebarOpen && <span className={`ml-2 text-sm ${isDarkMode ? 'text-white' : 'text-white'}`}>Bản tin</span>}
             </a>
 
             {/* Thông báo Dropdown - Accordion Style */}
@@ -586,13 +727,13 @@ export default function AdminNav() {
                     setShowNotifications(false);
                   }
                 }}
-                className={`w-full ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-gray-900 hover:bg-gray-100'} ${isSidebarOpen ? 'justify-between px-3' : 'justify-center px-2'} py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-200 relative ${showNotificationMenu ? (isDarkMode ? 'bg-gray-700' : 'bg-gray-100') : ''}`}
+                className={`w-full ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-white hover:bg-blue-700'} ${isSidebarOpen ? 'justify-between px-3' : 'justify-center px-2'} py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-200 relative ${showNotificationMenu ? (isDarkMode ? 'bg-gray-700' : 'bg-blue-700') : ''}`}
                 title="Thông báo"
               >
                 <div className="flex items-center flex-1 min-w-0 relative">
-                  <Bell size={18} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={1.5} />
+                  <Bell size={18} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
                   {isSidebarOpen && (
-                    <span className={`ml-2 text-sm font-semibold truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    <span className={`ml-2 text-sm font-semibold truncate ${isDarkMode ? 'text-white' : 'text-white'}`}>
                       Thông báo
                     </span>
                   )}
@@ -608,13 +749,13 @@ export default function AdminNav() {
                   )}
                 </div>
                 {isSidebarOpen && (
-                  <ChevronDown size={16} className={`flex-shrink-0 transition-all duration-300 ${isDarkMode ? 'text-white' : 'text-gray-900'} ${showNotificationMenu ? 'rotate-180' : ''}`} strokeWidth={1.5} />
+                  <ChevronDown size={16} className={`flex-shrink-0 transition-all duration-300 ${isDarkMode ? 'text-white' : 'text-white'} ${showNotificationMenu ? 'rotate-180' : ''}`} strokeWidth={1.5} />
                 )}
               </button>
               
               {/* Accordion Dropdown */}
               <div className={`overflow-hidden transition-all duration-300 ${showNotificationMenu ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                <div className={`mt-2 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg py-2 dropdown-accordion`}>
+                <div className={`mt-2 ${isDarkMode ? 'bg-gray-700' : 'bg-blue-700'} rounded-lg py-2 dropdown-accordion`}>
                   <div className="px-2 space-y-1">
                     {/* Button to show notifications list */}
                     <button
@@ -623,12 +764,12 @@ export default function AdminNav() {
                         setShowNotifications(!showNotifications);
                         setShowNotificationMenu(false);
                       }}
-                      className={`w-full block px-3 py-2 rounded-lg ${isDarkMode ? 'text-white hover:bg-gray-600' : 'text-gray-900 hover:bg-gray-200'} transition-all duration-200 text-left`}
+                      className={`w-full block px-3 py-2 rounded-lg ${isDarkMode ? 'text-white hover:bg-gray-600' : 'text-white hover:bg-blue-500'} transition-all duration-200 text-left`}
                     >
                       <div className="flex items-center gap-2">
-                        <Bell size={16} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={1.5} />
+                        <Bell size={16} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
                         <div className="flex-1 min-w-0">
-                          <span className={`font-medium text-sm block ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Xem thông báo</span>
+                          <span className={`font-medium text-sm block ${isDarkMode ? 'text-white' : 'text-white'}`}>Xem thông báo</span>
                         </div>
                         {unreadCount > 0 && (
                           <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium flex-shrink-0 ${isDarkMode ? 'bg-red-500' : 'bg-red-500'} text-white min-w-[20px] text-center`}>
@@ -642,13 +783,13 @@ export default function AdminNav() {
                         key={item.name}
                         href={item.href}
                         onClick={() => handleNotificationPageChange(item)}
-                        className={`block px-3 py-2 rounded-lg ${isDarkMode ? 'text-white hover:bg-gray-600' : 'text-gray-900 hover:bg-gray-200'} transition-all duration-200`}
+                        className={`block px-3 py-2 rounded-lg ${isDarkMode ? 'text-white hover:bg-gray-600' : 'text-white hover:bg-blue-500'} transition-all duration-200`}
                         style={{ animationDelay: `${index * 0.05}s` }}
                       >
                         <div className="flex items-center">
-                          <item.icon size={16} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={1.5} />
+                          <item.icon size={16} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
                           <div className="flex-1 min-w-0 ml-2">
-                            <span className={`font-medium text-sm block ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{item.name}</span>
+                            <span className={`font-medium text-sm block ${isDarkMode ? 'text-white' : 'text-white'}`}>{item.name}</span>
                           </div>
                         </div>
                       </a>
@@ -662,37 +803,37 @@ export default function AdminNav() {
             {['SUPER_ADMIN', 'CLUB_LEADER'].includes(user?.role || '') && (
               <a
                 href="/admin/contact-requests"
-                className={`${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-gray-900 hover:bg-gray-100'} ${isSidebarOpen ? 'justify-start px-3' : 'justify-center px-2'} py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-200`}
+                className={`${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-white hover:bg-blue-700'} ${isSidebarOpen ? 'justify-start px-3' : 'justify-center px-2'} py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-200`}
                 title="Yêu cầu liên hệ"
               >
-                <Phone size={16} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={1.5} />
-                {isSidebarOpen && <span className={`ml-2 text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Yêu cầu liên hệ</span>}
+                <Phone size={16} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
+                {isSidebarOpen && <span className={`ml-2 text-sm ${isDarkMode ? 'text-white' : 'text-white'}`}>Yêu cầu liên hệ</span>}
               </a>
             )}
           </nav>
         </div>
 
         {/* Sidebar Footer */}
-        <div className={`border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} p-4 space-y-3`}>
+        <div className={`border-t ${isDarkMode ? 'border-gray-700' : 'border-blue-700'} p-4 space-y-3`}>
           {/* Chuyển đổi chế độ tối/sáng */}
           <button
             onClick={toggleDarkMode}
-            className={`w-full ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-gray-900 hover:bg-gray-100'} ${isSidebarOpen ? 'justify-start px-3' : 'justify-center px-2'} py-2 rounded-lg transition-all duration-200 flex items-center`}
+            className={`w-full ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-white hover:bg-blue-700'} ${isSidebarOpen ? 'justify-start px-3' : 'justify-center px-2'} py-2 rounded-lg transition-all duration-200 flex items-center`}
             title={isDarkMode ? 'Chuyển sang chế độ sáng' : 'Chuyển sang chế độ tối'}
           >
             {isDarkMode ? (
-              <Sun size={16} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={1.5} />
+              <Sun size={16} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
             ) : (
-              <Moon size={16} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={1.5} />
+              <Moon size={16} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
             )}
-            {isSidebarOpen && <span className={`ml-2 text-sm font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{isDarkMode ? 'Chế độ tối' : 'Chế độ sáng'}</span>}
+            {isSidebarOpen && <span className={`ml-2 text-sm font-medium ${isDarkMode ? 'text-white' : 'text-white'}`}>{isDarkMode ? 'Chế độ tối' : 'Chế độ sáng'}</span>}
           </button>
 
           {/* Profile dropdown - Modern Design */}
           <div className="relative dropdown-container overflow-visible" ref={profileDropdownRef}>
             <button
               onClick={() => toggleDropdown('profile')}
-              className={`w-full flex items-center ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-gray-900 hover:bg-gray-100'} ${isSidebarOpen ? 'justify-between px-3' : 'justify-center px-2'} py-2 rounded-lg transition-all duration-200 ${activeDropdown === 'profile' ? (isDarkMode ? 'bg-gray-700' : 'bg-gray-100') : ''}`}
+              className={`w-full flex items-center ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-white hover:bg-blue-700'} ${isSidebarOpen ? 'justify-between px-3' : 'justify-center px-2'} py-2 rounded-lg transition-all duration-200 ${activeDropdown === 'profile' ? (isDarkMode ? 'bg-gray-700' : 'bg-blue-700') : ''}`}
             >
               <div className="flex items-center flex-1 min-w-0">
                 <div className="relative">
@@ -713,24 +854,24 @@ export default function AdminNav() {
                 </div>
                 {isSidebarOpen && (
                   <div className="ml-3 text-left min-w-0 flex-1">
-                    <p className={`text-xs font-bold truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    <p className={`text-xs font-bold truncate ${isDarkMode ? 'text-white' : 'text-white'}`}>
                       {user?.name || 'Admin'}
                     </p>
-                    <p className={`text-xs truncate ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    <p className={`text-xs truncate ${isDarkMode ? 'text-gray-400' : 'text-blue-100'}`}>
                       {getRoleDisplayName(user?.role || 'ADMIN')}
                     </p>
                   </div>
                 )}
               </div>
               {isSidebarOpen && (
-                <ChevronDown size={16} className={`flex-shrink-0 transition-all duration-300 ${isDarkMode ? 'text-white' : 'text-gray-900'} ${activeDropdown === 'profile' ? 'rotate-180' : ''}`} strokeWidth={1.5} />
+                <ChevronDown size={16} className={`flex-shrink-0 transition-all duration-300 ${isDarkMode ? 'text-white' : 'text-white'} ${activeDropdown === 'profile' ? 'rotate-180' : ''}`} strokeWidth={1.5} />
               )}
             </button>
 
             {activeDropdown === 'profile' && (
               <div className={`absolute ${isSidebarOpen ? 'bottom-full left-0 mb-2' : 'bottom-0 left-full ml-2'} w-80 ${isDarkMode ? 'bg-gray-800/95 backdrop-blur-md border border-gray-600/30' : 'bg-white/95 backdrop-blur-md border border-gray-200/50'} rounded-2xl shadow-2xl overflow-hidden dropdown-right`} style={{position: 'absolute', zIndex: 100001}}>
                 {/* Profile Header */}
-                <div className={`px-5 py-4 ${isDarkMode ? 'bg-gradient-to-r from-gray-700 to-gray-600 border-b border-gray-600' : 'bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-gray-200'}`}>
+                <div className={`px-5 py-4 ${isDarkMode ? 'bg-gradient-to-r from-gray-700 to-gray-600 border-b border-gray-600' : 'bg-gradient-to-r from-blue-50 to-purple-50 border-b border-gray-200'}`}>
                   <div className="flex items-center space-x-4">
                     {user?.avatarUrl ? (
                       <div className="relative">
@@ -773,10 +914,10 @@ export default function AdminNav() {
                   <div className="space-y-1">
                     <a 
                       href="/admin/profile" 
-                      className={`flex items-center px-3 py-2 rounded-xl transition-all duration-200 group/item transform hover:scale-[1.02] ${isDarkMode ? 'text-gray-300 hover:bg-indigo-600/30 hover:text-white' : 'text-gray-600 hover:bg-indigo-50 hover:text-indigo-700'}`}
+                      className={`flex items-center px-3 py-2 rounded-xl transition-all duration-200 group/item transform hover:scale-[1.02] ${isDarkMode ? 'text-gray-300 hover:bg-blue-600/30 hover:text-white' : 'text-gray-600 hover:bg-blue-50 hover:text-blue-700'}`}
                     >
-                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center mr-2 ${isDarkMode ? 'bg-indigo-600/20 text-indigo-300 group-hover/item:bg-indigo-600/40' : 'bg-indigo-100 text-indigo-600 group-hover/item:bg-indigo-200'} group-hover/item:scale-110 transition-all duration-200 shadow-sm`}>
-                        <User size={12} className={isDarkMode ? 'text-indigo-300' : 'text-indigo-600'} strokeWidth={1.5} />
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center mr-2 ${isDarkMode ? 'bg-blue-600/20 text-blue-300 group-hover/item:bg-blue-600/40' : 'bg-blue-100 text-blue-600 group-hover/item:bg-blue-200'} group-hover/item:scale-110 transition-all duration-200 shadow-sm`}>
+                        <User size={12} className={isDarkMode ? 'text-blue-300' : 'text-blue-600'} strokeWidth={1.5} />
                       </div>
                       <div className="flex-1">
                         <p className="font-semibold text-xs">Hồ sơ cá nhân</p>

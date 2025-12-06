@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import OfficerNav from '@/components/officer/OfficerNav';
 import ProtectedRoute from '@/components/common/ProtectedRoute';
+import { Lock, Eye, EyeOff, Key, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { validatePassword, getPasswordRequirements } from '@/lib/passwordValidation';
 
 interface ProfileForm {
   name: string;
@@ -22,6 +24,20 @@ export default function OfficerProfile() {
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [customFaculty, setCustomFaculty] = useState('');
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [showPasswords, setShowPasswords] = useState({
+    current: false,
+    new: false,
+    confirm: false,
+  });
+  const [hasPassword, setHasPassword] = useState<boolean | null>(null);
 
   const [formData, setFormData] = useState<ProfileForm>({
     name: '',
@@ -123,6 +139,84 @@ export default function OfficerProfile() {
       setMessage({ type: 'error', text: 'Có lỗi xảy ra khi cập nhật thông tin' });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Check if user has password
+  useEffect(() => {
+    const checkPassword = async () => {
+      try {
+        const response = await fetch("/api/users/change-password", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+          body: JSON.stringify({ currentPassword: "", newPassword: "test" }),
+        });
+        const data = await response.json();
+        setHasPassword(data.error?.includes("mật khẩu hiện tại") || false);
+      } catch (error) {
+        setHasPassword(false);
+      }
+    };
+    checkPassword();
+  }, [user]);
+
+  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setPasswordForm((prev) => ({ ...prev, [name]: value }));
+    if (passwordMessage) setPasswordMessage(null);
+  };
+
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordLoading(true);
+    setPasswordMessage(null);
+
+    const passwordValidation = validatePassword(passwordForm.newPassword);
+    if (!passwordValidation.valid) {
+      setPasswordMessage({ type: "error", text: passwordValidation.error || "Mật khẩu không hợp lệ" });
+      setPasswordLoading(false);
+      return;
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordMessage({ type: "error", text: "Mật khẩu xác nhận không khớp" });
+      setPasswordLoading(false);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/users/change-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify({
+          currentPassword: passwordForm.currentPassword || undefined,
+          newPassword: passwordForm.newPassword,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setPasswordMessage({ type: "success", text: hasPassword ? "Đổi mật khẩu thành công!" : "Thêm mật khẩu thành công! Bây giờ bạn có thể đăng nhập bằng email/mật khẩu." });
+        setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+        setHasPassword(true);
+        setTimeout(() => {
+          setShowChangePassword(false);
+          setPasswordMessage(null);
+        }, 2000);
+      } else {
+        setPasswordMessage({ type: "error", text: data.error || "Thất bại" });
+      }
+    } catch (error) {
+      setPasswordMessage({ type: "error", text: "Lỗi kết nối. Vui lòng thử lại." });
+    } finally {
+      setPasswordLoading(false);
     }
   };
 
@@ -559,6 +653,180 @@ export default function OfficerProfile() {
                  </div>
 
                </form>
+            </div>
+
+            {/* Password Change Form */}
+            <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-xl shadow-lg border p-6 mt-6`}>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className={`text-xl font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    🔐 Mật khẩu
+                  </h3>
+                  <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    {hasPassword === false ? "Thêm mật khẩu để có thể đăng nhập bằng email/mật khẩu" : "Cập nhật mật khẩu để bảo mật tài khoản"}
+                  </p>
+                </div>
+                {!showChangePassword && (
+                  <button
+                    onClick={() => setShowChangePassword(true)}
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-green-600 hover:text-green-700 transition-colors"
+                  >
+                    <Key className="h-4 w-4" />
+                    {hasPassword === false ? "Thêm mật khẩu" : "Thay đổi"}
+                  </button>
+                )}
+              </div>
+
+              {!showChangePassword ? (
+                <div className="text-center py-4">
+                  <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    {hasPassword === false 
+                      ? "Tài khoản của bạn chưa có mật khẩu. Nhấn 'Thêm mật khẩu' để thiết lập."
+                      : "Nhấn 'Thay đổi' để cập nhật mật khẩu của bạn"}
+                  </p>
+                </div>
+              ) : (
+                <form onSubmit={handlePasswordSubmit} className="space-y-4">
+                  {passwordMessage && (
+                    <div className={`p-3 rounded-lg flex items-center gap-2 ${
+                      passwordMessage.type === 'success' 
+                        ? 'bg-green-50 border border-green-200 text-green-700' 
+                        : 'bg-red-50 border border-red-200 text-red-700'
+                    }`}>
+                      {passwordMessage.type === 'success' ? (
+                        <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                      )}
+                      <span className="text-sm">{passwordMessage.text}</span>
+                    </div>
+                  )}
+
+                  {hasPassword !== false && (
+                    <div>
+                      <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                        Mật khẩu hiện tại
+                      </label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                        <input
+                          type={showPasswords.current ? 'text' : 'password'}
+                          name="currentPassword"
+                          value={passwordForm.currentPassword}
+                          onChange={handlePasswordChange}
+                          className={`w-full pl-10 pr-10 py-2.5 rounded-lg border focus:outline-none focus:ring-2 focus:ring-green-500 ${
+                            isDarkMode 
+                              ? 'bg-gray-700 border-gray-600 text-white' 
+                              : 'bg-white border-gray-300 text-gray-900'
+                          }`}
+                          required={hasPassword === true}
+                          placeholder="Nhập mật khẩu hiện tại"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPasswords(prev => ({ ...prev, current: !prev.current }))}
+                          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        >
+                          {showPasswords.current ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                      Mật khẩu mới
+                    </label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                      <input
+                        type={showPasswords.new ? 'text' : 'password'}
+                        name="newPassword"
+                        value={passwordForm.newPassword}
+                        onChange={handlePasswordChange}
+                        className={`w-full pl-10 pr-10 py-2.5 rounded-lg border focus:outline-none focus:ring-2 focus:ring-green-500 ${
+                          isDarkMode 
+                            ? 'bg-gray-700 border-gray-600 text-white' 
+                            : 'bg-white border-gray-300 text-gray-900'
+                        }`}
+                        required
+                        placeholder="Nhập mật khẩu mới (tối thiểu 6 ký tự, 1 chữ hoa, 1 ký tự đặc biệt)"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPasswords(prev => ({ ...prev, new: !prev.new }))}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showPasswords.new ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                      Xác nhận mật khẩu mới
+                    </label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                      <input
+                        type={showPasswords.confirm ? 'text' : 'password'}
+                        name="confirmPassword"
+                        value={passwordForm.confirmPassword}
+                        onChange={handlePasswordChange}
+                        className={`w-full pl-10 pr-10 py-2.5 rounded-lg border focus:outline-none focus:ring-2 focus:ring-green-500 ${
+                          isDarkMode 
+                            ? 'bg-gray-700 border-gray-600 text-white' 
+                            : 'bg-white border-gray-300 text-gray-900'
+                        }`}
+                        required
+                        placeholder="Nhập lại mật khẩu mới"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPasswords(prev => ({ ...prev, confirm: !prev.confirm }))}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showPasswords.confirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowChangePassword(false);
+                        setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+                        setPasswordMessage(null);
+                      }}
+                      className={`px-5 py-2.5 text-sm font-medium rounded-lg border transition-colors ${
+                        isDarkMode 
+                          ? 'border-gray-600 text-gray-300 hover:bg-gray-700' 
+                          : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={passwordLoading}
+                      className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {passwordLoading ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Đang xử lý...
+                        </>
+                      ) : (
+                        <>
+                          <Key className="h-4 w-4" />
+                          {hasPassword === false ? "Thêm mật khẩu" : "Đổi mật khẩu"}
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
         </div>

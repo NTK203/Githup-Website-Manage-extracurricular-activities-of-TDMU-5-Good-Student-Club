@@ -301,7 +301,7 @@ export default function MemberPermissionsPage() {
       const uniqueMembers = allMembers.filter((member, index, self) => 
         index === self.findIndex(m => m.userId?._id === member.userId?._id)
       );
-
+      
       // Filter out rejected memberships for stats calculation
       const filteredMembers = uniqueMembers.filter(member => {
         // Keep admin users (they don't have status field)
@@ -778,9 +778,11 @@ export default function MemberPermissionsPage() {
           {/* Members Table */}
           <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border shadow-sm overflow-hidden`}>
             {loading ? (
-              <div className="p-8 text-center">
-                <Loader size={48} className="animate-spin text-blue-600 mx-auto mb-4" strokeWidth={1.5} />
-                <p className={`mt-4 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Đang tải dữ liệu...</p>
+              <div className="p-12 text-center">
+                <div className="flex flex-col items-center justify-center">
+                  <Loader size={48} className="animate-spin mx-auto mb-4 text-blue-600" strokeWidth={2} />
+                  <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Đang tải dữ liệu...</p>
+                </div>
               </div>
             ) : (
               <>
@@ -897,7 +899,7 @@ export default function MemberPermissionsPage() {
                                 <option value="SUPER_ADMIN">Quản Trị Hệ Thống</option>
                               </select>
                               {updatingRole === member.userId?._id && (
-                                <Loader size={14} className="animate-spin text-blue-600" strokeWidth={1.5} />
+                                <Loader size={16} className="animate-spin text-blue-600" strokeWidth={2} />
                               )}
                             </div>
                           )}
@@ -932,7 +934,7 @@ export default function MemberPermissionsPage() {
                                   title="Xóa khỏi câu lạc bộ"
                                 >
                                   {removingMember === member._id ? (
-                                    <Loader size={14} className="animate-spin text-red-600" strokeWidth={1.5} />
+                                    <Loader size={16} className="animate-spin text-blue-600" strokeWidth={2} />
                                   ) : (
                                     <>
                                       <Trash2 size={14} strokeWidth={1.5} />

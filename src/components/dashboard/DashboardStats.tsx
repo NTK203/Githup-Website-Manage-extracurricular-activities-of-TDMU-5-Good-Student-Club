@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Users, Target, Star, ClipboardList } from 'lucide-react';
+import { Users, Target, Calendar, Activity } from 'lucide-react';
 
 interface DashboardStatsProps {
   isDarkMode?: boolean;
@@ -11,8 +11,8 @@ interface DashboardStatsProps {
 interface StatsData {
   totalStudents: { value: string; change: string; changeType: 'increase' | 'decrease' };
   ongoingActivities: { value: string; change: string; changeType: 'increase' | 'decrease' };
-  averageScore: { value: string; change: string; changeType: 'increase' | 'decrease' };
-  pendingReports: { value: string; change: string; changeType: 'increase' | 'decrease' };
+  totalActivities: { value: string; change: string; changeType: 'increase' | 'decrease' };
+  totalMembers: { value: string; change: string; changeType: 'increase' | 'decrease' };
 }
 
 export default function DashboardStats({ isDarkMode = false, noBorder = false }: DashboardStatsProps) {
@@ -47,7 +47,7 @@ export default function DashboardStats({ isDarkMode = false, noBorder = false }:
 
   const statsConfig = stats ? [
     {
-      title: 'Tổng số sinh viên',
+      title: 'Tổng số thành viên',
       value: stats.totalStudents.value,
       change: stats.totalStudents.change,
       changeType: stats.totalStudents.changeType,
@@ -65,20 +65,11 @@ export default function DashboardStats({ isDarkMode = false, noBorder = false }:
       hoverBg: isDarkMode ? 'hover:bg-green-500/10' : 'hover:bg-green-50/50'
     },
     {
-      title: 'Điểm trung bình',
-      value: stats.averageScore.value,
-      change: stats.averageScore.change,
-      changeType: stats.averageScore.changeType,
-      icon: Star,
-      iconColor: isDarkMode ? 'text-yellow-400' : 'text-yellow-600',
-      hoverBg: isDarkMode ? 'hover:bg-yellow-500/10' : 'hover:bg-yellow-50/50'
-    },
-    {
-      title: 'Báo cáo chờ duyệt',
-      value: stats.pendingReports.value,
-      change: stats.pendingReports.change,
-      changeType: stats.pendingReports.changeType,
-      icon: ClipboardList,
+      title: 'Tổng số hoạt động',
+      value: stats.totalActivities.value,
+      change: stats.totalActivities.change,
+      changeType: stats.totalActivities.changeType,
+      icon: Calendar,
       iconColor: isDarkMode ? 'text-purple-400' : 'text-purple-600',
       hoverBg: isDarkMode ? 'hover:bg-purple-500/10' : 'hover:bg-purple-50/50'
     }
@@ -107,62 +98,66 @@ export default function DashboardStats({ isDarkMode = false, noBorder = false }:
   }
 
   return (
-    <div 
-      className={`rounded-xl p-3 flex flex-col w-full bg-transparent`}
-      style={noBorder ? {} : { border: '1px solid #1e40af' }}
-    >
-      <div className="mb-2.5 text-center">
-        <h2 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+    <div className="w-full">
+      <div className="mb-2">
+        <h2 className={`text-xs font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
           Thống kê tổng quan
         </h2>
       </div>
       
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+      <div className={`flex items-center gap-3 flex-wrap ${
+        isDarkMode ? 'bg-gray-800/30' : 'bg-gray-50'
+      } rounded-lg p-2 border ${isDarkMode ? 'border-gray-700/50' : 'border-gray-200'}`}>
         {statsConfig.map((stat, index) => {
           const IconComponent = stat.icon;
+          const isLast = index === statsConfig.length - 1;
           return (
-          <div 
-            key={index} 
-            className={`group relative rounded-lg transition-all duration-200 flex flex-col ${
-              isDarkMode 
-                ? 'bg-gray-800/30 hover:bg-gray-700/40 border border-gray-700/50 hover:border-gray-600' 
-                : 'bg-white/50 hover:bg-white/70 border border-gray-200/60 hover:border-gray-300'
-            } ${stat.hoverBg} shadow-sm hover:shadow-md`}
-          >
-            <div className="p-3 flex flex-col flex-1 justify-center">
-              <div className="flex items-center justify-center mb-2">
+            <div key={index} className="flex items-center gap-2 flex-1 min-w-0">
+              {/* Icon */}
+              <div className={`flex-shrink-0 w-8 h-8 rounded-md flex items-center justify-center ${
+                isDarkMode 
+                  ? 'bg-gray-700/60' 
+                  : 'bg-white'
+              }`}>
                 <IconComponent 
-                  size={20} 
-                  strokeWidth={2.5} 
+                  size={16} 
+                  strokeWidth={2} 
                   className={stat.iconColor}
                 />
               </div>
               
-              <div className="text-center space-y-1">
-                <p className={`text-[10px] font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+              {/* Content */}
+              <div className="flex-1 min-w-0">
+                <p className={`text-[11px] font-medium mb-0.5 truncate ${
+                  isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                }`}>
                   {stat.title}
                 </p>
-                <p className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                  {stat.value}
-                </p>
-                <div className="flex flex-col items-center justify-center gap-0.5">
-                  <span className={`text-[9px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                    so với tháng trước
-                  </span>
-                  <span 
-                    className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-semibold ${
-                    stat.changeType === 'increase' 
-                      ? isDarkMode ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                      : isDarkMode ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-rose-50 text-rose-700 border border-rose-200'
-                  }`}
-                  >
-                    {stat.change}
-                  </span>
+                <div className="flex items-baseline gap-1.5">
+                  <p className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    {stat.value}
+                  </p>
+                  {stat.change && (
+                    <span 
+                      className={`inline-flex items-center px-1 py-0.5 rounded text-[9px] font-semibold ${
+                      stat.changeType === 'increase' 
+                        ? isDarkMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-50 text-emerald-600'
+                        : isDarkMode ? 'bg-rose-500/20 text-rose-400' : 'bg-rose-50 text-rose-600'
+                    }`}
+                    >
+                      {stat.change}
+                    </span>
+                  )}
                 </div>
               </div>
+              
+              {/* Divider */}
+              {!isLast && (
+                <div className={`w-px h-10 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-300'}`} />
+              )}
             </div>
-          </div>
-        )})}
+          );
+        })}
       </div>
     </div>
   );

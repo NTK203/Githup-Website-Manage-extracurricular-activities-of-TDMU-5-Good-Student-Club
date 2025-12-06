@@ -2,21 +2,66 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { useDarkMode } from '@/hooks/useDarkMode';
 import { useRouter, usePathname } from 'next/navigation';
+import {
+  Home,
+  Target,
+  Users,
+  CheckCircle2,
+  BarChart3,
+  Bell,
+  Building2,
+  X,
+  XCircle,
+  ChevronDown,
+  Sun,
+  Moon,
+  Menu,
+  User,
+  Settings,
+  LogOut,
+  Clock,
+  Info,
+  ArrowRight,
+  Loader2,
+  AlertTriangle,
+  CheckCircle,
+  type LucideIcon
+} from 'lucide-react';
+
+interface MenuItem {
+  name: string;
+  href?: string;
+  icon: LucideIcon;
+  isDropdown?: boolean;
+  children?: { name: string; href: string; icon: LucideIcon }[];
+}
+
+type MembershipStatus = 'PENDING' | 'ACTIVE' | 'REJECTED' | 'REMOVED' | 'removed' | null;
+
+const isRemovedStatus = (status: MembershipStatus) =>
+  status === 'REMOVED' || status === 'removed';
 
 export default function OfficerNav() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const { isDarkMode, toggleDarkMode } = useDarkMode();
+
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [showNotificationDropdown, setShowNotificationDropdown] = useState(false);
+  const [showActivitiesDropdown, setShowActivitiesDropdown] = useState(false);
+  const [showUsersDropdown, setShowUsersDropdown] = useState(false);
   const [showClubDropdown, setShowClubDropdown] = useState(false);
+  const [showMobileActivitiesDropdown, setShowMobileActivitiesDropdown] = useState(false);
+  const [showMobileUsersDropdown, setShowMobileUsersDropdown] = useState(false);
   const [showMobileClubDropdown, setShowMobileClubDropdown] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [membershipStatus, setMembershipStatus] = useState<'PENDING' | 'ACTIVE' | 'REJECTED' | 'REMOVED' | 'removed' | null>(null);
+  const [pendingParticipantsCount, setPendingParticipantsCount] = useState(0);
+  const [membershipStatus, setMembershipStatus] = useState<MembershipStatus>(null);
   const [restorationInfo, setRestorationInfo] = useState<{
     restoredAt?: string;
     restoredBy?: { name: string; studentId: string };
@@ -25,24 +70,22 @@ export default function OfficerNav() {
   const [loading, setLoading] = useState(false);
   const [hasRedirected, setHasRedirected] = useState(false);
   const [showRestorationBanner, setShowRestorationBanner] = useState(false);
-
-  // Load theme from localStorage on component mount
-  useEffect(() => {
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'dark') {
-      setIsDarkMode(true);
-      document.documentElement.classList.add('dark');
-    }
-  }, []);
+  const [hasCheckedStatus, setHasCheckedStatus] = useState(false);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Element;
-      if (!target.closest('.notification-dropdown') && !target.closest('.profile-dropdown') && !target.closest('.club-dropdown')) {
+      if (!target.closest('.notification-dropdown') && !target.closest('.profile-dropdown') &&
+          !target.closest('.activities-dropdown') && !target.closest('.users-dropdown') &&
+          !target.closest('.club-dropdown')) {
         setShowNotificationDropdown(false);
         setShowProfileDropdown(false);
+        setShowActivitiesDropdown(false);
+        setShowUsersDropdown(false);
         setShowClubDropdown(false);
+        setShowMobileActivitiesDropdown(false);
+        setShowMobileUsersDropdown(false);
         setShowMobileClubDropdown(false);
       }
     };
@@ -53,47 +96,113 @@ export default function OfficerNav() {
     };
   }, []);
 
-  // Toggle dark mode function
-  const toggleDarkMode = () => {
-    const newDarkMode = !isDarkMode;
-    setIsDarkMode(newDarkMode);
-    
-    if (newDarkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
+  // Load pending participants count - optimized with dedicated API
+  const loadPendingParticipantsCount = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      // Use dedicated API endpoint for faster response
+      const response = await fetch('/api/activities/pending-participants-count', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        // Add cache control for faster loading
+        cache: 'no-store'
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data?.count !== undefined) {
+          setPendingParticipantsCount(data.data.count);
+          // Cache in localStorage for instant display on next load
+          localStorage.setItem('pendingParticipantsCount', data.data.count.toString());
+          localStorage.setItem('pendingParticipantsCountTime', Date.now().toString());
+        }
+      }
+    } catch (error) {
+      console.error('Error loading pending participants count:', error);
+      // Try to load from cache if API fails
+      const cached = localStorage.getItem('pendingParticipantsCount');
+      const cacheTime = localStorage.getItem('pendingParticipantsCountTime');
+      if (cached && cacheTime) {
+        const age = Date.now() - parseInt(cacheTime);
+        // Use cache if less than 5 minutes old
+        if (age < 5 * 60 * 1000) {
+          setPendingParticipantsCount(parseInt(cached));
+        }
+      }
+    }
+  };
+
+  // Load cached counts immediately on mount for instant display
+  useEffect(() => {
+    // Load from cache immediately for instant display
+    const cachedPending = localStorage.getItem('pendingParticipantsCount');
+    const cachedPendingTime = localStorage.getItem('pendingParticipantsCountTime');
+    if (cachedPending && cachedPendingTime) {
+      const age = Date.now() - parseInt(cachedPendingTime);
+      // Use cache if less than 5 minutes old
+      if (age < 5 * 60 * 1000) {
+        setPendingParticipantsCount(parseInt(cachedPending));
+      }
     }
 
-    // Emit custom event for other components to listen
-    window.dispatchEvent(new CustomEvent('themeChange'));
-  };
+    const cachedUnread = localStorage.getItem('unreadCount');
+    const cachedUnreadTime = localStorage.getItem('unreadCountTime');
+    if (cachedUnread && cachedUnreadTime) {
+      const age = Date.now() - parseInt(cachedUnreadTime);
+      // Use cache if less than 5 minutes old
+      if (age < 5 * 60 * 1000) {
+        setUnreadCount(parseInt(cachedUnread));
+      }
+    }
+  }, []);
 
   // Load notifications and check membership status
   useEffect(() => {
-    if (user) {
-      loadNotifications();
-      loadUnreadCount();
-      
-      // Check membership status (but redirect logic will check if on notifications page)
-      checkMembershipStatus();
-      
-      // Poll for new notifications every 30 seconds
-      const notificationInterval = setInterval(() => {
-        loadUnreadCount();
-        // Only reload full list if dropdown is open
-        if (showNotificationDropdown) {
-          loadNotifications();
+    if (!user?._id) return;
+    
+    // Fetch all data in parallel for faster loading
+    Promise.all([
+      loadNotifications(),
+      loadUnreadCount(),
+      loadPendingParticipantsCount()
+    ]).catch(error => {
+      console.error('Error loading notification data:', error);
+    });
+    
+    // Check membership status only once on mount
+    // This prevents excessive checks and redirects
+    if (!hasCheckedStatus) {
+      const checkOnce = async () => {
+        try {
+          await checkMembershipStatus();
+        } finally {
+          setHasCheckedStatus(true);
+          setLoading(false); // Ensure loading is reset
         }
-      }, 30000);
-      
-      return () => clearInterval(notificationInterval);
+      };
+      checkOnce();
     }
-  }, [user, showNotificationDropdown]);
+    
+    // Poll for new notifications every 30 seconds
+    const notificationInterval = setInterval(() => {
+      // Fetch in parallel
+      Promise.all([
+        loadUnreadCount(),
+        loadPendingParticipantsCount(),
+        loadNotifications()
+      ]).catch(error => {
+        console.error('Error refreshing notification data:', error);
+      });
+    }, 30000);
+    
+    return () => clearInterval(notificationInterval);
+  }, [user?._id]); // Only depend on user ID
 
   const checkMembershipStatus = async () => {
-    if (!user?._id) {
+    if (!user?._id || hasCheckedStatus) {
       return;
     }
     
@@ -131,47 +240,35 @@ export default function OfficerNav() {
               setShowRestorationBanner(false);
             }
             
-            // If should redirect, redirect to appropriate dashboard
-            // Only redirect if user is NOT already on an officer/admin page
-            if (shouldRedirect && redirectUrl && !hasRedirected) {
-              const currentPath = window.location.pathname;
-              // Don't redirect if already on officer/admin pages (allow navigation between officer pages)
-              const isOnOfficerPage = currentPath.startsWith('/officer/');
-              const isOnAdminPage = currentPath.startsWith('/admin/');
-              const isOnTargetPage = currentPath === redirectUrl;
-              const isOnNotificationsPage = currentPath.includes('/notifications');
-              
-              // Only redirect if not on officer/admin pages already and not already on target
-              // Also don't redirect if on notifications page
-              if (!isOnOfficerPage && !isOnAdminPage && !isOnTargetPage && !isOnNotificationsPage) {
-                setHasRedirected(true);
-                router.push(redirectUrl);
-              }
-              return;
-            }
-            
-            // Special case: CLUB_LEADER should always go to admin dashboard
-            // Only redirect if NOT already on admin/officer pages
-            if (membership && membership.status === 'ACTIVE' && user?.role === 'CLUB_LEADER' && !hasRedirected) {
-              const currentPath = window.location.pathname;
-              const isOnNotificationsPage = currentPath.includes('/notifications');
-              // Don't redirect if already on officer pages (allow navigation between officer pages)
-              // Also don't redirect if on notifications page
-              if (!currentPath.startsWith('/admin/') && !currentPath.startsWith('/officer/') && !isOnNotificationsPage) {
-                setHasRedirected(true);
-                router.push('/admin/dashboard');
-                return;
-              }
-            }
-            
-            // If membership is REMOVED, redirect to student dashboard
+            // Only redirect if membership is REMOVED - this is critical
+            // Don't redirect for other cases to avoid interrupting user workflow
             if (membership && membership.status === 'REMOVED' && !hasRedirected) {
               const currentPath = window.location.pathname;
               const isOnNotificationsPage = currentPath.includes('/notifications');
+              // Only redirect if not already on student dashboard
               if (!currentPath.startsWith('/student/') && !isOnNotificationsPage) {
                 setHasRedirected(true);
+                setLoading(false);
                 router.push('/student/dashboard');
                 return;
+              }
+            }
+            
+            // Only redirect on initial load if user is completely on wrong page
+            // Don't redirect if user is already on officer/admin/student pages
+            if (shouldRedirect && redirectUrl && !hasRedirected) {
+              const currentPath = window.location.pathname;
+              const isOnOfficerPage = currentPath.startsWith('/officer/');
+              const isOnAdminPage = currentPath.startsWith('/admin/');
+              const isOnStudentPage = currentPath.startsWith('/student/');
+              const isOnTargetPage = currentPath === redirectUrl;
+              const isOnNotificationsPage = currentPath.includes('/notifications');
+              
+              // Only redirect if completely on wrong page (not any dashboard pages)
+              // This prevents redirect loops and allows free navigation
+              if (!isOnOfficerPage && !isOnAdminPage && !isOnStudentPage && !isOnTargetPage && !isOnNotificationsPage) {
+                setHasRedirected(true);
+                router.push(redirectUrl);
               }
             }
           } else {
@@ -240,17 +337,32 @@ export default function OfficerNav() {
       const response = await fetch('/api/notifications/unread-count', {
         headers: {
           'Authorization': `Bearer ${token}`
-        }
+        },
+        // Add cache control for faster loading
+        cache: 'no-store'
       });
 
       if (response.ok) {
         const data = await response.json();
-        if (data.success) {
+        if (data.success && data.data?.count !== undefined) {
           setUnreadCount(data.data.count);
+          // Cache in localStorage for instant display on next load
+          localStorage.setItem('unreadCount', data.data.count.toString());
+          localStorage.setItem('unreadCountTime', Date.now().toString());
         }
       }
     } catch (error) {
       console.error('Error loading unread count:', error);
+      // Try to load from cache if API fails
+      const cached = localStorage.getItem('unreadCount');
+      const cacheTime = localStorage.getItem('unreadCountTime');
+      if (cached && cacheTime) {
+        const age = Date.now() - parseInt(cacheTime);
+        // Use cache if less than 5 minutes old
+        if (age < 5 * 60 * 1000) {
+          setUnreadCount(parseInt(cached));
+        }
+      }
     }
   };
 
@@ -354,53 +466,60 @@ export default function OfficerNav() {
     };
   };
 
-  interface MenuItem {
-    name: string;
-    href?: string;
-    icon: string;
-    isDropdown?: boolean;
-    children?: { name: string; href: string; icon: string }[];
-  }
+  const getMenuItems = (): MenuItem[] => {
+    const items: MenuItem[] = [
+      { name: 'Trang chủ', href: '/officer/dashboard', icon: Home },
+      // Dropdown "Hoạt động"
+      {
+        name: 'Hoạt động',
+        icon: Target,
+        isDropdown: true,
+        children: [
+          { name: 'Quản lý hoạt động', href: '/officer/activities', icon: Target },
+          { name: 'Điểm danh', href: '/officer/attendance', icon: CheckCircle2 },
+          { name: 'Báo cáo', href: '/officer/reports', icon: BarChart3 },
+        ]
+      },
+      // Dropdown "Người dùng"
+      {
+        name: 'Người dùng',
+        icon: Users,
+        isDropdown: true,
+        children: [
+          { name: 'Quản lý người tham gia', href: '/officer/participants', icon: Users },
+          { name: 'Danh sách sinh viên', href: '/officer/students', icon: Users },
+        ]
+      },
+    ];
 
-  const menuItems: MenuItem[] = [
-    { name: 'Dashboard', href: '/officer/dashboard', icon: '🏠' },
-    { name: 'Quản lý hoạt động', href: '/officer/activities', icon: '🎯' },
-    { name: 'Quản lý người tham gia', href: '/officer/participants', icon: '👥' },
-    { name: 'Danh sách sinh viên', href: '/officer/students', icon: '👥' },
-    { name: 'Điểm danh', href: '/officer/attendance', icon: '✅' },
-    { name: 'Báo cáo', href: '/officer/reports', icon: '📊' },
-    { name: 'Thông báo', href: '/officer/notifications', icon: '📢' },
-  ];
+    // Thêm dropdown CLB nếu có thông tin bị xóa/duyệt lại
+    if (isRemovedStatus(membershipStatus)) {
+      const clubChildren: NonNullable<MenuItem['children']> = [];
 
-  // Add CLB dropdown menu item if user has removal/restoration info
-  if (membershipStatus === 'REMOVED' || membershipStatus === 'removed' || restorationInfo) {
-    const clubMenuItem: MenuItem = {
-      name: 'CLB',
-      icon: '🏛️',
-      isDropdown: true,
-      children: []
-    };
-
-    if (membershipStatus === 'REMOVED' || membershipStatus === 'removed') {
       if (restorationInfo && restorationInfo.restoredAt) {
-        // User has been restored
-        clubMenuItem.children!.push({
+        clubChildren.push({
           name: 'Thông tin duyệt lại',
           href: '/officer/removal-info',
-          icon: '✅'
+          icon: CheckCircle2
         });
       } else {
-        // User is removed but not restored
-        clubMenuItem.children!.push({
+        clubChildren.push({
           name: 'Thông tin bị xóa & Đăng ký lại',
           href: '/officer/removal-info',
-          icon: '❌'
+          icon: XCircle
         });
       }
+
+      items.push({
+        name: 'CLB',
+        icon: Building2,
+        isDropdown: true,
+        children: clubChildren
+      });
     }
 
-    menuItems.push(clubMenuItem);
-  }
+    return items;
+  };
 
 
 
@@ -408,13 +527,11 @@ export default function OfficerNav() {
     <>
       {/* Restoration Notification Banner */}
       {restorationInfo && restorationInfo.restoredAt && membershipStatus === 'ACTIVE' && showRestorationBanner && (
-        <div className={`${isDarkMode ? 'bg-green-900/90 border-green-700' : 'bg-green-50 border-green-200'} border-b px-4 py-3 shadow-sm`}>
+        <div className={`${isDarkMode ? 'bg-green-900/90 border-green-700' : 'bg-green-50 border-green-200'} border-b px-4 py-2.5 shadow-sm`}>
           <div className="max-w-7xl mx-auto flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className={`p-2 rounded-full ${isDarkMode ? 'bg-green-800 text-green-300' : 'bg-green-100 text-green-600'}`}>
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+            <div className="flex items-center space-x-2.5">
+              <div className={`p-1.5 rounded-full ${isDarkMode ? 'bg-green-800 text-green-300' : 'bg-green-100 text-green-600'}`}>
+                <CheckCircle className="h-4 w-4" strokeWidth={2} />
               </div>
               <div>
                 <p className={`text-sm font-medium ${isDarkMode ? 'text-green-200' : 'text-green-800'}`}>
@@ -429,45 +546,30 @@ export default function OfficerNav() {
             <div className="flex items-center space-x-2">
               <a
                                  href="/officer/removal-info"
-                className={`px-4 py-2 text-xs font-medium rounded-lg transition-all duration-200 ${isDarkMode ? 'bg-green-800 text-green-200 hover:bg-green-700' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 ${isDarkMode ? 'bg-green-800 text-green-200 hover:bg-green-700' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
               >
                 Xem chi tiết
               </a>
               <button
                 onClick={() => setShowRestorationBanner(false)}
-                className={`p-2 text-xs font-medium rounded-lg transition-all duration-200 ${isDarkMode ? 'text-green-300 hover:text-green-200 hover:bg-green-800' : 'text-green-600 hover:text-green-700 hover:bg-green-200'}`}
+                className={`p-1.5 text-xs font-medium rounded-lg transition-all duration-200 ${isDarkMode ? 'text-green-300 hover:text-green-200 hover:bg-green-800' : 'text-green-600 hover:text-green-700 hover:bg-green-200'}`}
                 title="Đóng thông báo"
               >
-                ✕
+                <X className="h-3.5 w-3.5" strokeWidth={2} />
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Loading Indicator */}
-      {loading && (
-        <div className={`${isDarkMode ? 'bg-blue-900/90 border-blue-700' : 'bg-blue-50 border-blue-200'} border-b px-4 py-2 shadow-sm`}>
-          <div className="max-w-7xl mx-auto flex items-center justify-center">
-            <div className="flex items-center space-x-2">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-              <span className={`text-sm ${isDarkMode ? 'text-blue-200' : 'text-blue-700'}`}>
-                Đang kiểm tra trạng thái tài khoản...
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Removal Notification Banner */}
-      {(membershipStatus === 'REMOVED' || membershipStatus === 'removed') && (
-        <div className={`${isDarkMode ? 'bg-red-900/90 border-red-700' : 'bg-red-50 border-red-200'} border-b px-4 py-3 shadow-sm`}>
+      {isRemovedStatus(membershipStatus) && (
+        <div className={`${isDarkMode ? 'bg-red-900/90 border-red-700' : 'bg-red-50 border-red-200'} border-b px-4 py-2.5 shadow-sm`}>
           <div className="max-w-7xl mx-auto flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className={`p-2 rounded-full ${isDarkMode ? 'bg-red-800 text-red-300' : 'bg-red-100 text-red-600'}`}>
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                </svg>
+            <div className="flex items-center space-x-2.5">
+              <div className={`p-1.5 rounded-full ${isDarkMode ? 'bg-red-800 text-red-300' : 'bg-red-100 text-red-600'}`}>
+                <AlertTriangle className="h-4 w-4" strokeWidth={2} />
               </div>
               <div>
                 <p className={`text-sm font-medium ${isDarkMode ? 'text-red-200' : 'text-red-800'}`}>
@@ -481,7 +583,7 @@ export default function OfficerNav() {
             <div className="flex items-center space-x-2">
               <a
                 href="/auth/login"
-                className={`px-4 py-2 text-xs font-medium rounded-lg transition-all duration-200 ${isDarkMode ? 'bg-red-800 text-red-200 hover:bg-red-700' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 ${isDarkMode ? 'bg-red-800 text-red-200 hover:bg-red-700' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}
               >
                 Đăng xuất
               </a>
@@ -492,22 +594,22 @@ export default function OfficerNav() {
 
       <nav className={`${isDarkMode 
         ? 'bg-gray-900/95 backdrop-blur-md text-white border-gray-800' 
-        : 'bg-white/90 backdrop-blur-md text-gray-900 border-gray-200'} shadow-sm border-b sticky top-0 z-50 transition-all duration-200 ${(membershipStatus === 'REMOVED' || membershipStatus === 'removed') ? 'opacity-50 pointer-events-none' : ''}`}>
+        : 'bg-white/90 backdrop-blur-md text-gray-900 border-gray-200'} shadow-sm border-b sticky top-0 z-50 transition-all duration-200 ${isRemovedStatus(membershipStatus) ? 'opacity-50 pointer-events-none' : ''}`}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-14">
           {/* Left side - Logo & Brand */}
           <div className="flex items-center">
-            <div className="flex items-center space-x-2.5">
-              <img 
-                src="/logo_clb_sv_5T.jpg" 
-                alt="CLB Sinh viên 5 Tốt TDMU" 
-                className="w-9 h-9 rounded-lg shadow-sm object-cover"
+            <div className="flex items-center space-x-3">
+              <img
+                src="/logo_clb_sv_5T.jpg"
+                alt="CLB Sinh viên 5 Tốt TDMU"
+                className="w-10 h-10 rounded-lg shadow-md object-cover ring-2 ring-blue-500/20"
               />
               <div className="flex flex-col">
-                <h1 className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                  Officer Panel
+                <h1 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  Bảng điều khiển cán bộ
                 </h1>
-                <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                   CLB Sinh viên 5 Tốt TDMU
                 </p>
               </div>
@@ -516,43 +618,80 @@ export default function OfficerNav() {
 
           {/* Center - Main Navigation */}
           <div className="hidden lg:flex items-center space-x-0.5">
-            {menuItems.map((item) => {
+            {getMenuItems().map((item) => {
               const isActive = pathname === item.href;
+              const IconComponent = item.icon;
               return (
                 <div key={item.name} className="relative">
                   {item.isDropdown ? (
-                    <div className="club-dropdown">
+                    <div className={`${
+                      item.name === 'Hoạt động' ? 'activities-dropdown' :
+                      item.name === 'Người dùng' ? 'users-dropdown' :
+                      'club-dropdown'
+                    }`}>
                       <button
-                        onClick={() => setShowClubDropdown(!showClubDropdown)}
-                        className={`${isDarkMode 
-                          ? `${isActive ? 'bg-gray-800 text-white' : 'text-gray-300 hover:text-white hover:bg-gray-800'}` 
-                          : `${isActive ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'}`} px-3 py-1.5 rounded-lg text-xs font-medium flex items-center transition-all duration-200`}
+                        onClick={() => {
+                          if (item.name === 'Hoạt động') {
+                            setShowActivitiesDropdown(!showActivitiesDropdown);
+                            setShowUsersDropdown(false);
+                            setShowClubDropdown(false);
+                          } else if (item.name === 'Người dùng') {
+                            setShowUsersDropdown(!showUsersDropdown);
+                            setShowActivitiesDropdown(false);
+                            setShowClubDropdown(false);
+                          } else if (item.name === 'CLB') {
+                            setShowClubDropdown(!showClubDropdown);
+                            setShowActivitiesDropdown(false);
+                            setShowUsersDropdown(false);
+                          }
+                        }}
+                        className={`${isDarkMode
+                          ? `${isActive ? 'bg-gray-800 text-white shadow-lg' : 'text-gray-300 hover:text-white hover:bg-gray-800 hover:shadow-md'}`
+                          : `${isActive ? 'bg-gray-100 text-gray-900 shadow-lg' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50 hover:shadow-md'}`} px-4 py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-300 relative`}
                       >
-                        <span className="mr-1.5 text-sm">{item.icon}</span>
+                        <div className="relative">
+                          <IconComponent className="mr-1.5 h-3.5 w-3.5" strokeWidth={2} />
+                          {item.name === 'Người dùng' && pendingParticipantsCount > 0 && (
+                            <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-bold rounded-full h-4 w-4 flex items-center justify-center border border-white dark:border-gray-800">
+                              {pendingParticipantsCount > 9 ? '9+' : pendingParticipantsCount}
+                            </span>
+                          )}
+                        </div>
                         <span>{item.name}</span>
-                        <svg className={`ml-1.5 h-3 w-3 transition-transform duration-200 ${showClubDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
+                        <ChevronDown className={`ml-1.5 h-3 w-3 transition-transform duration-200 ${
+                          (item.name === 'Hoạt động' && showActivitiesDropdown) ||
+                          (item.name === 'Người dùng' && showUsersDropdown) ||
+                          (item.name === 'CLB' && showClubDropdown) ? 'rotate-180' : ''
+                        }`} strokeWidth={2} />
                       </button>
 
-                      {showClubDropdown && (
-                        <div className={`absolute top-full left-0 mt-1 w-64 ${isDarkMode 
-                          ? 'bg-gray-800 border-gray-700' 
-                          : 'bg-white border-gray-200'} rounded-lg shadow-lg border z-50`}>
+                      {((item.name === 'Hoạt động' && showActivitiesDropdown) ||
+                        (item.name === 'Người dùng' && showUsersDropdown) ||
+                        (item.name === 'CLB' && showClubDropdown)) && (
+                        <div className={`absolute top-full left-0 mt-2 w-72 ${isDarkMode
+                          ? 'bg-gray-800/95 backdrop-blur-md border-gray-700 shadow-2xl'
+                          : 'bg-white/95 backdrop-blur-md border-gray-200 shadow-2xl'} rounded-xl border z-50`}>
                           <div className="py-1">
-                            {item.children?.map((child, index) => (
-                              <a
-                                key={index}
-                                href={child.href}
-                                className={`${isDarkMode 
-                                  ? 'text-gray-300 hover:text-white hover:bg-gray-700' 
-                                  : 'text-gray-700 hover:text-gray-900 hover:bg-gray-50'} flex items-center px-4 py-2 text-sm transition-colors duration-200`}
-                                onClick={() => setShowClubDropdown(false)}
-                              >
-                                <span className="mr-3 text-base">{child.icon}</span>
-                                <span>{child.name}</span>
-                              </a>
-                            ))}
+                            {item.children?.map((child, index) => {
+                              const ChildIcon = child.icon;
+                              return (
+                                <a
+                                  key={index}
+                                  href={child.href}
+                                  className={`${isDarkMode
+                                    ? 'text-gray-300 hover:text-white hover:bg-gray-700 hover:scale-105'
+                                    : 'text-gray-700 hover:text-gray-900 hover:bg-gray-50 hover:scale-105'} flex items-center px-5 py-3 text-sm font-medium transition-all duration-200 hover:translate-x-1`}
+                                  onClick={() => {
+                                    setShowActivitiesDropdown(false);
+                                    setShowUsersDropdown(false);
+                                    setShowClubDropdown(false);
+                                  }}
+                                >
+                                  <ChildIcon className="mr-4 h-5 w-5" strokeWidth={2} />
+                                  <span>{child.name}</span>
+                                </a>
+                              );
+                            })}
                           </div>
                         </div>
                       )}
@@ -560,11 +699,11 @@ export default function OfficerNav() {
                   ) : (
                     <a
                       href={item.href}
-                      className={`${isDarkMode 
-                        ? `${isActive ? 'bg-gray-800 text-white' : 'text-gray-300 hover:text-white hover:bg-gray-800'}` 
-                        : `${isActive ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'}`} px-3 py-1.5 rounded-lg text-xs font-medium flex items-center transition-all duration-200`}
+                      className={`${isDarkMode
+                        ? `${isActive ? 'bg-gray-800 text-white shadow-lg' : 'text-gray-300 hover:text-white hover:bg-gray-800 hover:shadow-md'}`
+                        : `${isActive ? 'bg-gray-100 text-gray-900 shadow-lg' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50 hover:shadow-md'}`} px-4 py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-300`}
                     >
-                      <span className="mr-1.5 text-sm">{item.icon}</span>
+                      <IconComponent className="mr-2 h-4 w-4" strokeWidth={2} />
                       <span>{item.name}</span>
                     </a>
                   )}
@@ -584,13 +723,9 @@ export default function OfficerNav() {
               title={isDarkMode ? 'Chuyển sang chế độ sáng' : 'Chuyển sang chế độ tối'}
             >
               {isDarkMode ? (
-                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" />
-                </svg>
+                <Sun className="h-4 w-4" strokeWidth={2} />
               ) : (
-                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
-                </svg>
+                <Moon className="h-4 w-4" strokeWidth={2} />
               )}
             </button>
 
@@ -603,9 +738,7 @@ export default function OfficerNav() {
                   : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'} p-1.5 relative transition-colors duration-200 rounded-lg`}
                 title="Thông báo"
               >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                </svg>
+                <Bell className="h-4 w-4" strokeWidth={2} />
                 {unreadCount > 0 && (
                   <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] rounded-full h-4 w-4 flex items-center justify-center font-semibold">
                     {unreadCount}
@@ -614,15 +747,13 @@ export default function OfficerNav() {
               </button>
 
               {showNotificationDropdown && (
-                <div className={`absolute right-0 mt-3 w-96 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg shadow-xl py-0 z-50 border max-h-[500px] overflow-hidden`}>
+                <div className={`absolute right-0 mt-4 w-[420px] ${isDarkMode ? 'bg-gray-800/95 backdrop-blur-md border-gray-700 shadow-2xl' : 'bg-white/95 backdrop-blur-md border-gray-200 shadow-2xl'} rounded-xl py-0 z-50 border max-h-[550px] overflow-hidden`}>
                   {/* Header */}
                   <div className={`px-6 py-4 border-b ${isDarkMode ? 'border-gray-600 bg-gray-800/50' : 'border-gray-100 bg-gray-50/50'}`}>
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-600'}`}>
-                          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                          </svg>
+                      <div className="flex items-center space-x-2.5">
+                        <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-600'}`}>
+                          <Bell className="h-4 w-4" strokeWidth={2} />
                         </div>
                         <div>
                           <h3 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
@@ -647,83 +778,90 @@ export default function OfficerNav() {
                   {/* Notifications List */}
                   <div className="overflow-y-auto max-h-[350px]">
                     {notifications.length === 0 ? (
-                      <div className={`px-6 py-12 text-center ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                        <div className={`w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
-                          <svg className="h-8 w-8 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                          </svg>
+                      <div className={`px-6 py-10 text-center ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                        <div className={`w-12 h-12 mx-auto mb-3 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                          <Bell className="h-6 w-6 opacity-50" strokeWidth={2} />
                         </div>
                         <p className="text-sm font-medium mb-1">Không có thông báo mới</p>
                         <p className="text-xs opacity-75">Tất cả thông báo đã được đọc</p>
                       </div>
                     ) : (
                       <div className="py-2">
-                        {notifications.map((notification, index) => (
-                          <div
-                            key={notification.id}
-                            className={`mx-3 mb-2 rounded-xl p-4 cursor-pointer transition-all duration-200 hover:scale-[1.02] ${!notification.isRead ? (isDarkMode ? 'bg-blue-500/10 border border-blue-500/20' : 'bg-blue-50 border border-blue-100') : (isDarkMode ? 'bg-gray-700/30 hover:bg-gray-700/50' : 'bg-gray-50 hover:bg-gray-100')}`}
-                            onClick={() => markAsRead(notification.id)}
-                          >
-                            <div className="flex items-start space-x-3">
-                              {/* Status indicator */}
-                              <div className={`flex-shrink-0 w-3 h-3 rounded-full mt-1.5 ${notification.isRead ? (isDarkMode ? 'bg-gray-500' : 'bg-gray-300') : 'bg-blue-500 animate-pulse'}`}></div>
-                              
-                              {/* Content */}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-start justify-between">
-                                  <p className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'} ${!notification.isRead ? 'font-bold' : ''} line-clamp-1`}>
-                                    {notification.title}
-                                  </p>
-                                  <span className={`text-xs px-2 py-1 rounded-full ${notification.type === 'success' ? (isDarkMode ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-700') : (isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-700')}`}>
-                                    {notification.type === 'success' ? 'Thành công' : 'Thông tin'}
-                                  </span>
-                                </div>
-                                <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} mt-2 line-clamp-2 leading-relaxed`}>
-                                  {notification.message}
-                                </p>
-                                <div className="flex items-center justify-between mt-3">
-                                  <div className="flex items-center gap-3 flex-wrap">
-                                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} flex items-center`}>
-                                      <svg className="h-3 w-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                      </svg>
-                                      {notification.createdAt.toLocaleString('vi-VN', { 
-                                        hour: '2-digit', 
-                                        minute: '2-digit',
-                                        day: '2-digit',
-                                        month: '2-digit',
-                                        year: 'numeric'
-                                      })}
+                        {notifications.map((notification, index) => {
+                          const isClickable = notification.relatedType === 'activity' && notification.relatedId;
+                          return (
+                            <div
+                              key={notification.id}
+                              className={`mx-3 mb-2 rounded-xl p-4 transition-all duration-200 ${isClickable ? 'cursor-pointer hover:scale-[1.02]' : 'cursor-default'} ${!notification.isRead ? (isDarkMode ? 'bg-blue-500/10 border border-blue-500/20' : 'bg-blue-50 border border-blue-100') : (isDarkMode ? 'bg-gray-700/30 hover:bg-gray-700/50' : 'bg-gray-50 hover:bg-gray-100')}`}
+                              onClick={() => {
+                                markAsRead(notification.id);
+                                // Navigate to activity participants page if related to activity
+                                if (notification.relatedType === 'activity' && notification.relatedId) {
+                                  // Convert relatedId to string if it's an object
+                                  const activityId = typeof notification.relatedId === 'string' 
+                                    ? notification.relatedId 
+                                    : notification.relatedId.toString();
+                                  router.push(`/officer/activities/${activityId}/participants`);
+                                  setShowNotificationDropdown(false);
+                                }
+                              }}
+                              title={isClickable ? 'Nhấn để xem chi tiết và duyệt thành viên' : undefined}
+                            >
+                              <div className="flex items-start space-x-3">
+                                {/* Status indicator */}
+                                <div className={`flex-shrink-0 w-3 h-3 rounded-full mt-1.5 ${notification.isRead ? (isDarkMode ? 'bg-gray-500' : 'bg-gray-300') : 'bg-blue-500 animate-pulse'}`}></div>
+                                
+                                {/* Content */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-start justify-between">
+                                    <p className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'} ${!notification.isRead ? 'font-bold' : ''} line-clamp-1`}>
+                                      {notification.title}
                                     </p>
-                                    {notification.createdBy ? (
+                                    <span className={`text-xs px-2 py-1 rounded-full ${notification.type === 'success' ? (isDarkMode ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-700') : (isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-700')}`}>
+                                      {notification.type === 'success' ? 'Thành công' : 'Thông tin'}
+                                    </span>
+                                  </div>
+                                  <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} mt-2 line-clamp-2 leading-relaxed`}>
+                                    {notification.message}
+                                  </p>
+                                  <div className="flex items-center justify-between mt-3">
+                                    <div className="flex items-center gap-3 flex-wrap">
                                       <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} flex items-center`}>
-                                        <svg className="h-3 w-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                        </svg>
-                                        {notification.createdBy.name}
-                                        {notification.createdBy.studentId && (
-                                          <span className="ml-1 opacity-75">({notification.createdBy.studentId})</span>
-                                        )}
+                                        <Clock className="h-2.5 w-2.5 mr-1 flex-shrink-0" strokeWidth={2} />
+                                        {notification.createdAt.toLocaleString('vi-VN', { 
+                                          hour: '2-digit', 
+                                          minute: '2-digit',
+                                          day: '2-digit',
+                                          month: '2-digit',
+                                          year: 'numeric'
+                                        })}
                                       </p>
-                                    ) : (
-                                      <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} flex items-center`}>
-                                        <svg className="h-3 w-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                        </svg>
-                                        Hệ thống
-                                      </p>
+                                      {notification.createdBy ? (
+                                        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} flex items-center`}>
+                                          <User className="h-2.5 w-2.5 mr-1 flex-shrink-0" strokeWidth={2} />
+                                          {notification.createdBy.name}
+                                          {notification.createdBy.studentId && (
+                                            <span className="ml-1 opacity-75">({notification.createdBy.studentId})</span>
+                                          )}
+                                        </p>
+                                      ) : (
+                                        <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} flex items-center`}>
+                                          <Info className="h-2.5 w-2.5 mr-1 flex-shrink-0" strokeWidth={2} />
+                                          Hệ thống
+                                        </p>
+                                      )}
+                                    </div>
+                                    {!notification.isRead && (
+                                      <span className="text-xs px-2 py-1 rounded-full bg-blue-500 text-white font-medium">
+                                        Mới
+                                      </span>
                                     )}
                                   </div>
-                                  {!notification.isRead && (
-                                    <span className="text-xs px-2 py-1 rounded-full bg-blue-500 text-white font-medium">
-                                      Mới
-                                    </span>
-                                  )}
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -736,9 +874,7 @@ export default function OfficerNav() {
                         className={`flex items-center justify-center w-full py-2 text-sm font-medium rounded-lg transition-all duration-200 ${isDarkMode ? 'text-blue-400 hover:text-blue-300 hover:bg-blue-500/20' : 'text-blue-600 hover:text-blue-700 hover:bg-blue-50'}`}
                       >
                         <span>Xem tất cả thông báo</span>
-                        <svg className="h-4 w-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
+                        <ArrowRight className="h-4 w-4 ml-2" strokeWidth={2} />
                       </a>
                     </div>
                   )}
@@ -778,13 +914,11 @@ export default function OfficerNav() {
                     {getRoleDisplay(user?.role).name}
                   </p>
                 </div>
-                <svg className={`h-3 w-3 transition-transform duration-200 ${showProfileDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+                <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${showProfileDropdown ? 'rotate-180' : ''}`} strokeWidth={2} />
               </button>
 
               {showProfileDropdown && (
-                <div className={`absolute right-0 mt-3 w-72 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg shadow-xl py-0 z-50 border`}>
+                <div className={`absolute right-0 mt-4 w-80 ${isDarkMode ? 'bg-gray-800/95 backdrop-blur-md border-gray-700 shadow-2xl' : 'bg-white/95 backdrop-blur-md border-gray-200 shadow-2xl'} rounded-xl py-0 z-50 border`}>
                   {/* Header */}
                   <div className={`px-6 py-4 border-b ${isDarkMode ? 'border-gray-600 bg-gray-800/50' : 'border-gray-100 bg-gray-50/50'}`}>
                     <div className="flex items-center space-x-4">
@@ -830,37 +964,28 @@ export default function OfficerNav() {
                       href="/officer/profile" 
                       className={`flex items-center px-6 py-3 text-sm transition-all duration-200 hover:scale-[1.02] ${isDarkMode ? 'text-gray-300 hover:bg-gray-700/50 hover:text-white' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'}`}
                     >
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center mr-3 ${isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-600'}`}>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                        </svg>
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center mr-3 ${isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-600'}`}>
+                        <User className="w-3.5 h-3.5" strokeWidth={2} />
                       </div>
                       <div className="flex-1">
                         <p className="font-medium">Hồ sơ cá nhân</p>
                         <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Quản lý thông tin cá nhân</p>
                       </div>
-                      <svg className="w-4 h-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
+                      <ArrowRight className="w-3.5 h-3.5 opacity-50" strokeWidth={2} />
                     </a>
                     
                     <a 
                       href="/officer/settings" 
                       className={`flex items-center px-6 py-3 text-sm transition-all duration-200 hover:scale-[1.02] ${isDarkMode ? 'text-gray-300 hover:bg-gray-700/50 hover:text-white' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'}`}
                     >
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center mr-3 ${isDarkMode ? 'bg-gray-500/20 text-gray-400' : 'bg-gray-100 text-gray-600'}`}>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center mr-3 ${isDarkMode ? 'bg-gray-500/20 text-gray-400' : 'bg-gray-100 text-gray-600'}`}>
+                        <Settings className="w-3.5 h-3.5" strokeWidth={2} />
                       </div>
                       <div className="flex-1">
                         <p className="font-medium">Cài đặt</p>
                         <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Tùy chỉnh tài khoản</p>
                       </div>
-                      <svg className="w-4 h-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
+                      <ArrowRight className="w-3.5 h-3.5 opacity-50" strokeWidth={2} />
                     </a>
                   </div>
                   
@@ -870,9 +995,7 @@ export default function OfficerNav() {
                       href="/auth/login"
                       className={`flex items-center justify-center w-full py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${isDarkMode ? 'text-red-400 hover:text-red-300 hover:bg-red-500/20' : 'text-red-600 hover:text-red-700 hover:bg-red-50'}`}
                     >
-                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                      </svg>
+                      <LogOut className="w-3.5 h-3.5 mr-2" strokeWidth={2} />
                       <span>Đăng xuất</span>
                     </a>
                   </div>
@@ -888,9 +1011,7 @@ export default function OfficerNav() {
                 onClick={() => setIsMenuOpen(!isMenuOpen)}
                 className={`${isDarkMode ? 'text-gray-300 hover:text-white hover:bg-gray-800' : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'} p-2 rounded-md transition-all duration-200`}
               >
-                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
+                <Menu className="h-6 w-6" strokeWidth={2} />
               </button>
             </div>
           </div>
@@ -900,54 +1021,91 @@ export default function OfficerNav() {
         {isMenuOpen && (
           <div className="lg:hidden">
             <div className={`px-4 pt-2 pb-4 space-y-1 border-t ${isDarkMode ? 'border-gray-600 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}>
-              {menuItems.map((item) => (
-                <div key={item.name}>
-                  {item.isDropdown ? (
-                    <div className="club-dropdown">
-                      <button
-                        onClick={() => setShowMobileClubDropdown(!showMobileClubDropdown)}
-                        className={`${isDarkMode ? 'text-gray-300 hover:text-white hover:bg-gray-700' : 'text-gray-700 hover:text-gray-900 hover:bg-white'} w-full px-3 py-2 rounded-md text-base font-medium flex items-center justify-between transition-all duration-200`}
-                      >
-                        <div className="flex items-center">
-                          <span className="mr-3 text-lg">{item.icon}</span>
-                          <span className="flex-1">{item.name}</span>
-                        </div>
-                        <svg className={`h-4 w-4 transition-transform duration-200 ${showMobileClubDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </button>
+              {getMenuItems().map((item) => {
+                const IconComponent = item.icon;
+                return (
+                  <div key={item.name}>
+                    {item.isDropdown ? (
+                      <div className={`${
+                        item.name === 'Hoạt động' ? 'activities-dropdown' :
+                        item.name === 'Người dùng' ? 'users-dropdown' :
+                        'club-dropdown'
+                      }`}>
+                        <button
+                          onClick={() => {
+                            if (item.name === 'Hoạt động') {
+                              setShowMobileActivitiesDropdown(!showMobileActivitiesDropdown);
+                              setShowMobileUsersDropdown(false);
+                              setShowMobileClubDropdown(false);
+                            } else if (item.name === 'Người dùng') {
+                              setShowMobileUsersDropdown(!showMobileUsersDropdown);
+                              setShowMobileActivitiesDropdown(false);
+                              setShowMobileClubDropdown(false);
+                            } else if (item.name === 'CLB') {
+                              setShowMobileClubDropdown(!showMobileClubDropdown);
+                              setShowMobileActivitiesDropdown(false);
+                              setShowMobileUsersDropdown(false);
+                            }
+                          }}
+                          className={`${isDarkMode ? 'text-gray-300 hover:text-white hover:bg-gray-700 hover:shadow-md' : 'text-gray-700 hover:text-gray-900 hover:bg-white hover:shadow-md'} w-full px-4 py-3 rounded-lg text-base font-medium flex items-center justify-between transition-all duration-300`}
+                        >
+                          <div className="flex items-center">
+                            <div className="relative mr-3">
+                              <IconComponent className="h-5 w-5" strokeWidth={2} />
+                              {item.name === 'Người dùng' && pendingParticipantsCount > 0 && (
+                                <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-bold rounded-full h-4 w-4 flex items-center justify-center border border-white dark:border-gray-800">
+                                  {pendingParticipantsCount > 9 ? '9+' : pendingParticipantsCount}
+                                </span>
+                              )}
+                            </div>
+                            <span className="flex-1">{item.name}</span>
+                          </div>
+                          <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${
+                            (item.name === 'Hoạt động' && showMobileActivitiesDropdown) ||
+                            (item.name === 'Người dùng' && showMobileUsersDropdown) ||
+                            (item.name === 'CLB' && showMobileClubDropdown) ? 'rotate-180' : ''
+                          }`} strokeWidth={2} />
+                        </button>
 
-                      {showMobileClubDropdown && (
-                        <div className={`ml-6 mt-1 space-y-1 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'} rounded-md p-2`}>
-                          {item.children?.map((child, index) => (
-                            <a
-                              key={index}
-                              href={child.href}
-                              className={`${isDarkMode ? 'text-gray-300 hover:text-white hover:bg-gray-600' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'} block px-3 py-2 rounded-md text-sm font-medium flex items-center transition-all duration-200`}
-                              onClick={() => {
-                                setIsMenuOpen(false);
-                                setShowMobileClubDropdown(false);
-                              }}
-                            >
-                              <span className="mr-3 text-base">{child.icon}</span>
-                              <span>{child.name}</span>
-                            </a>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <a
-                      href={item.href}
-                      className={`${isDarkMode ? 'text-gray-300 hover:text-white hover:bg-gray-700' : 'text-gray-700 hover:text-gray-900 hover:bg-white'} block px-3 py-2 rounded-md text-base font-medium flex items-center transition-all duration-200`}
-                      onClick={() => setIsMenuOpen(false)}
-                    >
-                      <span className="mr-3 text-lg">{item.icon}</span>
-                      <span className="flex-1">{item.name}</span>
-                    </a>
-                  )}
-                </div>
-              ))}
+                        {((item.name === 'Hoạt động' && showMobileActivitiesDropdown) ||
+                          (item.name === 'Người dùng' && showMobileUsersDropdown) ||
+                          (item.name === 'CLB' && showMobileClubDropdown)) && (
+                          <div className={`ml-8 mt-2 space-y-1 ${isDarkMode ? 'bg-gray-700/80' : 'bg-gray-100/80'} rounded-lg p-3 backdrop-blur-sm`}>
+                            {item.children?.map((child, index) => {
+                              const ChildIcon = child.icon;
+                              return (
+                                <a
+                                  key={index}
+                                  href={child.href}
+                                  className={`${isDarkMode ? 'text-gray-300 hover:text-white hover:bg-gray-600 hover:shadow-md hover:scale-105' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 hover:shadow-md hover:scale-105'} block px-4 py-3 rounded-lg text-sm font-medium flex items-center transition-all duration-300 hover:translate-x-2`}
+                                  onClick={() => {
+                                    setIsMenuOpen(false);
+                                    setShowMobileActivitiesDropdown(false);
+                                    setShowMobileUsersDropdown(false);
+                                    setShowMobileClubDropdown(false);
+                                  }}
+                                >
+                                  <ChildIcon className="mr-3 h-4 w-4" strokeWidth={2} />
+                                  <span>{child.name}</span>
+                                </a>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <a
+                        href={item.href}
+                        className={`${isDarkMode ? 'text-gray-300 hover:text-white hover:bg-gray-700 hover:shadow-md hover:scale-105' : 'text-gray-700 hover:text-gray-900 hover:bg-white hover:shadow-md hover:scale-105'} block px-4 py-3 rounded-lg text-base font-medium flex items-center transition-all duration-300 hover:translate-x-1`}
+                        onClick={() => setIsMenuOpen(false)}
+                      >
+                        <IconComponent className="mr-3 h-5 w-5" strokeWidth={2} />
+                        <span className="flex-1">{item.name}</span>
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

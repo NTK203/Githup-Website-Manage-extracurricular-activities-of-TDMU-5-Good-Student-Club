@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useAuth } from '@/hooks/useAuth';
 import AdminNav from '@/components/admin/AdminNav';
 import Footer from '@/components/common/Footer';
@@ -11,6 +12,27 @@ import UserDetailModal from './components/UserDetailModal';
 import UserEditModal from './components/UserEditModal';
 import UserDeleteModal from './components/UserDeleteModal';
 import PaginationBar from '@/components/common/PaginationBar';
+import {
+  Users,
+  Search,
+  Filter,
+  Building,
+  UserCheck,
+  CheckCircle2,
+  ChevronDown,
+  Plus,
+  Download,
+  Eye,
+  Edit,
+  Trash2,
+  UserCog,
+  GraduationCap,
+  ArrowUpDown,
+  Crown,
+  Phone,
+  School,
+  Calendar
+} from 'lucide-react';
 
 interface User {
   _id: string;
@@ -425,6 +447,15 @@ export default function UsersPage() {
     return new Date(dateString).toLocaleDateString('vi-VN');
   };
 
+  const getInitials = (name: string) => {
+    if (!name) return 'U';
+    const words = name.trim().split(/\s+/);
+    if (words.length === 0) return 'U';
+    // Lấy chữ cái đầu của từ cuối cùng
+    const lastWord = words[words.length - 1];
+    return lastWord.charAt(0).toUpperCase();
+  };
+
   return (
     <ProtectedRoute requiredRole="CLUB_LEADER">
       <div 
@@ -444,122 +475,130 @@ export default function UsersPage() {
           }}
         >
           {/* Header */}
-          <div className="mb-10">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-4">
-                <div className={`p-3 rounded-2xl ${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} shadow-lg`}>
-                  <svg className={`w-8 h-8 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-                  </svg>
-                </div>
-                <div>
-                  <h1 className={`text-4xl font-bold bg-gradient-to-r ${isDarkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent transition-colors duration-200`}>
-                    Quản lý Users
-                  </h1>
-                  <p className={`mt-2 text-lg transition-colors duration-200 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                    Quản lý tất cả users trong hệ thống (bao gồm cả thành viên và không thành viên CLB)
-                  </p>
-                </div>
+          <div className="mb-4">
+            <div className="flex items-center space-x-2">
+              <div className={`p-1.5 rounded-md ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'}`}>
+                <Users className={`w-5 h-5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} strokeWidth={2} />
+              </div>
+              <div>
+                <h1 className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  Quản lý Users
+                </h1>
+                <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Quản lý tất cả users trong hệ thống
+                </p>
               </div>
             </div>
           </div>
 
           {/* Stats Cards */}
-         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-10">
-           <div className={`${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} rounded-2xl shadow-xl border ${isDarkMode ? 'border-gray-700/50' : 'border-white/20'} p-6 hover:scale-105 transition-all duration-300`}>
+         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+           <div className={`${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} rounded-lg shadow-sm border ${isDarkMode ? 'border-gray-700/50' : 'border-white/20'} p-3 transition-all duration-200`}>
              <div className="flex items-center justify-between">
-               <div>
-                 <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} mb-1`}>Tổng Users</p>
-                 <p className={`text-3xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+               <div className="flex-1 min-w-0">
+                 <p className={`text-[10px] font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} mb-0.5 truncate`}>Tổng Users</p>
+                 <p className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                    {totalStats.totalUsers}
                  </p>
                </div>
-               <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'} shadow-lg`}>
-                 <svg className={`w-8 h-8 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-                 </svg>
+               <div className={`p-1.5 rounded-md ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'} flex-shrink-0 ml-2`}>
+                 <Users className={`w-4 h-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} strokeWidth={2} />
                </div>
              </div>
            </div>
 
-           <div className={`${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} rounded-2xl shadow-xl border ${isDarkMode ? 'border-gray-700/50' : 'border-white/20'} p-6 hover:scale-105 transition-all duration-300`}>
+           <div className={`${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} rounded-lg shadow-sm border ${isDarkMode ? 'border-gray-700/50' : 'border-white/20'} p-3 transition-all duration-200`}>
              <div className="flex items-center justify-between">
-               <div>
-                 <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} mb-1`}>Thành viên CLB</p>
-                 <p className={`text-3xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+               <div className="flex-1 min-w-0">
+                 <p className={`text-[10px] font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} mb-0.5 truncate`}>Thành viên CLB</p>
+                 <p className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                    {totalStats.totalClubMembers}
                  </p>
                </div>
-               <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-purple-500/20' : 'bg-purple-100'} shadow-lg`}>
-                 <svg className={`w-8 h-8 ${isDarkMode ? 'text-purple-400' : 'text-purple-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                 </svg>
+               <div className={`p-1.5 rounded-md ${isDarkMode ? 'bg-purple-500/20' : 'bg-purple-100'} flex-shrink-0 ml-2`}>
+                 <UserCheck className={`w-4 h-4 ${isDarkMode ? 'text-purple-400' : 'text-purple-600'}`} strokeWidth={2} />
                </div>
              </div>
            </div>
 
-           <div className={`${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} rounded-2xl shadow-xl border ${isDarkMode ? 'border-gray-700/50' : 'border-white/20'} p-6 hover:scale-105 transition-all duration-300`}>
+           <div className={`${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} rounded-lg shadow-sm border ${isDarkMode ? 'border-gray-700/50' : 'border-white/20'} p-3 transition-all duration-200`}>
              <div className="flex items-center justify-between">
-               <div>
-                 <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} mb-1`}>Không phải CLB</p>
-                 <p className={`text-3xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+               <div className="flex-1 min-w-0">
+                 <p className={`text-[10px] font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} mb-0.5 truncate`}>Không phải CLB</p>
+                 <p className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                    {totalStats.totalNonClubMembers}
                  </p>
                </div>
-               <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-gray-500/20' : 'bg-gray-100'} shadow-lg`}>
-                 <svg className={`w-8 h-8 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                 </svg>
+               <div className={`p-1.5 rounded-md ${isDarkMode ? 'bg-gray-500/20' : 'bg-gray-100'} flex-shrink-0 ml-2`}>
+                 <Users className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} strokeWidth={2} />
                </div>
              </div>
            </div>
 
-           <div className={`${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} rounded-2xl shadow-xl border ${isDarkMode ? 'border-gray-700/50' : 'border-white/20'} p-6 hover:scale-105 transition-all duration-300`}>
+           <div className={`${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} rounded-lg shadow-sm border ${isDarkMode ? 'border-gray-700/50' : 'border-white/20'} p-3 transition-all duration-200`}>
              <div className="flex items-center justify-between">
-               <div>
-                 <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} mb-1`}>Ban quản lý</p>
-                 <p className={`text-3xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+               <div className="flex-1 min-w-0">
+                 <p className={`text-[10px] font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} mb-0.5 truncate`}>Ban quản lý</p>
+                 <p className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                    {totalStats.totalManagementStaff}
                  </p>
                </div>
-               <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-green-500/20' : 'bg-green-100'} shadow-lg`}>
-                 <svg className={`w-8 h-8 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                 </svg>
+               <div className={`p-1.5 rounded-md ${isDarkMode ? 'bg-green-500/20' : 'bg-green-100'} flex-shrink-0 ml-2`}>
+                 <UserCog className={`w-4 h-4 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} strokeWidth={2} />
                </div>
              </div>
            </div>
         </div>
 
                                                                        {/* Filters and Search */}
-           <div className={`${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} rounded-3xl shadow-2xl mb-8 border ${isDarkMode ? 'border-gray-700/50' : 'border-white/20'}`} style={{ overflow: 'visible' }}>
-             <div className="p-8" style={{ overflow: 'visible' }}>
-               <div className="mb-8">
-                 <div className="flex items-center space-x-3 mb-3">
-                   <div className={`p-2 rounded-xl ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'}`}>
-                     <svg className={`w-6 h-6 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                     </svg>
+           <div className={`${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} rounded-lg shadow-sm mb-3 border ${isDarkMode ? 'border-gray-700/50' : 'border-white/20'}`} style={{ overflow: 'visible' }}>
+             <div className="p-3" style={{ overflow: 'visible' }}>
+               {/* Compact Header */}
+               <div className="mb-3 flex items-center justify-between">
+                 <div className="flex items-center space-x-1.5">
+                   <div className={`p-1 rounded ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'}`}>
+                     <Search className={`w-3.5 h-3.5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} strokeWidth={2} />
                    </div>
-                   <h3 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                     🔍 Bộ lọc và Tìm kiếm
+                   <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                     Bộ lọc và Tìm kiếm
                    </h3>
                  </div>
-                 <p className={`text-lg ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                   Lọc và tìm kiếm users theo các tiêu chí khác nhau
-                 </p>
+                 {/* Action Buttons - Moved to header */}
+                 <div className="flex items-center gap-2">
+                   <Link
+                      href="/admin/members/add?from=users"
+                      className="px-2.5 py-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 text-white rounded text-[11px] font-medium flex items-center transition-all duration-200 hover:opacity-90"
+                    >
+                     <Plus className="w-3 h-3 mr-1" strokeWidth={2} />
+                     <span className="hidden sm:inline">Thêm</span>
+                   </Link>
+                   <button
+                     type="button"
+                     onClick={handleExportExcel}
+                     disabled={exporting}
+                     className="px-2.5 py-1 bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 text-white rounded text-[11px] font-medium flex items-center disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:opacity-90"
+                   >
+                     {exporting ? (
+                       <>
+                         <div className="animate-spin rounded-full h-2.5 w-2.5 border-b-2 border-white mr-1"></div>
+                         <span className="hidden sm:inline">Đang xuất...</span>
+                       </>
+                     ) : (
+                       <>
+                         <Download className="w-3 h-3 mr-1" strokeWidth={2} />
+                         <span className="hidden sm:inline">Xuất Excel</span>
+                       </>
+                     )}
+                   </button>
+                 </div>
                </div>
 
-               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+               {/* Search and Filters Grid - All in one row */}
+               <div className="flex flex-wrap items-end gap-2">
                  {/* Search */}
-                 <div className="space-y-2">
-                   <label className={`block text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                     <span className="flex items-center">
-                       <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                       </svg>
-                       Tìm kiếm
-                     </span>
+                 <div className="flex-1 min-w-[200px] space-y-1">
+                   <label className={`block text-[10px] font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                     Tìm kiếm
                    </label>
                    <div className="relative">
                      <input
@@ -567,25 +606,26 @@ export default function UsersPage() {
                        value={search}
                        onChange={(e) => setSearch(e.target.value)}
                        placeholder="Tên, MSSV, email..."
-                       className={`w-full pl-10 pr-4 py-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400' : 'border-gray-300 bg-white text-gray-900 placeholder-gray-500'}`}
+                       className={`w-full pl-7 pr-2 py-1 text-xs border rounded focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500 transition-all duration-200 ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400' : 'border-gray-300 bg-white text-gray-900 placeholder-gray-500'}`}
                      />
-                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                       <svg className={`w-5 h-5 ${isDarkMode ? 'text-gray-400' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                       </svg>
+                     <div className="absolute inset-y-0 left-0 pl-1.5 flex items-center pointer-events-none">
+                       <Search className={`w-3 h-3 ${isDarkMode ? 'text-gray-400' : 'text-gray-400'}`} strokeWidth={2} />
                      </div>
+                     {search && (
+                       <button
+                         onClick={() => setSearch('')}
+                         className="absolute inset-y-0 right-0 pr-1.5 flex items-center hover:opacity-70 transition-opacity"
+                       >
+                         <span className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>✕</span>
+                       </button>
+                     )}
                    </div>
                  </div>
 
                  {/* Role Filter */}
-                 <div className="space-y-2">
-                   <label className={`block text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                     <span className="flex items-center">
-                       <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                       </svg>
-                       Vai trò
-                     </span>
+                 <div className="w-[140px] space-y-1">
+                   <label className={`block text-[10px] font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                     Vai trò
                    </label>
                    <div className="relative role-dropdown">
                      <button
@@ -605,35 +645,27 @@ export default function UsersPage() {
                          setRoleDropdownOpen(!roleDropdownOpen);
                          console.log('New state will be:', !roleDropdownOpen);
                        }}
-                       className={`w-full px-4 py-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 flex justify-between items-center transition-all duration-200 ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white hover:bg-gray-600' : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'}`}
+                       className={`w-full px-2 py-1 text-[11px] border rounded focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500 flex justify-between items-center transition-all duration-200 ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white hover:bg-gray-600' : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'}`}
                      >
-                       <span className="flex items-center">
+                       <span className="flex items-center truncate">
                          {roleFilter.length === 0 ? (
                            <>
-                             <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                             </svg>
-                             Tất cả vai trò
+                             <CheckCircle2 className="w-2.5 h-2.5 mr-0.5 text-gray-400 flex-shrink-0" strokeWidth={2} />
+                             <span className="text-[11px] truncate">Tất cả</span>
                            </>
                          ) : roleFilter.length === 1 ? (
                            <>
-                             <svg className="w-4 h-4 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                             </svg>
-                             {getRoleDisplayName(roleFilter[0])}
+                             <CheckCircle2 className="w-2.5 h-2.5 mr-0.5 text-blue-500 flex-shrink-0" strokeWidth={2} />
+                             <span className="text-[11px] truncate">{getRoleDisplayName(roleFilter[0])}</span>
                            </>
                          ) : (
                            <>
-                             <svg className="w-4 h-4 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                             </svg>
-                             {roleFilter.length} vai trò đã chọn
+                             <CheckCircle2 className="w-2.5 h-2.5 mr-0.5 text-blue-500 flex-shrink-0" strokeWidth={2} />
+                             <span className="text-[11px] truncate">{roleFilter.length} vai trò</span>
                            </>
                          )}
                        </span>
-                       <svg className={`w-5 h-5 transition-transform duration-200 ${roleDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                       </svg>
+                       <ChevronDown className={`w-2.5 h-2.5 transition-transform duration-200 flex-shrink-0 ml-1 ${roleDropdownOpen ? 'rotate-180' : ''}`} strokeWidth={2} />
                      </button>
                      
                      {/* Inline dropdown for testing */}
@@ -676,14 +708,9 @@ export default function UsersPage() {
                  </div>
 
                  {/* Faculty Filter */}
-                 <div className="space-y-2">
-                   <label className={`block text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                     <span className="flex items-center">
-                       <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                       </svg>
-                       Khoa/Viện
-                     </span>
+                 <div className="w-[130px] space-y-1">
+                   <label className={`block text-[10px] font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                     Khoa/Viện
                    </label>
                    <select
                      value={facultyFilter}
@@ -701,7 +728,7 @@ export default function UsersPage() {
                        
                        handleFilterChange();
                      }}
-                     className={`w-full px-4 py-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
+                     className={`w-full px-2 py-1 text-[11px] border rounded focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500 transition-all duration-200 ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
                    >
                      <option value="ALL">Tất cả khoa/viện</option>
                      <option value="ADMIN">Admin</option>
@@ -714,14 +741,9 @@ export default function UsersPage() {
                  </div>
 
                  {/* Club Member Filter */}
-                 <div className="space-y-2">
-                   <label className={`block text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                     <span className="flex items-center">
-                       <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                       </svg>
-                       Thành viên CLB
-                     </span>
+                 <div className="w-[120px] space-y-1">
+                   <label className={`block text-[10px] font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                     CLB
                    </label>
                    <select
                      value={clubMemberFilter}
@@ -729,7 +751,7 @@ export default function UsersPage() {
                        setClubMemberFilter(e.target.value);
                        handleFilterChange();
                      }}
-                     className={`w-full px-4 py-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
+                     className={`w-full px-2 py-1 text-[11px] border rounded focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500 transition-all duration-200 ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
                    >
                      <option value="ALL">Tất cả</option>
                      <option value="true">Thành viên CLB</option>
@@ -738,14 +760,9 @@ export default function UsersPage() {
                  </div>
 
                  {/* Sort */}
-                 <div className="space-y-2">
-                   <label className={`block text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                     <span className="flex items-center">
-                       <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
-                       </svg>
-                       Sắp xếp
-                     </span>
+                 <div className="w-[120px] space-y-1">
+                   <label className={`block text-[10px] font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                     Sắp xếp
                    </label>
                    <select
                      value={`${sortBy}-${sortOrder}`}
@@ -754,7 +771,7 @@ export default function UsersPage() {
                        setSortBy(field);
                        setSortOrder(order as 'asc' | 'desc');
                      }}
-                     className={`w-full px-4 py-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
+                     className={`w-full px-2 py-1 text-[11px] border rounded focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500 transition-all duration-200 ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
                    >
                      <option value="name-asc">Tên A-Z</option>
                      <option value="name-desc">Tên Z-A</option>
@@ -764,46 +781,11 @@ export default function UsersPage() {
                  </div>
                </div>
 
-               {/* Action Buttons */}
-               <div className="mt-6 flex justify-between items-center relative">
-                 {/* Add User Button */}
-                                   <Link
-                    href="/admin/members/add?from=users"
-                    className="px-6 py-3 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 text-white rounded-xl hover:from-blue-600 hover:via-indigo-600 hover:to-purple-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:ring-offset-2 flex items-center transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 hover:scale-102"
-                  >
-                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                   </svg>
-                   <span className="text-sm font-medium">Thêm Người Dùng</span>
-                 </Link>
-
-                 {/* Export Button */}
-                 <button
-                   type="button"
-                   onClick={handleExportExcel}
-                   disabled={exporting}
-                   className="px-6 py-3 bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 text-white rounded-xl hover:from-emerald-600 hover:via-green-600 hover:to-teal-600 focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:ring-offset-2 flex items-center disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 hover:scale-102"
-                 >
-                   {exporting ? (
-                     <>
-                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                       <span className="text-sm font-medium">Đang xuất...</span>
-                     </>
-                   ) : (
-                     <>
-                       <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                       </svg>
-                       <span className="text-sm font-medium">Xuất Excel</span>
-                     </>
-                   )}
-                 </button>
-               </div>
              </div>
            </div>
 
                                    {/* Users Table */}
-          <div className={`${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} rounded-3xl shadow-2xl overflow-hidden border ${isDarkMode ? 'border-gray-700/50' : 'border-white/20'}`}>
+          <div className={`${isDarkMode ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/70 backdrop-blur-sm'} rounded-lg shadow-sm overflow-hidden border ${isDarkMode ? 'border-gray-700/50' : 'border-white/20'}`}>
             {loading ? (
               <div className="p-8 text-center">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
@@ -834,128 +816,197 @@ export default function UsersPage() {
                   </div>
                 )}
                 <div className="overflow-x-auto">
-                  <table className={`min-w-full divide-y ${isDarkMode ? 'divide-gray-700/50' : 'divide-gray-200/50'}`}>
-                                         <thead className={isDarkMode ? 'bg-gray-700/50 backdrop-blur-sm' : 'bg-gray-50/80 backdrop-blur-sm'}>
+                  <table className={`min-w-full border-collapse ${isDarkMode ? 'border-gray-600' : 'border-gray-300'} border-2`}>
+                                         <thead className={isDarkMode ? 'bg-blue-600/80 backdrop-blur-sm' : 'bg-blue-600 backdrop-blur-sm'}>
                                           <tr>
-                        <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
+                        <th className={`px-4 py-2 text-left text-xs font-medium uppercase tracking-wider border-r ${isDarkMode ? 'border-gray-500 text-white' : 'border-gray-300 text-white'}`}>
                           User
                         </th>
-                        <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
+                        <th className={`px-4 py-2 text-left text-xs font-medium uppercase tracking-wider border-r ${isDarkMode ? 'border-gray-500 text-white' : 'border-gray-300 text-white'}`}>
                           Vai trò
                         </th>
-                        <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
+                        <th className={`px-4 py-2 text-left text-xs font-medium uppercase tracking-wider border-r ${isDarkMode ? 'border-gray-500 text-white' : 'border-gray-300 text-white'}`}>
                           CLB
                         </th>
-                        <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
+                        <th className={`px-4 py-2 text-left text-xs font-medium uppercase tracking-wider border-r ${isDarkMode ? 'border-gray-500 text-white' : 'border-gray-300 text-white'}`}>
                           Thông tin
                         </th>
-                        <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
+                        <th className={`px-4 py-2 text-left text-xs font-medium uppercase tracking-wider border-r ${isDarkMode ? 'border-gray-500 text-white' : 'border-gray-300 text-white'}`}>
                           Ngày tạo
                         </th>
-                        <th className={`px-6 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
+                        <th className={`px-4 py-2 text-right text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-white' : 'text-white'}`}>
                           Hành động
                         </th>
                       </tr>
                     </thead>
-                    <tbody className={`${isDarkMode ? 'bg-gray-800/30' : 'bg-white/50'} divide-y ${isDarkMode ? 'divide-gray-700/30' : 'divide-gray-200/30'}`}>
+                    <tbody className={`${isDarkMode ? 'bg-gray-800/30' : 'bg-white/50'}`}>
                       {users.map((user) => (
-                        <tr key={user._id} className={`${isDarkMode ? 'hover:bg-gray-700/50' : 'hover:bg-gray-50/80'} transition-all duration-200`}>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <tr key={user._id} className={`${isDarkMode ? 'hover:bg-gray-700/50 border-b border-gray-600' : 'hover:bg-gray-50/80 border-b border-gray-300'} transition-all duration-200`}>
+                        <td className={`px-4 py-3 whitespace-nowrap border-r ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
                           <div className="flex items-center">
-                            <div className="flex-shrink-0 h-10 w-10">
+                            <div className="flex-shrink-0 h-8 w-8 relative">
                               {user.avatarUrl ? (
-                                <img
-                                  className="h-10 w-10 rounded-full"
-                                  src={user.avatarUrl}
-                                  alt={user.name}
-                                />
+                                <>
+                                  <Image
+                                    src={user.avatarUrl}
+                                    alt={user.name || 'User'}
+                                    width={32}
+                                    height={32}
+                                    className="h-8 w-8 rounded-full object-cover"
+                                    unoptimized
+                                    onError={(e) => {
+                                      const target = e.target as HTMLImageElement;
+                                      target.style.display = 'none';
+                                      const fallback = target.nextElementSibling as HTMLElement;
+                                      if (fallback) fallback.style.display = 'flex';
+                                    }}
+                                  />
+                                  <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center avatar-fallback hidden">
+                                    <span className="text-white text-xs font-bold">
+                                      {getInitials(user.name)}
+                                    </span>
+                                  </div>
+                                </>
                               ) : (
-                                <div className="h-10 w-10 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center">
-                                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    {user.name.charAt(0).toUpperCase()}
+                                <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                                  <span className="text-white text-xs font-bold">
+                                    {getInitials(user.name)}
                                   </span>
                                 </div>
                               )}
                             </div>
-                                                         <div className="ml-4">
-                                                                <div className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                   {user.name}
+                                                         <div className="ml-3">
+                                                                <div className={`text-xs font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                                   {user.name || 'Không có tên'}
                                  </div>
-                                 <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                   {user.studentId}
+                                 <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                   {user.studentId || 'Không có MSSV'}
                                  </div>
-                                 <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                   {user.email}
+                                 <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                   {user.email || 'Không có email'}
                                  </div>
                              </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getRoleBadgeColor(user.role)}`}>
+                        <td className={`px-4 py-3 whitespace-nowrap border-r ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                          <span className={`inline-flex px-1.5 py-0.5 text-xs font-semibold rounded-full ${getRoleBadgeColor(user.role)}`}>
                             {getRoleDisplayName(user.role)}
                           </span>
                         </td>
-                                                 <td className="px-6 py-4 whitespace-nowrap">
+                                                 <td className={`px-4 py-3 whitespace-nowrap border-r ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
                            {user.role === 'SUPER_ADMIN' || user.role === 'ADMIN' ? (
-                             <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
+                             <span className="inline-flex px-1.5 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
                                Admin
                              </span>
                            ) : ['CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER'].includes(user.role) ? (
-                             <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                             <span className="inline-flex px-1.5 py-0.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
                                Ban Chấp Hành
                              </span>
                            ) : (
-                             <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getClubMemberBadgeColor(user.isClubMember)}`}>
+                             <span className={`inline-flex px-1.5 py-0.5 text-xs font-semibold rounded-full ${getClubMemberBadgeColor(user.isClubMember)}`}>
                                {user.isClubMember ? 'Thành viên' : 'Không phải'}
                              </span>
                            )}
                          </td>
-                                                                                                                            <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                             <div>
+                                                                                                                            <td className={`px-4 py-3 whitespace-nowrap text-xs border-r ${isDarkMode ? 'border-gray-600 text-white' : 'border-gray-300 text-gray-900'}`}>
+                             <div className="space-y-1">
                                {user.role === 'SUPER_ADMIN' || user.role === 'ADMIN' ? (
-                                 <div>
-                                   <div className="text-red-600 font-medium">👑 Quản trị viên hệ thống</div>
-                                   {user.phone && <div>📞 {user.phone}</div>}
-                                   <div className="text-purple-600 text-xs">Thành viên CLB</div>
+                                 <div className="space-y-1">
+                                   <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400 font-medium">
+                                     <Crown className="w-3 h-3" strokeWidth={2} />
+                                     <span>Quản trị viên hệ thống</span>
+                                   </div>
+                                   {user.phone && (
+                                     <div className="flex items-center gap-1.5">
+                                       <Phone className="w-3 h-3" strokeWidth={2} />
+                                       <span>{user.phone}</span>
+                                     </div>
+                                   )}
+                                   <div className="flex items-center gap-1.5 text-purple-600 dark:text-purple-400">
+                                     <UserCheck className="w-3 h-3" strokeWidth={2} />
+                                     <span className="text-xs">Thành viên CLB</span>
+                                   </div>
                                  </div>
                                ) : ['CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER'].includes(user.role) ? (
-                                 <div>
-                                   <div className="text-blue-600 font-medium">🏛️ Ban Chấp Hành CLB</div>
-                                   {user.phone && <div>📞 {user.phone}</div>}
-                                   {user.class && <div>🏫 {user.class}</div>}
-                                   {user.faculty && <div>🎓 {user.faculty}</div>}
-                                   <div className="text-purple-600 text-xs">Thành viên CLB</div>
+                                 <div className="space-y-1">
+                                   <div className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400 font-medium">
+                                     <Building className="w-3 h-3" strokeWidth={2} />
+                                     <span>Ban Chấp Hành CLB</span>
+                                   </div>
+                                   {user.phone && (
+                                     <div className="flex items-center gap-1.5">
+                                       <Phone className="w-3 h-3" strokeWidth={2} />
+                                       <span>{user.phone}</span>
+                                     </div>
+                                   )}
+                                   {user.class && (
+                                     <div className="flex items-center gap-1.5">
+                                       <School className="w-3 h-3" strokeWidth={2} />
+                                       <span>{user.class}</span>
+                                     </div>
+                                   )}
+                                   {user.faculty && (
+                                     <div className="flex items-center gap-1.5">
+                                       <GraduationCap className="w-3 h-3" strokeWidth={2} />
+                                       <span>{user.faculty}</span>
+                                     </div>
+                                   )}
+                                   <div className="flex items-center gap-1.5 text-purple-600 dark:text-purple-400">
+                                     <UserCheck className="w-3 h-3" strokeWidth={2} />
+                                     <span className="text-xs">Thành viên CLB</span>
+                                   </div>
                                  </div>
                                ) : (
-                                 <div>
-                                   {user.phone && <div>📞 {user.phone}</div>}
-                                   {user.class && <div>🏫 {user.class}</div>}
-                                   {user.faculty && <div>🎓 {user.faculty}</div>}
+                                 <div className="space-y-1">
+                                   {user.phone && (
+                                     <div className="flex items-center gap-1.5">
+                                       <Phone className="w-3 h-3" strokeWidth={2} />
+                                       <span>{user.phone}</span>
+                                     </div>
+                                   )}
+                                   {user.class && (
+                                     <div className="flex items-center gap-1.5">
+                                       <School className="w-3 h-3" strokeWidth={2} />
+                                       <span>{user.class}</span>
+                                     </div>
+                                   )}
+                                   {user.faculty && (
+                                     <div className="flex items-center gap-1.5">
+                                       <GraduationCap className="w-3 h-3" strokeWidth={2} />
+                                       <span>{user.faculty}</span>
+                                     </div>
+                                   )}
                                  </div>
                                )}
                              </div>
                            </td>
-                          <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                            {formatDate(user.createdAt)}
+                          <td className={`px-4 py-3 whitespace-nowrap text-xs border-r ${isDarkMode ? 'border-gray-600 text-gray-400' : 'border-gray-300 text-gray-500'}`}>
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="w-3 h-3" strokeWidth={2} />
+                              <span>{formatDate(user.createdAt)}</span>
+                            </div>
                           </td>
-                                                                                                                                                                                                       <td className="px-6 py-4 text-center text-sm font-medium">
-                            <div className="flex flex-col space-y-2">
+                                                                                                                                                                                                       <td className={`px-4 py-3 text-center text-xs font-medium ${isDarkMode ? '' : ''}`}>
+                            <div className="flex flex-col items-center space-y-1.5">
                               <button 
                                 onClick={() => openDetailModal(user._id)}
-                                className="px-3 py-1.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 text-xs font-medium"
+                                className="w-20 px-2.5 py-1 bg-transparent text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-50 dark:hover:bg-blue-500/20 transition-all duration-200 flex items-center justify-center text-xs font-medium"
                               >
-                                Xem
+                                <Eye className="w-3 h-3 mr-1" strokeWidth={2} />
+                                Chi tiết
                               </button>
                               <button 
                                 onClick={() => openEditModal(user._id)}
-                                className="px-3 py-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 text-xs font-medium"
+                                className="w-20 px-2.5 py-1 bg-transparent text-green-600 dark:text-green-400 rounded-md hover:bg-green-50 dark:hover:bg-green-500/20 transition-all duration-200 flex items-center justify-center text-xs font-medium"
                               >
+                                <Edit className="w-3 h-3 mr-1" strokeWidth={2} />
                                 Sửa
                               </button>
                               <button 
                                 onClick={() => openDeleteModal(user._id)}
-                                className="px-3 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 text-xs font-medium"
+                                className="w-20 px-2.5 py-1 bg-transparent text-red-600 dark:text-red-400 rounded-md hover:bg-red-50 dark:hover:bg-red-500/20 transition-all duration-200 flex items-center justify-center text-xs font-medium"
                               >
+                                <Trash2 className="w-3 h-3 mr-1" strokeWidth={2} />
                                 Xóa
                               </button>
                             </div>
@@ -996,9 +1047,7 @@ export default function UsersPage() {
          <div className={`fixed bottom-4 right-4 z-50 p-3 rounded-lg shadow-lg transition-all duration-300 backdrop-blur-sm ${isDarkMode ? 'bg-green-500/90 text-white border border-green-400/50' : 'bg-green-500/90 text-white border border-green-400/50'}`}>
            <div className="flex items-center">
              <div className="p-1 rounded-md bg-white/20 mr-2">
-               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-               </svg>
+               <CheckCircle2 className="w-4 h-4" strokeWidth={2} />
              </div>
              <span className="text-sm font-medium">File Excel đã sẵn sàng download</span>
            </div>

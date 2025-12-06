@@ -37,6 +37,7 @@ import {
   AlertCircle,
   Crown,
   UserCheck,
+  Target,
   X,
   Scissors,
   ZoomIn,
@@ -104,6 +105,7 @@ export default function CreateMultipleDaysActivityPage() {
     endDate: '',
     location: '',
     maxParticipants: '',
+    registrationThreshold: '80', // Phần trăm tối thiểu để đăng ký (mặc định 80%)
     visibility: 'public' as ActivityVisibility,
     responsiblePerson: [] as string[],
     status: 'draft' as ActivityStatus,
@@ -173,6 +175,7 @@ export default function CreateMultipleDaysActivityPage() {
   };
 
   const [selectedDayKey, setSelectedDayKey] = useState<DayKey>('mon');
+  const [selectedDate, setSelectedDate] = useState<string>(''); // Date string (YYYY-MM-DD) for the selected day in current week
   interface WeeklySlot {
     id: string;
     name: string;
@@ -198,21 +201,13 @@ export default function CreateMultipleDaysActivityPage() {
     radius: number;
   }
 
-  type WeeklyPlan = Record<DayKey, WeeklySlot[]>;
+  type WeeklyPlan = Record<string, WeeklySlot[]>; // Key is date string (YYYY-MM-DD) instead of DayKey
   const defaultWeeklySlots: WeeklySlot[] = [
     { id: '1', name: 'Buổi Sáng', startTime: '07:00', endTime: '11:30', isActive: false, activities: '', detailedLocation: '' },
     { id: '2', name: 'Buổi Chiều', startTime: '12:30', endTime: '17:00', isActive: false, activities: '', detailedLocation: '' },
     { id: '3', name: 'Buổi Tối', startTime: '17:00', endTime: '22:00', isActive: false, activities: '', detailedLocation: '' }
   ];
-  const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>({
-    mon: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-    tue: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-    wed: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-    thu: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-    fri: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-    sat: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-    sun: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-  });
+  const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>({});
   const createEmptyLocationState = (): Record<DayKey, SlotLocationItem[]> => ({
     mon: [],
     tue: [],
@@ -281,10 +276,20 @@ export default function CreateMultipleDaysActivityPage() {
     'Buổi Chiều': <Sun size={18} strokeWidth={1.5} />,
     'Buổi Tối': <Moon size={18} strokeWidth={1.5} />,
   };
-  const getDaySummary = (day: DayKey) => {
-    const slots = weeklyPlan[day];
+  const getDaySummary = (date: string) => {
+    const slots = weeklyPlan[date] || [];
     const active = slots.filter(s => s.isActive).length;
     return { total: slots.length, active };
+  };
+  
+  const getDaySummaryByDayKey = (dayKey: DayKey) => {
+    // Get summary for the first date with this dayKey in current week
+    const currentWeekDays = weekInfo.currentWeek?.days || [];
+    const firstDate = currentWeekDays.find(d => d.dayKey === dayKey)?.date;
+    if (firstDate) {
+      return getDaySummary(firstDate);
+    }
+    return { total: 3, active: 0 };
   };
   const getDayKeyFromDate = (dateStr: string): DayKey => {
     const d = new Date(`${dateStr}T00:00:00.000Z`);
@@ -299,10 +304,13 @@ export default function CreateMultipleDaysActivityPage() {
       default: return 'sun';
     }
   };
-  const updateWeeklySlot = (day: DayKey, slotId: string, field: keyof WeeklySlot, value: string | boolean) => {
+  const updateWeeklySlot = (date: string, slotId: string, field: keyof WeeklySlot, value: string | boolean) => {
     setWeeklyPlan(prev => {
       const next = { ...prev };
-      next[day] = next[day].map(s => {
+      if (!next[date]) {
+        next[date] = JSON.parse(JSON.stringify(defaultWeeklySlots));
+      }
+      next[date] = next[date].map(s => {
         if (s.id !== slotId) return s;
         const updated: WeeklySlot = { ...s, [field]: value };
         if (field === 'isActive' && value === false) {
@@ -312,7 +320,8 @@ export default function CreateMultipleDaysActivityPage() {
           updated.locationRadius = undefined;
         }
         if (field === 'isActive' && value === true) {
-          const dayLocation = dailyLocations[day];
+          const dayKey = getDayKeyFromDate(date);
+          const dayLocation = dailyLocations[dayKey];
           if (dayLocation) {
             updated.locationAddress = dayLocation.address;
             updated.locationLat = dayLocation.lat;
@@ -327,23 +336,35 @@ export default function CreateMultipleDaysActivityPage() {
     if (field === 'isActive' && value === false) {
       const slotKey = slotIdToTimeSlotKey[slotId];
       if (slotKey) {
+        const dayKey = getDayKeyFromDate(date);
         setWeeklySlotLocations(prev => ({
           ...prev,
-          [day]: prev[day].filter(item => item.timeSlot !== slotKey),
+          [dayKey]: (prev[dayKey] || []).filter(item => item.timeSlot !== slotKey),
         }));
       }
     }
   };
   const copyDayToTarget = (source: DayKey, target: DayKey) => {
     if (source === target) return;
-    // Sao chép weeklyPlan (bao gồm: isActive, startTime, endTime, activities, detailedLocation, locationAddress, locationLat, locationLng, locationRadius)
+    // Tìm date string cho source và target dayKey
+    const sourceDates = datesInRange.filter(d => getDayKeyFromDate(d) === source);
+    const targetDates = datesInRange.filter(d => getDayKeyFromDate(d) === target);
+    
+    if (sourceDates.length === 0 || targetDates.length === 0) return;
+    
+    // Lấy date đầu tiên của source để copy
+    const sourceDate = sourceDates[0];
+    const sourceSlots = weeklyPlan[sourceDate] || defaultWeeklySlots;
+    
+    // Sao chép weeklyPlan cho tất cả các date có cùng target dayKey
     setWeeklyPlan(prev => {
-      const src = prev[source].map(s => ({ ...s }));
-      return {
-        ...prev,
-        [target]: src.map(s => ({ ...s })),
-      };
+      const next = { ...prev };
+      targetDates.forEach(targetDate => {
+        next[targetDate] = sourceSlots.map(s => ({ ...s }));
+      });
+      return next;
     });
+    
     // Sao chép weeklySlotLocations (cho PerSlot mode)
     setWeeklySlotLocations(prev => {
       const sourceLocations = prev[source] || [];
@@ -398,18 +419,21 @@ export default function CreateMultipleDaysActivityPage() {
     });
   };
   const copyDayToAll = (source: DayKey) => {
-    // Sao chép weeklyPlan (bao gồm: isActive, startTime, endTime, activities, detailedLocation, locationAddress, locationLat, locationLng, locationRadius)
+    // Tìm date string cho source dayKey
+    const sourceDates = datesInRange.filter(d => getDayKeyFromDate(d) === source);
+    if (sourceDates.length === 0) return;
+    
+    // Lấy date đầu tiên của source để copy
+    const sourceDate = sourceDates[0];
+    const sourceSlots = weeklyPlan[sourceDate] || defaultWeeklySlots;
+    
+    // Sao chép weeklyPlan cho tất cả các date trong datesInRange
     setWeeklyPlan(prev => {
-      const src = prev[source].map(s => ({ ...s }));
-      return {
-        mon: src.map(s => ({ ...s })),
-        tue: src.map(s => ({ ...s })),
-        wed: src.map(s => ({ ...s })),
-        thu: src.map(s => ({ ...s })),
-        fri: src.map(s => ({ ...s })),
-        sat: src.map(s => ({ ...s })),
-        sun: src.map(s => ({ ...s })),
-      };
+      const next = { ...prev };
+      datesInRange.forEach(date => {
+        next[date] = sourceSlots.map(s => ({ ...s }));
+      });
+      return next;
     });
     // Sao chép weeklySlotLocations (cho PerSlot mode)
     setWeeklySlotLocations(prev => {
@@ -511,11 +535,17 @@ export default function CreateMultipleDaysActivityPage() {
     });
   };
   const resetDayPlan = (day: DayKey) => {
-    // Reset weeklyPlan về mặc định (isActive, startTime, endTime, activities, detailedLocation, locationAddress, locationLat, locationLng, locationRadius)
-    setWeeklyPlan(prev => ({
-      ...prev,
-      [day]: defaultWeeklySlots.map(slot => ({ ...slot }))
-    }));
+    // Tìm tất cả các date có cùng dayKey
+    const dayDates = datesInRange.filter(d => getDayKeyFromDate(d) === day);
+    
+    // Reset weeklyPlan về mặc định cho tất cả các date có cùng dayKey
+    setWeeklyPlan(prev => {
+      const next = { ...prev };
+      dayDates.forEach(date => {
+        next[date] = defaultWeeklySlots.map(slot => ({ ...slot }));
+      });
+      return next;
+    });
     // Reset weeklySlotLocations (cho PerSlot mode)
     setWeeklySlotLocations(prev => ({
       ...prev,
@@ -543,10 +573,21 @@ export default function CreateMultipleDaysActivityPage() {
     });
   };
 
-  const getActiveTimeSlotsForDay = (day: DayKey): TimeSlotKey[] => {
-    return weeklyPlan[day]
+  const getActiveTimeSlotsForDay = (date: string): TimeSlotKey[] => {
+    const slots = weeklyPlan[date] || [];
+    return slots
       .filter((slot) => slot.isActive)
       .map((slot) => slotIdToTimeSlotKey[slot.id] ?? 'morning');
+  };
+  
+  const getActiveTimeSlotsForDayKey = (dayKey: DayKey): TimeSlotKey[] => {
+    // Get active slots for the first date with this dayKey in current week
+    const currentWeekDays = weekInfo.currentWeek?.days || [];
+    const firstDate = currentWeekDays.find(d => d.dayKey === dayKey)?.date;
+    if (firstDate) {
+      return getActiveTimeSlotsForDay(firstDate);
+    }
+    return [];
   };
 
   const handleDayLocationsChange = (day: DayKey, locations: SlotLocationItem[]) => {
@@ -558,9 +599,15 @@ export default function CreateMultipleDaysActivityPage() {
       ...prev,
       [day]: normalized,
     }));
+    // Tìm tất cả các date có cùng dayKey
+    const dayDates = datesInRange.filter(d => getDayKeyFromDate(d) === day);
     setWeeklyPlan(prev => {
       const next = { ...prev };
-      next[day] = next[day].map(slot => {
+      dayDates.forEach(date => {
+        if (!next[date]) {
+          next[date] = JSON.parse(JSON.stringify(defaultWeeklySlots));
+        }
+        next[date] = next[date].map(slot => {
         const slotKey = slotIdToTimeSlotKey[slot.id] ?? 'morning';
         const matched = normalized.find(item => item.timeSlot === slotKey);
         return {
@@ -575,6 +622,7 @@ export default function CreateMultipleDaysActivityPage() {
                 : matched.location.address)
             : slot.detailedLocation,
         };
+      });
       });
       return next;
     });
@@ -607,18 +655,24 @@ export default function CreateMultipleDaysActivityPage() {
       };
     });
 
-    // Cập nhật weeklyPlan
+    // Cập nhật weeklyPlan - Tìm tất cả các date có cùng dayKey
+    const dayDates = datesInRange.filter(d => getDayKeyFromDate(d) === day);
     setWeeklyPlan(prev => {
       const next = { ...prev };
-      next[day] = next[day].map(slot => slot.id === slotId
-        ? {
-            ...slot,
-            locationAddress: location.address,
-            locationLat: location.lat,
-            locationLng: location.lng,
-            locationRadius: location.radius || 200,
-          }
-        : slot);
+      dayDates.forEach(date => {
+        if (!next[date]) {
+          next[date] = JSON.parse(JSON.stringify(defaultWeeklySlots));
+        }
+        next[date] = next[date].map(slot => slot.id === slotId
+          ? {
+              ...slot,
+              locationAddress: location.address,
+              locationLat: location.lat,
+              locationLng: location.lng,
+              locationRadius: location.radius || 200,
+            }
+          : slot);
+      });
       return next;
     });
   };
@@ -635,17 +689,24 @@ export default function CreateMultipleDaysActivityPage() {
       ...prev,
       [day]: normalized,
     }));
+    // Tìm tất cả các date có cùng dayKey
+    const dayDates = datesInRange.filter(d => getDayKeyFromDate(d) === day);
     setWeeklyPlan(prev => {
       const next = { ...prev };
-      next[day] = next[day].map(slot => {
-        if (!slot.isActive) return slot;
-        return {
-          ...slot,
-          locationAddress: normalized.address,
-          locationLat: normalized.lat,
-          locationLng: normalized.lng,
-          locationRadius: normalized.radius,
-        };
+      dayDates.forEach(date => {
+        if (!next[date]) {
+          next[date] = JSON.parse(JSON.stringify(defaultWeeklySlots));
+        }
+        next[date] = next[date].map(slot => {
+          if (!slot.isActive) return slot;
+          return {
+            ...slot,
+            locationAddress: normalized.address,
+            locationLat: normalized.lat,
+            locationLng: normalized.lng,
+            locationRadius: normalized.radius,
+          };
+        });
       });
       return next;
     });
@@ -656,15 +717,22 @@ export default function CreateMultipleDaysActivityPage() {
       ...prev,
       [day]: null,
     }));
+    // Tìm tất cả các date có cùng dayKey
+    const dayDates = datesInRange.filter(d => getDayKeyFromDate(d) === day);
     setWeeklyPlan(prev => {
       const next = { ...prev };
-      next[day] = next[day].map(slot => ({
-        ...slot,
-        locationAddress: undefined,
-        locationLat: undefined,
-        locationLng: undefined,
-        locationRadius: undefined,
-      }));
+      dayDates.forEach(date => {
+        if (!next[date]) {
+          next[date] = JSON.parse(JSON.stringify(defaultWeeklySlots));
+        }
+        next[date] = next[date].map(slot => ({
+          ...slot,
+          locationAddress: undefined,
+          locationLat: undefined,
+          locationLng: undefined,
+          locationRadius: undefined,
+        }));
+      });
       return next;
     });
   };
@@ -676,17 +744,24 @@ export default function CreateMultipleDaysActivityPage() {
       ...prev,
       [day]: prev[day].filter(item => item.timeSlot !== slotKey),
     }));
+    // Tìm tất cả các date có cùng dayKey
+    const dayDates = datesInRange.filter(d => getDayKeyFromDate(d) === day);
     setWeeklyPlan(prev => {
       const next = { ...prev };
-      next[day] = next[day].map(slot => slot.id === slotId
-        ? {
-            ...slot,
-            locationAddress: undefined,
-            locationLat: undefined,
-            locationLng: undefined,
-            locationRadius: undefined,
-          }
-        : slot);
+      dayDates.forEach(date => {
+        if (!next[date]) {
+          next[date] = JSON.parse(JSON.stringify(defaultWeeklySlots));
+        }
+        next[date] = next[date].map(slot => slot.id === slotId
+          ? {
+              ...slot,
+              locationAddress: undefined,
+              locationLat: undefined,
+              locationLng: undefined,
+              locationRadius: undefined,
+            }
+          : slot);
+      });
       return next;
     });
   };
@@ -746,8 +821,11 @@ export default function CreateMultipleDaysActivityPage() {
     });
     setWeeklyPlan(prev => {
       const next = { ...prev };
-      dayKeyOrder.forEach(day => {
-        next[day] = next[day].map(slot => slot.isActive ? {
+      datesInRange.forEach(date => {
+        if (!next[date]) {
+          next[date] = JSON.parse(JSON.stringify(defaultWeeklySlots));
+        }
+        next[date] = next[date].map(slot => slot.isActive ? {
           ...slot,
           locationAddress: sourceLoc.address,
           locationLat: sourceLoc.lat,
@@ -981,6 +1059,45 @@ export default function CreateMultipleDaysActivityPage() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    
+    // Validate registrationThreshold: must be between 0 and 100
+    if (name === 'registrationThreshold') {
+      const trimmedValue = value.trim();
+      
+      // Allow empty string while typing, but validate when it's a number
+      if (trimmedValue === '') {
+        setForm(prev => ({
+          ...prev,
+          [name]: ''
+        }));
+        return;
+      }
+      
+      const numValue = parseInt(trimmedValue);
+      if (!isNaN(numValue)) {
+        if (numValue > 100) {
+          setForm(prev => ({
+            ...prev,
+            [name]: '100'
+          }));
+          return;
+        }
+        if (numValue < 0) {
+          setForm(prev => ({
+            ...prev,
+            [name]: '0'
+          }));
+          return;
+        }
+        // Valid number, use trimmed value
+        setForm(prev => ({
+          ...prev,
+          [name]: trimmedValue
+        }));
+        return;
+      }
+    }
+    
     setForm(prev => ({ ...prev, [name]: value }));
   };
 
@@ -1114,24 +1231,28 @@ export default function CreateMultipleDaysActivityPage() {
 
   const applyLocationToSlots = (address: string, scope: 'all' | DayKey) => {
     if (!address || !address.trim()) return;
-    const targetDays = scope === 'all' ? dayKeyOrder : [scope];
-    const activeSlotIdsByDay: Record<DayKey, string[]> = targetDays.reduce((acc, day) => {
-      acc[day] = weeklyPlan[day]
+    const targetDays = scope === 'all' ? datesInRange : datesInRange.filter(d => getDayKeyFromDate(d) === scope);
+    const activeSlotIdsByDate: Record<string, string[]> = targetDays.reduce((acc, date) => {
+      const slots = weeklyPlan[date] || [];
+      acc[date] = slots
         .filter(slot => slot.isActive)
         .map(slot => slot.id);
       return acc;
-    }, {} as Record<DayKey, string[]>);
+    }, {} as Record<string, string[]>);
 
     setWeeklyPlan(prev => {
       const next = { ...prev };
-      targetDays.forEach((day) => {
-        next[day] = next[day].map((slot) => {
+      targetDays.forEach((date) => {
+        if (!next[date]) {
+          next[date] = JSON.parse(JSON.stringify(defaultWeeklySlots));
+        }
+        next[date] = next[date].map((slot) => {
           if (!slot.isActive) return slot;
           const updated: WeeklySlot = {
             ...slot,
             detailedLocation: address,
           };
-          if (isPerSlotMode && locationData && activeSlotIdsByDay[day].includes(slot.id)) {
+          if (isPerSlotMode && locationData && activeSlotIdsByDate[date]?.includes(slot.id)) {
             updated.locationAddress = locationData.address;
             updated.locationLat = locationData.lat;
             updated.locationLng = locationData.lng;
@@ -1152,8 +1273,9 @@ export default function CreateMultipleDaysActivityPage() {
           address: locationData.address,
           radius: locationData.radius,
         };
-        targetDays.forEach(day => {
-          next[day] = { ...payload };
+        targetDays.forEach(date => {
+          const dayKey = getDayKeyFromDate(date);
+          next[dayKey] = { ...payload };
         });
         return next;
       });
@@ -1163,13 +1285,14 @@ export default function CreateMultipleDaysActivityPage() {
       const baseRadius = Number.isFinite(locationData.radius) ? locationData.radius : 200;
       setWeeklySlotLocations(prev => {
         const next = { ...prev };
-        targetDays.forEach(day => {
-          const activeSlotIds = activeSlotIdsByDay[day];
-          const retained = prev[day].filter(item => !activeSlotIds.includes(timeSlotKeyToSlotId[item.timeSlot]));
-          const replacements = activeSlotIds.map(slotId => {
+        targetDays.forEach(date => {
+          const dayKey = getDayKeyFromDate(date);
+          const activeSlotIds = activeSlotIdsByDate[date] || [];
+          const retained = (prev[dayKey] || []).filter((item: SlotLocationItem) => !activeSlotIds.includes(timeSlotKeyToSlotId[item.timeSlot]));
+          const replacements = activeSlotIds.map((slotId: string) => {
             const slotKey = slotIdToTimeSlotKey[slotId] ?? 'morning';
             return {
-              id: `${day}-${slotKey}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              id: `${dayKey}-${slotKey}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
               timeSlot: slotKey,
               location: {
                 lat: locationData.lat,
@@ -1179,7 +1302,7 @@ export default function CreateMultipleDaysActivityPage() {
               radius: baseRadius,
             };
           });
-          next[day] = [...retained, ...replacements];
+          next[dayKey] = [...retained, ...replacements];
         });
         return next;
       });
@@ -1211,8 +1334,6 @@ export default function CreateMultipleDaysActivityPage() {
       
       if (result.success && result.data.activity) {
         const activity = result.data.activity;
-        console.log('Loaded activity data:', activity);
-        
         // Fill form data
         setForm({
           name: activity.name || '',
@@ -1221,6 +1342,9 @@ export default function CreateMultipleDaysActivityPage() {
           endDate: activity.endDate ? new Date(activity.endDate).toISOString().split('T')[0] : '',
           location: activity.location || '',
           maxParticipants: activity.maxParticipants?.toString() || '',
+          registrationThreshold: (activity.registrationThreshold !== undefined && activity.registrationThreshold !== null) 
+            ? activity.registrationThreshold.toString() 
+            : '80',
           visibility: activity.visibility || 'public',
           responsiblePerson: (() => {
             // Handle both single value and array
@@ -1281,40 +1405,62 @@ export default function CreateMultipleDaysActivityPage() {
 
           // Parse schedule to extract weekly plan
           // Schedule format: Array<{ day: number; date: Date; activities: string }>
-          const newWeeklyPlan: WeeklyPlan = {
-            mon: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-            tue: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-            wed: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-            thu: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-            fri: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-            sat: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-            sun: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-          };
+          const newWeeklyPlan: WeeklyPlan = {};
 
           // Parse schedule activities to extract time slot info
           activity.schedule.forEach((scheduleItem: any) => {
             const scheduleDate = new Date(scheduleItem.date);
-            const dayKey = getDayKeyFromDate(scheduleDate.toISOString().split('T')[0]);
+            const dateStr = scheduleDate.toISOString().split('T')[0]; // YYYY-MM-DD
+            const dayKey = getDayKeyFromDate(dateStr);
             const activitiesText = scheduleItem.activities || '';
             
+            // Initialize slots for this date if not exists
+            if (!newWeeklyPlan[dateStr]) {
+              newWeeklyPlan[dateStr] = JSON.parse(JSON.stringify(defaultWeeklySlots));
+            }
+            
             // Parse activities text to extract time slot information
-            // Format: "Buổi Sáng (07:00-11:30) - ..." or similar
+            // Format: "Buổi Sáng (07:00-11:30) - mô tả - Địa điểm..." or similar
             const lines = activitiesText.split('\n').filter((line: string) => line.trim());
             
             lines.forEach((line: string) => {
+              // Skip lines that are clearly location info (not time slot info)
+              if (line.trim().startsWith('Địa điểm') || line.trim().startsWith('Cùng địa chỉ')) {
+                return; // Skip location lines
+              }
+              
               // Try to match time slot patterns
               if (line.includes('Buổi Sáng') || line.includes('Sáng')) {
                 const morningMatch = line.match(/(\d{2}:\d{2})-(\d{2}:\d{2})/);
                 if (morningMatch) {
-                  const slot = newWeeklyPlan[dayKey].find(s => s.id === '1');
+                  const slot = newWeeklyPlan[dateStr].find(s => s.id === '1');
                   if (slot) {
                     slot.isActive = true;
                     slot.startTime = morningMatch[1];
                     slot.endTime = morningMatch[2];
                     // Extract activities description
-                    const activitiesMatch = line.match(/-\s*(.+?)(?:\s*-\s*Địa điểm|$)/);
-                    if (activitiesMatch) {
-                      slot.activities = activitiesMatch[1].trim();
+                    // Pattern: "Buổi Sáng (07:00-11:30) - mô tả hoạt động - Địa điểm..."
+                    // We want to extract only the text between the first "- " after time and the next "- Địa điểm" or "- Địa điểm chi tiết"
+                    // More precise pattern: match "- " followed by text that doesn't contain "Địa điểm" until we hit "- Địa điểm"
+                    const timePattern = /\(\d{2}:\d{2}-\d{2}:\d{2}\)/;
+                    const timeMatch = line.match(timePattern);
+                    if (timeMatch) {
+                      const afterTime = line.substring(line.indexOf(timeMatch[0]) + timeMatch[0].length);
+                      // Look for "- " after time, then extract until "- Địa điểm" or end of line
+                      const activitiesMatch = afterTime.match(/-\s*([^-]*?)(?:\s*-\s*Địa điểm|$)/);
+                      if (activitiesMatch && activitiesMatch[1]) {
+                        const extracted = activitiesMatch[1].trim();
+                        // Only set if it's not empty and doesn't look like it's part of location info
+                        if (extracted && 
+                            extracted.length > 0 && 
+                            !extracted.includes('Địa điểm') && 
+                            !extracted.includes('Bán kính') &&
+                            !extracted.includes('(') && // Avoid coordinates
+                            !extracted.match(/^\d+\.\d+/) // Avoid lat/lng numbers
+                        ) {
+                          slot.activities = extracted;
+                        }
+                      }
                     }
                     // Extract detailed location
                     const locationMatch = line.match(/Địa điểm chi tiết:\s*(.+?)(?:\s*-\s*Địa điểm map|$)/);
@@ -1342,14 +1488,30 @@ export default function CreateMultipleDaysActivityPage() {
               } else if (line.includes('Buổi Chiều') || line.includes('Chiều')) {
                 const afternoonMatch = line.match(/(\d{2}:\d{2})-(\d{2}:\d{2})/);
                 if (afternoonMatch) {
-                  const slot = newWeeklyPlan[dayKey].find(s => s.id === '2');
+                  const slot = newWeeklyPlan[dateStr].find(s => s.id === '2');
                   if (slot) {
                     slot.isActive = true;
                     slot.startTime = afternoonMatch[1];
                     slot.endTime = afternoonMatch[2];
-                    const activitiesMatch = line.match(/-\s*(.+?)(?:\s*-\s*Địa điểm|$)/);
-                    if (activitiesMatch) {
-                      slot.activities = activitiesMatch[1].trim();
+                    // Extract activities description
+                    // Pattern: "Buổi Chiều (12:30-17:00) - mô tả hoạt động - Địa điểm..."
+                    const timePattern = /\(\d{2}:\d{2}-\d{2}:\d{2}\)/;
+                    const timeMatch = line.match(timePattern);
+                    if (timeMatch) {
+                      const afterTime = line.substring(line.indexOf(timeMatch[0]) + timeMatch[0].length);
+                      const activitiesMatch = afterTime.match(/-\s*([^-]*?)(?:\s*-\s*Địa điểm|$)/);
+                      if (activitiesMatch && activitiesMatch[1]) {
+                        const extracted = activitiesMatch[1].trim();
+                        if (extracted && 
+                            extracted.length > 0 && 
+                            !extracted.includes('Địa điểm') && 
+                            !extracted.includes('Bán kính') &&
+                            !extracted.includes('(') &&
+                            !extracted.match(/^\d+\.\d+/)
+                        ) {
+                          slot.activities = extracted;
+                        }
+                      }
                     }
                     const locationMatch = line.match(/Địa điểm chi tiết:\s*(.+?)(?:\s*-\s*Địa điểm map|$)/);
                     if (locationMatch) {
@@ -1374,14 +1536,30 @@ export default function CreateMultipleDaysActivityPage() {
               } else if (line.includes('Buổi Tối') || line.includes('Tối')) {
                 const eveningMatch = line.match(/(\d{2}:\d{2})-(\d{2}:\d{2})/);
                 if (eveningMatch) {
-                  const slot = newWeeklyPlan[dayKey].find(s => s.id === '3');
+                  const slot = newWeeklyPlan[dateStr].find(s => s.id === '3');
                   if (slot) {
                     slot.isActive = true;
                     slot.startTime = eveningMatch[1];
                     slot.endTime = eveningMatch[2];
-                    const activitiesMatch = line.match(/-\s*(.+?)(?:\s*-\s*Địa điểm|$)/);
-                    if (activitiesMatch) {
-                      slot.activities = activitiesMatch[1].trim();
+                    // Extract activities description
+                    // Pattern: "Buổi Tối (17:00-22:00) - mô tả hoạt động - Địa điểm..."
+                    const timePattern = /\(\d{2}:\d{2}-\d{2}:\d{2}\)/;
+                    const timeMatch = line.match(timePattern);
+                    if (timeMatch) {
+                      const afterTime = line.substring(line.indexOf(timeMatch[0]) + timeMatch[0].length);
+                      const activitiesMatch = afterTime.match(/-\s*([^-]*?)(?:\s*-\s*Địa điểm|$)/);
+                      if (activitiesMatch && activitiesMatch[1]) {
+                        const extracted = activitiesMatch[1].trim();
+                        if (extracted && 
+                            extracted.length > 0 && 
+                            !extracted.includes('Địa điểm') && 
+                            !extracted.includes('Bán kính') &&
+                            !extracted.includes('(') &&
+                            !extracted.match(/^\d+\.\d+/)
+                        ) {
+                          slot.activities = extracted;
+                        }
+                      }
                     }
                     const locationMatch = line.match(/Địa điểm chi tiết:\s*(.+?)(?:\s*-\s*Địa điểm map|$)/);
                     if (locationMatch) {
@@ -1463,16 +1641,17 @@ export default function CreateMultipleDaysActivityPage() {
             });
             
             // Bổ sung từ weeklyPlan nếu có slot active nhưng chưa có trong slotLocationsByDay
-            dayKeyOrder.forEach((day) => {
-              const slots = newWeeklyPlan[day];
+            Object.keys(newWeeklyPlan).forEach((dateStr) => {
+              const slots = newWeeklyPlan[dateStr];
+              const dayKey = getDayKeyFromDate(dateStr);
               slots.forEach((slot) => {
                 if (slot.isActive && slot.locationAddress && slot.locationLat && slot.locationLng) {
                   const slotKey = slotIdToTimeSlotKey[slot.id];
                   if (slotKey) {
-                    const existing = slotLocationsByDay[day].find(item => item.timeSlot === slotKey);
+                    const existing = slotLocationsByDay[dayKey].find(item => item.timeSlot === slotKey);
                     if (!existing) {
-                      slotLocationsByDay[day].push({
-                        id: `${day}-${slotKey}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                      slotLocationsByDay[dayKey].push({
+                        id: `${dayKey}-${slotKey}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                         timeSlot: slotKey,
                         location: {
                           lat: slot.locationLat,
@@ -1601,6 +1780,20 @@ export default function CreateMultipleDaysActivityPage() {
       });
       return next;
     });
+    // Initialize weeklyPlan for all dates in range
+    setWeeklyPlan(prev => {
+      const next = { ...prev };
+      datesInRange.forEach(date => {
+        if (!(date in next)) {
+          next[date] = JSON.parse(JSON.stringify(defaultWeeklySlots));
+        }
+      });
+      // Remove dates no longer in range
+      Object.keys(next).forEach(k => {
+        if (!datesInRange.includes(k)) delete next[k];
+      });
+      return next;
+    });
   }, [datesInRange]);
 
   // Nhóm các ngày theo tuần
@@ -1642,12 +1835,14 @@ export default function CreateMultipleDaysActivityPage() {
 
     // PerSlot mode: tự động áp dụng cho tất cả các buổi đang bật
     // Kiểm tra xem có buổi nào chưa có địa điểm chung không
-    const hasUnappliedSlots = dayKeyOrder.some(day => {
-      const activeSlots = weeklyPlan[day].filter(s => s.isActive);
+    const hasUnappliedSlots = datesInRange.some(date => {
+      const slots = weeklyPlan[date] || [];
+      const activeSlots = slots.filter(s => s.isActive);
       return activeSlots.some(slot => {
         const slotKey = slotIdToTimeSlotKey[slot.id];
         if (!slotKey) return false;
-        const slotLocation = weeklySlotLocations[day].find(l => l.timeSlot === slotKey);
+        const dayKey = getDayKeyFromDate(date);
+        const slotLocation = (weeklySlotLocations[dayKey] || []).find(l => l.timeSlot === slotKey);
         return !slotLocation || 
                slotLocation.location.address !== locationData.address ||
                slotLocation.location.lat !== locationData.lat ||
@@ -1706,8 +1901,11 @@ export default function CreateMultipleDaysActivityPage() {
     return `${year}-${month}-${day}`;
   };
 
-  const selectedDaySummary = getDaySummary(selectedDayKey);
-  const totalWeeklyActive = dayKeyOrder.reduce((sum, key) => sum + getDaySummary(key).active, 0);
+  const selectedDaySummary = selectedDate ? getDaySummary(selectedDate) : { total: 3, active: 0 };
+  const totalWeeklyActive = datesInRange.reduce((sum, date) => {
+    const summary = getDaySummary(date);
+    return sum + summary.active;
+  }, 0);
 
   const formatDateLabel = (value?: string) => {
     if (!value) return null;
@@ -1745,8 +1943,9 @@ export default function CreateMultipleDaysActivityPage() {
     const set = new Set<string>();
     DEFAULT_LOCATION_TEMPLATES.forEach((item) => set.add(item));
     if (locationData?.address) set.add(locationData.address);
-    dayKeyOrder.forEach((day) => {
-      weeklyPlan[day].forEach((slot) => {
+    datesInRange.forEach((date) => {
+      const slots = weeklyPlan[date] || [];
+      slots.forEach((slot) => {
         if (slot.detailedLocation && slot.detailedLocation.trim().length > 0) {
           set.add(slot.detailedLocation.trim());
         }
@@ -1756,7 +1955,7 @@ export default function CreateMultipleDaysActivityPage() {
       });
     });
     return Array.from(set);
-  }, [locationData, weeklyPlan]);
+  }, [locationData, weeklyPlan, datesInRange]);
 
   const renderLocationSummaryCard = () => {
     const wrapperClass = isDarkMode
@@ -1889,7 +2088,9 @@ export default function CreateMultipleDaysActivityPage() {
       return null;
     }
 
-    const selectedDaySummary = getDaySummary(dayLocationEditor);
+    // Get first date with this dayKey for summary
+    const firstDateWithDayKey = datesInRange.find(d => getDayKeyFromDate(d) === dayLocationEditor);
+    const selectedDaySummary = firstDateWithDayKey ? getDaySummary(firstDateWithDayKey) : { total: 3, active: 0 };
     const hasLocation = !!dailyLocations[dayLocationEditor];
 
     return (
@@ -1929,7 +2130,9 @@ export default function CreateMultipleDaysActivityPage() {
           </div>
           <div className="flex flex-wrap gap-1.5">
             {dayKeyOrder.map((day) => {
-              const summary = getDaySummary(day);
+              // Get first date with this dayKey for summary
+              const firstDateWithDayKey = datesInRange.find(d => getDayKeyFromDate(d) === day);
+              const summary = firstDateWithDayKey ? getDaySummary(firstDateWithDayKey) : { total: 3, active: 0 };
               const isSelected = dayLocationEditor === day;
               const hasDayLocation = !!dailyLocations[day];
               return (
@@ -2044,7 +2247,13 @@ export default function CreateMultipleDaysActivityPage() {
           </div>
           <div className="mt-5 space-y-5">
             <div className={`rounded-xl border-2 ${isDarkMode ? 'border-gray-700/60 bg-gray-900/60' : 'border-gray-300 bg-white'} p-4`}>
-              {getActiveTimeSlotsForDay(locationEditorDay).length === 0 ? (
+              {(() => {
+                // Tìm date string cho locationEditorDay
+                const currentWeekDays = weekInfo.currentWeek?.days || [];
+                const editorDate = currentWeekDays.find(d => d.dayKey === locationEditorDay)?.date;
+                const activeSlots = editorDate ? getActiveTimeSlotsForDay(editorDate) : [];
+                return activeSlots.length === 0;
+              })() ? (
                 <div className={`text-center py-10 rounded-xl border-2 border-dashed ${isDarkMode ? 'border-gray-700 text-gray-400 bg-gray-900/50' : 'border-gray-300 text-gray-500 bg-white'}`}>
                   <div className="mb-3 flex justify-center">
                     <Clock size={32} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} strokeWidth={1.5} />
@@ -2052,7 +2261,25 @@ export default function CreateMultipleDaysActivityPage() {
                   <div className="text-xs font-medium">Chưa có buổi nào được kích hoạt trong {dayKeyToLabel[locationEditorDay]}.</div>
                   <div className="text-[10px] mt-1">Hãy bật buổi Sáng/Chiều/Tối trong phần &quot;Lịch tuần&quot; trước.</div>
                 </div>
-              ) : (
+              ) : (() => {
+                // Tìm date string cho locationEditorDay
+                const currentWeekDays = weekInfo.currentWeek?.days || [];
+                const editorDate = currentWeekDays.find(d => d.dayKey === locationEditorDay)?.date || datesInRange.find(d => getDayKeyFromDate(d) === locationEditorDay) || datesInRange[0];
+                const activeSlots = editorDate ? getActiveTimeSlotsForDay(editorDate) : [];
+                
+                if (activeSlots.length === 0) {
+                  return (
+                    <div className={`text-center py-10 rounded-xl border-2 border-dashed ${isDarkMode ? 'border-gray-700 text-gray-400 bg-gray-900/50' : 'border-gray-300 text-gray-500 bg-white'}`}>
+                      <div className="mb-3 flex justify-center">
+                        <Clock size={32} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} strokeWidth={1.5} />
+                      </div>
+                      <div className="text-xs font-medium">Chưa có buổi nào được kích hoạt trong {dayKeyToLabel[locationEditorDay]}.</div>
+                      <div className="text-[10px] mt-1">Hãy bật buổi Sáng/Chiều/Tối trong phần &quot;Lịch tuần&quot; trước.</div>
+                    </div>
+                  );
+                }
+                
+                return (
                 <div className="space-y-4">
                   {/* Map picker cho buổi đã chọn */}
                   {selectedTimeSlotForLocation && (() => {
@@ -2061,7 +2288,7 @@ export default function CreateMultipleDaysActivityPage() {
                       afternoon: 'Buổi Chiều',
                       evening: 'Buổi Tối',
                     };
-                    const currentSlotLocation = weeklySlotLocations[locationEditorDay].find(l => l.timeSlot === selectedTimeSlotForLocation);
+                    const currentSlotLocation = weeklySlotLocations[locationEditorDay]?.find(l => l.timeSlot === selectedTimeSlotForLocation);
                     return (
                       <div>
                         <div className={`flex items-center justify-center gap-2 mb-3 py-3 px-4 rounded-lg ${
@@ -2143,7 +2370,8 @@ export default function CreateMultipleDaysActivityPage() {
                     );
                   })()}
                 </div>
-              )}
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -2165,6 +2393,14 @@ export default function CreateMultipleDaysActivityPage() {
       if (start > end) throw new Error('Ngày kết thúc phải sau hoặc bằng ngày bắt đầu');
       if (datesInRange.length === 0) throw new Error('Khoảng ngày không hợp lệ');
       
+      // Validate registrationThreshold: must be between 0 and 100
+      if (form.registrationThreshold && form.registrationThreshold.trim() !== '') {
+        const thresholdValue = parseInt(form.registrationThreshold);
+        if (isNaN(thresholdValue) || thresholdValue < 0 || thresholdValue > 100) {
+          throw new Error('Ngưỡng đăng ký tối thiểu phải từ 0 đến 100%');
+        }
+      }
+      
       // Validate địa điểm theo từng mode
       if (isGlobalMode) {
         if (!locationData && !form.location.trim()) {
@@ -2172,11 +2408,12 @@ export default function CreateMultipleDaysActivityPage() {
         }
       } else if (isPerDayMode) {
         // Chỉ kiểm tra các ngày có buổi active
-        const daysWithActiveSessions = dayKeyOrder.filter(day => 
-          weeklyPlan[day].some(s => s.isActive)
+        const daysWithActiveSessions = datesInRange.filter(date => 
+          (weeklyPlan[date] || []).some(s => s.isActive)
         );
-        const hasDayLocation = daysWithActiveSessions.some(day => {
-          const dayLocation = dailyLocations[day];
+        const hasDayLocation = daysWithActiveSessions.some(date => {
+          const dayKey = getDayKeyFromDate(date);
+          const dayLocation = dailyLocations[dayKey];
           return dayLocation && dayLocation.address && dayLocation.address.trim() !== '';
         });
         if (daysWithActiveSessions.length > 0 && !hasDayLocation) {
@@ -2184,13 +2421,15 @@ export default function CreateMultipleDaysActivityPage() {
         }
       } else if (isPerSlotMode) {
         // Chỉ kiểm tra các buổi active
-        const hasSlotLocation = dayKeyOrder.some(day => {
-          const activeSlotIds = weeklyPlan[day]
+        const hasSlotLocation = datesInRange.some(date => {
+          const slots = weeklyPlan[date] || [];
+          const activeSlotIds = slots
             .filter(s => s.isActive)
             .map(s => s.id);
           if (activeSlotIds.length === 0) return false;
           
-          const slotLocations = weeklySlotLocations[day] || [];
+          const dayKey = getDayKeyFromDate(date);
+          const slotLocations = weeklySlotLocations[dayKey] || [];
           // Kiểm tra xem có ít nhất một buổi active có địa điểm không
           return activeSlotIds.some(slotId => {
             const slotKey = slotIdToTimeSlotKey[slotId];
@@ -2207,26 +2446,25 @@ export default function CreateMultipleDaysActivityPage() {
         }
       }
       
-      if (!form.responsiblePerson || form.responsiblePerson.length === 0) {
-        throw new Error('Vui lòng chọn ít nhất một người phụ trách');
-      }
+      // Validation for responsiblePerson is done later in the code before creating activityData
 
       // Validate weekly sessions: at least one active slot and time validity for active slots
-      const hasAnyActiveSession = dayKeyOrder.some((dk) => weeklyPlan[dk].some((s) => s.isActive));
+      const hasAnyActiveSession = datesInRange.some((date) => (weeklyPlan[date] || []).some((s) => s.isActive));
       if (!hasAnyActiveSession) {
         throw new Error('Vui lòng bật ít nhất một buổi trong tuần (Sáng/Chiều/Tối)');
       }
       // Validate time ranges for active slots (end > start)
       const invalidTimeErrors: string[] = [];
-      dayKeyOrder.forEach((dk) => {
-        weeklyPlan[dk].forEach((s) => {
+      datesInRange.forEach((date) => {
+        const slots = weeklyPlan[date] || [];
+        slots.forEach((s) => {
           if (s.isActive && s.startTime && s.endTime) {
             const st = new Date(`2000-01-01T${s.startTime}`);
             const et = new Date(`2000-01-01T${s.endTime}`);
             if (!(st instanceof Date) || isNaN(st.getTime()) || !(et instanceof Date) || isNaN(et.getTime())) {
-              invalidTimeErrors.push(`${dayKeyToLabel[dk]} • ${s.name}: Thời gian không hợp lệ`);
+              invalidTimeErrors.push(`${formatDateForDisplay(date)} • ${s.name}: Thời gian không hợp lệ`);
             } else if (et <= st) {
-              invalidTimeErrors.push(`${dayKeyToLabel[dk]} • ${s.name}: Giờ kết thúc phải sau giờ bắt đầu`);
+              invalidTimeErrors.push(`${formatDateForDisplay(date)} • ${s.name}: Giờ kết thúc phải sau giờ bắt đầu`);
             }
           }
         });
@@ -2255,9 +2493,98 @@ export default function CreateMultipleDaysActivityPage() {
       }
 
       // Build schedule payload using weekly sessions (Mon-Sun) + free text
+      // First, validate activities length for each day
+      const scheduleValidationErrors: Array<{ date: string; length: number; maxLength: number }> = [];
+      datesInRange.forEach((d) => {
+        const slots = weeklyPlan[d] || [];
+        const activeLines = slots
+          .filter(s => s && s.isActive)
+          .map(s => {
+            const parts: string[] = [];
+            parts.push(`${s.name} (${s.startTime}-${s.endTime})`);
+            if (s.activities && s.activities.trim()) {
+              parts.push(`- ${s.activities.trim()}`);
+            }
+            if (s.detailedLocation && s.detailedLocation.trim()) {
+              parts.push(`- Địa điểm chi tiết: ${s.detailedLocation.trim()}`);
+            }
+            if (s.locationAddress) {
+              const coords =
+                typeof s.locationLat === 'number' && typeof s.locationLng === 'number'
+                  ? ` (${s.locationLat.toFixed(5)}, ${s.locationLng.toFixed(5)})`
+                  : '';
+              const radiusText =
+                typeof s.locationRadius === 'number' ? ` - Bán kính: ${s.locationRadius}m` : '';
+              parts.push(`- Địa điểm map: ${s.locationAddress}${coords}${radiusText}`);
+            }
+            return parts.join(' ');
+          });
+        
+        // Add location information based on mode
+        const dayLocationLines: string[] = [];
+        
+        if (isPerDayMode) {
+          const dayKey = getDayKeyFromDate(d);
+          const dayLocation = dailyLocations[dayKey];
+          const dayDetailedLocation = perDayDetailedLocation[dayKey];
+          
+          if (dayLocation && dayLocation.address) {
+            const coords = dayLocation.lat && dayLocation.lng
+              ? ` (${dayLocation.lat.toFixed(5)}, ${dayLocation.lng.toFixed(5)})`
+              : '';
+            const radiusText = dayLocation.radius ? ` - Bán kính: ${dayLocation.radius}m` : '';
+            dayLocationLines.push(`Địa điểm map: ${dayLocation.address}${coords}${radiusText}`);
+          }
+          if (dayDetailedLocation && dayDetailedLocation.trim()) {
+            dayLocationLines.push(`Địa điểm chi tiết: ${dayDetailedLocation.trim()}`);
+          }
+        } else if (isPerSlotMode) {
+          const dayKey = getDayKeyFromDate(d);
+          const slotLocations = weeklySlotLocations[dayKey] || [];
+          slotLocations.forEach(slotLoc => {
+            if (slotLoc.location && slotLoc.location.address) {
+              const coords = slotLoc.location.lat && slotLoc.location.lng
+                ? ` (${slotLoc.location.lat.toFixed(5)}, ${slotLoc.location.lng.toFixed(5)})`
+                : '';
+              const radiusText = slotLoc.radius ? ` - Bán kính: ${slotLoc.radius}m` : '';
+              dayLocationLines.push(`${slotLoc.timeSlot === 'morning' ? 'Buổi Sáng' : slotLoc.timeSlot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối'}: Địa điểm map: ${slotLoc.location.address}${coords}${radiusText}`);
+            }
+          });
+        }
+        
+        // Also include freeText from daySchedules (if exists)
+        const freeText = daySchedules[d] || '';
+        const allLines = [...activeLines, ...dayLocationLines, freeText].filter(Boolean);
+        const activitiesText = allLines.join('\n');
+        const activitiesLength = activitiesText.length;
+        const maxLength = 1000;
+        
+        if (activitiesLength > maxLength) {
+          scheduleValidationErrors.push({
+            date: d,
+            length: activitiesLength,
+            maxLength: maxLength
+          });
+        }
+      });
+      
+      // If there are validation errors, show them and prevent submit
+      if (scheduleValidationErrors.length > 0) {
+        const errorMessages = scheduleValidationErrors.map(err => {
+          const dateObj = new Date(err.date);
+          const formattedDate = dateObj.toLocaleDateString('vi-VN', { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+          });
+          return `${formattedDate} (${err.length}/${err.maxLength} ký tự)`;
+        });
+        throw new Error(`Mô tả hoạt động vượt quá ${scheduleValidationErrors[0].maxLength} ký tự ở các ngày sau:\n${errorMessages.map(msg => `• ${msg}`).join('\n')}\n\nVui lòng rút ngắn nội dung hoặc chia nhỏ thông tin.`);
+      }
+      
       const schedule: Array<{ day: number; date: string | Date; activities: string }> = datesInRange.map((d, idx) => {
-        const dayKey = getDayKeyFromDate(d);
-        const slots = weeklyPlan[dayKey] || [];
+        const slots = weeklyPlan[d] || [];
         const activeLines = slots
           .filter(s => s && s.isActive)
           .map(s => {
@@ -2286,6 +2613,7 @@ export default function CreateMultipleDaysActivityPage() {
         
         if (isPerDayMode) {
           // PerDay mode: Add location for this specific day
+          const dayKey = getDayKeyFromDate(d);
           const dayLocation = dailyLocations[dayKey];
           const dayDetailedLocation = perDayDetailedLocation[dayKey];
           
@@ -2323,23 +2651,8 @@ export default function CreateMultipleDaysActivityPage() {
         };
       });
 
-      // Validate activities length for each day (max 1000 characters)
-      const invalidDays: string[] = [];
-      schedule.forEach((item, idx) => {
-        if (item.activities && item.activities.length > 1000) {
-          const dateObj = typeof item.date === 'string' ? new Date(item.date) : item.date;
-          const dateStr = dateObj.toLocaleDateString('vi-VN', { 
-            weekday: 'long', 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-          });
-          invalidDays.push(`${dateStr} (${item.activities.length}/1000 ký tự)`);
-        }
-      });
-      if (invalidDays.length > 0) {
-        throw new Error(`Mô tả hoạt động vượt quá 1000 ký tự ở các ngày sau:\n- ${invalidDays.join('\n- ')}\n\nVui lòng rút ngắn nội dung hoặc chia nhỏ thông tin.`);
-      }
+      // Validation for activities length is already done above (before building schedule)
+      // No need to validate again here
 
       const locationLabel = isPerSlotMode
         ? 'Địa điểm theo buổi'
@@ -2349,9 +2662,33 @@ export default function CreateMultipleDaysActivityPage() {
             ? form.location
             : (locationData ? locationData.address : '');
 
+      // Parse registrationThreshold - handle empty string, null, undefined, but allow 0
+      // Ensure value is between 0 and 100
+      let registrationThresholdValue = 80;
+      const thresholdStr = form.registrationThreshold?.toString().trim() || '';
+      
+      if (thresholdStr !== '') {
+        const parsedValue = parseInt(thresholdStr, 10);
+        
+        if (!isNaN(parsedValue)) {
+          registrationThresholdValue = Math.max(0, Math.min(100, parsedValue)); // Clamp between 0 and 100
+        }
+      }
+
+      // Ensure responsiblePerson is valid array with at least one item
+      if (!form.responsiblePerson || !Array.isArray(form.responsiblePerson) || form.responsiblePerson.length === 0) {
+        throw new Error('Vui lòng chọn ít nhất một người phụ trách');
+      }
+
+      // Filter out empty strings and validate again
+      const filteredResponsiblePerson = form.responsiblePerson.filter(id => id && typeof id === 'string' && id.trim() !== '');
+      if (filteredResponsiblePerson.length === 0) {
+        throw new Error('Vui lòng chọn ít nhất một người phụ trách hợp lệ');
+      }
+
       const activityData = {
-        name: form.name,
-        description: form.description,
+        name: form.name.trim(),
+        description: form.description.trim(),
         location: locationLabel,
         locationData: isGlobalMode && locationData ? {
           lat: locationData.lat,
@@ -2360,14 +2697,15 @@ export default function CreateMultipleDaysActivityPage() {
           radius: locationData.radius
         } : undefined,
         maxParticipants: form.maxParticipants ? parseInt(form.maxParticipants) : undefined,
+        registrationThreshold: registrationThresholdValue,
         visibility: form.visibility,
-        responsiblePerson: form.responsiblePerson,
+        responsiblePerson: filteredResponsiblePerson, // Use filtered array
         status: form.status,
         type: 'multiple_days' as const,
         imageUrl: imageUrl || undefined,
-        overview: form.overview || undefined,
-        startDate: form.startDate ? new Date(`${form.startDate}T00:00:00.000Z`).toISOString() : undefined,
-        endDate: form.endDate ? new Date(`${form.endDate}T00:00:00.000Z`).toISOString() : undefined,
+        overview: form.overview ? form.overview.trim() : undefined,
+        startDate: form.startDate ? `${form.startDate}T00:00:00.000Z` : undefined, // ISO string format
+        endDate: form.endDate ? `${form.endDate}T00:00:00.000Z` : undefined, // ISO string format
         schedule
       };
 
@@ -2407,9 +2745,14 @@ export default function CreateMultipleDaysActivityPage() {
       }
       
       const result = await res.json();
-      console.log(`Activity ${isEditMode ? 'updated' : 'created'}:`, result);
+      
       setSuccessMessage(`Hoạt động nhiều ngày đã được ${isEditMode ? 'cập nhật' : 'tạo'} thành công!`);
       setShowSuccessModal(true);
+      
+      // Reload activity data after successful update to reflect changes
+      if (isEditMode && activityId) {
+        await loadActivityData(activityId);
+      }
 
       // Only reset form if creating new activity
       if (!isEditMode) {
@@ -2420,6 +2763,7 @@ export default function CreateMultipleDaysActivityPage() {
         endDate: '',
         location: '',
         maxParticipants: '',
+        registrationThreshold: '80',
         visibility: 'public',
         responsiblePerson: [],
         status: 'draft',
@@ -2430,15 +2774,7 @@ export default function CreateMultipleDaysActivityPage() {
       setSelectedImage(null);
       setImagePreview('');
       setDaySchedules({});
-      setWeeklyPlan({
-        mon: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-        tue: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-        wed: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-        thu: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-        fri: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-        sat: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-        sun: JSON.parse(JSON.stringify(defaultWeeklySlots)),
-      });
+      setWeeklyPlan({});
       setWeeklySlotLocations(createEmptyLocationState());
       setDailyLocations(createEmptyDailyLocations());
       setLocationMode('global');
@@ -2693,6 +3029,96 @@ export default function CreateMultipleDaysActivityPage() {
                     <p className={`mt-2 ${helperTextClass}`}>Để trống nếu không giới hạn số lượng tham gia.</p>
                   </div>
 
+                  <div className={`${fieldTileClass} ${isDarkMode ? 'bg-gradient-to-br from-orange-900/20 to-amber-900/10 border-orange-500/30' : 'bg-gradient-to-br from-orange-50/80 to-amber-50/60 border-orange-200/50'}`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-orange-500/20' : 'bg-orange-100'}`}>
+                          <Target size={16} className={isDarkMode ? 'text-orange-400' : 'text-orange-600'} strokeWidth={2} />
+                        </div>
+                        <span className={`${fieldTitleClass} font-bold ${isDarkMode ? 'text-orange-200' : 'text-orange-700'}`}>Ngưỡng đăng ký tối thiểu</span>
+                      </div>
+                      {form.registrationThreshold && (
+                        <div className={`px-3 py-1 rounded-full text-xs font-bold ${
+                          parseInt(form.registrationThreshold) >= 80
+                            ? isDarkMode ? 'bg-green-500/30 text-green-200 border border-green-500/50' : 'bg-green-100 text-green-700 border border-green-300'
+                            : isDarkMode ? 'bg-yellow-500/30 text-yellow-200 border border-yellow-500/50' : 'bg-yellow-100 text-yellow-700 border border-yellow-300'
+                        }`}>
+                          {form.registrationThreshold}%
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Progress Bar */}
+                    <div className="mb-3">
+                      <div className={`w-full h-2 rounded-full overflow-hidden ${isDarkMode ? 'bg-gray-700/50' : 'bg-gray-200'}`}>
+                        <div 
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            parseInt(form.registrationThreshold || '0') >= 80
+                              ? 'bg-gradient-to-r from-green-500 to-emerald-500'
+                              : parseInt(form.registrationThreshold || '0') >= 50
+                              ? 'bg-gradient-to-r from-yellow-500 to-orange-500'
+                              : 'bg-gradient-to-r from-red-500 to-pink-500'
+                          }`}
+                          style={{ width: `${Math.min(parseInt(form.registrationThreshold || '0'), 100)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Input và Quick Select */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          name="registrationThreshold"
+                          value={form.registrationThreshold}
+                          onChange={handleChange}
+                          min="0"
+                          max="100"
+                          className={`flex-1 px-3 py-2.5 rounded-lg border-2 text-sm font-semibold text-center ${
+                            isDarkMode 
+                              ? 'bg-gray-800/60 border-orange-500/50 text-white placeholder-gray-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-500/30' 
+                              : 'bg-white border-orange-300 text-gray-900 placeholder-gray-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20'
+                          } focus:outline-none transition-all duration-300`}
+                          placeholder="80"
+                        />
+                        <span className={`text-sm font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>%</span>
+                      </div>
+
+                      {/* Quick Select Buttons */}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`text-[10px] font-medium mr-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Chọn nhanh:</span>
+                        {[50, 70, 80, 90, 100].map((value) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setForm(prev => ({ ...prev, registrationThreshold: value.toString() }))}
+                            className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all duration-200 ${
+                              form.registrationThreshold === value.toString()
+                                ? isDarkMode
+                                  ? 'bg-orange-500 text-white shadow-md scale-105'
+                                  : 'bg-orange-500 text-white shadow-md scale-105'
+                                : isDarkMode
+                                ? 'bg-gray-700/50 text-gray-300 hover:bg-gray-600/50 border border-gray-600/50'
+                                : 'bg-white text-gray-600 hover:bg-orange-50 border border-gray-300'
+                            }`}
+                          >
+                            {value}%
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Info Text */}
+                    <div className={`mt-3 p-2.5 rounded-lg ${isDarkMode ? 'bg-blue-900/20 border border-blue-500/30' : 'bg-blue-50 border border-blue-200'}`}>
+                      <div className="flex items-start gap-2">
+                        <Info size={14} className={`mt-0.5 flex-shrink-0 ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`} strokeWidth={2} />
+                        <p className={`text-[10px] leading-relaxed ${isDarkMode ? 'text-blue-200' : 'text-blue-700'}`}>
+                          Sinh viên phải đăng ký <strong>≥{form.registrationThreshold || '80'}%</strong> tổng số buổi mới được tham gia hoạt động này.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className={fieldTileClass}>
                     <div className="flex items-center gap-2 mb-2">
                       <Calendar size={16} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} strokeWidth={1.5} />
@@ -2939,12 +3365,11 @@ export default function CreateMultipleDaysActivityPage() {
                   {/* Day Tabs - Hiển thị đầy đủ từ Thứ 2 đến Chủ nhật */}
                   <div className="flex justify-center overflow-x-auto gap-1.5 no-scrollbar">
                         {dayKeyOrder.map((dayKey) => {
-                          const { active, total } = getDaySummary(dayKey);
+                          // Tìm ngày tương ứng với dayKey trong tuần hiện tại hoặc tuần đầu tiên
+                          const currentWeekDays = weekInfo.currentWeek?.days || weeks[0]?.days || [];
+                          const dayDate = currentWeekDays.find(d => d.dayKey === dayKey)?.date;
+                          const { active, total } = dayDate ? getDaySummary(dayDate) : { total: 3, active: 0 };
                           const isSelected = selectedDayKey === dayKey;
-                      
-                      // Tìm ngày tương ứng với dayKey trong tuần hiện tại hoặc tuần đầu tiên
-                      const currentWeekDays = weekInfo.currentWeek?.days || weeks[0]?.days || [];
-                      const dayDate = currentWeekDays.find(d => d.dayKey === dayKey)?.date;
                       const dayDateShort = dayDate ? (() => {
                         const date = new Date(dayDate);
                         const day = date.getDate();
@@ -2963,7 +3388,8 @@ export default function CreateMultipleDaysActivityPage() {
                         hasLocation = !!dailyLocations[dayKey];
                       } else if (isPerSlotMode) {
                         // PerSlot mode: kiểm tra xem tất cả slot active đều có địa điểm
-                        const activeSlots = weeklyPlan[dayKey].filter(s => s.isActive);
+                        const slots = dayDate ? (weeklyPlan[dayDate] || []) : [];
+                        const activeSlots = slots.filter(s => s.isActive);
                         hasLocation = activeSlots.length > 0 && activeSlots.every(slot => 
                           slot.locationAddress && typeof slot.locationLat === 'number' && typeof slot.locationLng === 'number'
                         );
@@ -2979,6 +3405,20 @@ export default function CreateMultipleDaysActivityPage() {
                               type="button"
                               onClick={() => {
                                 setSelectedDayKey(dayKey);
+                                // Set selectedDate immediately
+                                const currentWeekDays = weekInfo.currentWeek?.days || weeks[0]?.days || [];
+                                const dayDate = currentWeekDays.find(d => d.dayKey === dayKey)?.date;
+                                if (dayDate) {
+                                  setSelectedDate(dayDate);
+                                } else {
+                                  // If not in current week, find first date with this dayKey
+                                  const firstDate = datesInRange.find(d => getDayKeyFromDate(d) === dayKey);
+                                  if (firstDate) {
+                                    setSelectedDate(firstDate);
+                                  } else if (datesInRange.length > 0) {
+                                    setSelectedDate(datesInRange[0]);
+                                  }
+                                }
                                 // Nếu ở PerSlot mode, cập nhật locationEditorDay và selectedTimeSlotForLocation
                                 if (isPerSlotMode) {
                                   setLocationEditorDay(dayKey);
@@ -3095,7 +3535,31 @@ export default function CreateMultipleDaysActivityPage() {
 
                   {/* Time Slots Grid - Compact */}
                   <div className="grid md:grid-cols-3 gap-3">
-                        {weeklyPlan[selectedDayKey].map((slot) => {
+                        {(() => {
+                          // Get slots for selected date, or use default if not available
+                          // But ensure we always use slots from state, not defaultWeeklySlots directly
+                          let slots: WeeklySlot[];
+                          if (selectedDate && weeklyPlan[selectedDate]) {
+                            slots = weeklyPlan[selectedDate];
+                          } else {
+                            // If no slots for selectedDate, use default but ensure they're in state
+                            slots = defaultWeeklySlots;
+                            // Initialize in state if not exists
+                            if (selectedDate && !weeklyPlan[selectedDate]) {
+                              setWeeklyPlan(prev => {
+                                if (!prev[selectedDate]) {
+                                  return {
+                                    ...prev,
+                                    [selectedDate]: JSON.parse(JSON.stringify(defaultWeeklySlots))
+                                  };
+                                }
+                                return prev;
+                              });
+                            }
+                          }
+                          return (
+                            <>
+                              {slots.map((slot) => {
                           const isActive = slot.isActive;
                           return (
                         <div
@@ -3159,7 +3623,16 @@ export default function CreateMultipleDaysActivityPage() {
                                   <input
                                     type="checkbox"
                                     checked={isActive}
-                                    onChange={(e) => updateWeeklySlot(selectedDayKey, slot.id, 'isActive', e.target.checked)}
+                                    onChange={(e) => {
+                                      if (selectedDate) {
+                                        updateWeeklySlot(selectedDate, slot.id, 'isActive', e.target.checked);
+                                      } else if (datesInRange.length > 0) {
+                                        // Fallback: use first date in range if selectedDate not set
+                                        const firstDate = datesInRange.find(d => getDayKeyFromDate(d) === selectedDayKey) || datesInRange[0];
+                                        setSelectedDate(firstDate);
+                                        updateWeeklySlot(firstDate, slot.id, 'isActive', e.target.checked);
+                                      }
+                                    }}
                                     className="sr-only peer"
                                   />
                               <div className={`relative w-10 h-5 rounded-full transition-all ${isActive ? 'bg-blue-500' : 'bg-gray-400'} peer-checked:after:translate-x-5 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:w-4 after:h-4 after:rounded-full after:bg-white after:shadow-sm after:transition-all`}></div>
@@ -3175,7 +3648,7 @@ export default function CreateMultipleDaysActivityPage() {
                                     <input
                                       type="time"
                                       value={slot.startTime}
-                                      onChange={(e) => updateWeeklySlot(selectedDayKey, slot.id, 'startTime', e.target.value)}
+                                      onChange={(e) => selectedDate && updateWeeklySlot(selectedDate, slot.id, 'startTime', e.target.value)}
                                     className={`w-full px-2 py-1.5 rounded border text-xs ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
                                     />
                                   </div>
@@ -3184,7 +3657,7 @@ export default function CreateMultipleDaysActivityPage() {
                                     <input
                                       type="time"
                                       value={slot.endTime}
-                                      onChange={(e) => updateWeeklySlot(selectedDayKey, slot.id, 'endTime', e.target.value)}
+                                      onChange={(e) => selectedDate && updateWeeklySlot(selectedDate, slot.id, 'endTime', e.target.value)}
                                     className={`w-full px-2 py-1.5 rounded border text-xs ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
                                     />
                                   </div>
@@ -3193,7 +3666,7 @@ export default function CreateMultipleDaysActivityPage() {
                                 <label className={`block mb-0.5 text-[11px] font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Mô tả hoạt động</label>
                                   <textarea
                                     value={slot.activities}
-                                    onChange={(e) => updateWeeklySlot(selectedDayKey, slot.id, 'activities', e.target.value)}
+                                    onChange={(e) => selectedDate && updateWeeklySlot(selectedDate, slot.id, 'activities', e.target.value)}
                                     rows={2}
                                   className={`w-full px-2 py-1.5 rounded border text-xs resize-none ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
                                   placeholder="Nhập nội dung..."
@@ -3210,7 +3683,7 @@ export default function CreateMultipleDaysActivityPage() {
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        updateWeeklySlot(selectedDayKey, slot.id, 'detailedLocation', globalDetailedLocation);
+                                        selectedDate && updateWeeklySlot(selectedDate, slot.id, 'detailedLocation', globalDetailedLocation);
                                       }}
                                       className={`text-[10px] px-1.5 py-0.5 rounded transition-all flex items-center gap-0.5 ${
                                         isDarkMode 
@@ -3227,7 +3700,7 @@ export default function CreateMultipleDaysActivityPage() {
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        updateWeeklySlot(selectedDayKey, slot.id, 'detailedLocation', perDayDetailedLocation[selectedDayKey]);
+                                        selectedDate && updateWeeklySlot(selectedDate, slot.id, 'detailedLocation', perDayDetailedLocation[selectedDayKey]);
                                       }}
                                       className={`text-[10px] px-1.5 py-0.5 rounded transition-all flex items-center gap-0.5 ${
                                         isDarkMode 
@@ -3244,7 +3717,7 @@ export default function CreateMultipleDaysActivityPage() {
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        updateWeeklySlot(selectedDayKey, slot.id, 'detailedLocation', perSlotDetailedLocation);
+                                        selectedDate && updateWeeklySlot(selectedDate, slot.id, 'detailedLocation', perSlotDetailedLocation);
                                       }}
                                       className={`text-[10px] px-1.5 py-0.5 rounded transition-all flex items-center gap-0.5 ${
                                         isDarkMode 
@@ -3261,7 +3734,7 @@ export default function CreateMultipleDaysActivityPage() {
                                   <input
                                     type="text"
                                   value={slot.detailedLocation || ''}
-                                    onChange={(e) => updateWeeklySlot(selectedDayKey, slot.id, 'detailedLocation', e.target.value)}
+                                    onChange={(e) => selectedDate && updateWeeklySlot(selectedDate, slot.id, 'detailedLocation', e.target.value)}
                                   className={`w-full px-2 py-1.5 rounded border text-xs ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
                                   placeholder={
                                     isGlobalMode && globalDetailedLocation 
@@ -3383,6 +3856,9 @@ export default function CreateMultipleDaysActivityPage() {
                             </div>
                           );
                         })}
+                            </>
+                          );
+                        })()}
                       </div>
 
                   {/* Ghi chú và Địa điểm chung - Cùng một hàng */}
@@ -3445,8 +3921,11 @@ export default function CreateMultipleDaysActivityPage() {
                                   // Áp dụng địa điểm chi tiết chung cho tất cả các buổi đang bật
                                   setWeeklyPlan(prev => {
                                     const next = { ...prev };
-                                    dayKeyOrder.forEach(day => {
-                                      next[day] = next[day].map(slot => 
+                                    datesInRange.forEach(date => {
+                                      if (!next[date]) {
+                                        next[date] = JSON.parse(JSON.stringify(defaultWeeklySlots));
+                                      }
+                                      next[date] = next[date].map(slot => 
                                         slot.isActive 
                                           ? { ...slot, detailedLocation: globalDetailedLocation }
                                           : slot
@@ -3475,8 +3954,11 @@ export default function CreateMultipleDaysActivityPage() {
                                   // Xóa tất cả địa điểm chi tiết từ các buổi đang bật
                                   setWeeklyPlan(prev => {
                                     const next = { ...prev };
-                                    dayKeyOrder.forEach(day => {
-                                      next[day] = next[day].map(slot => 
+                                    datesInRange.forEach(date => {
+                                      if (!next[date]) {
+                                        next[date] = JSON.parse(JSON.stringify(defaultWeeklySlots));
+                                      }
+                                      next[date] = next[date].map(slot => 
                                         slot.isActive 
                                           ? { ...slot, detailedLocation: '' }
                                           : slot
@@ -3639,11 +4121,18 @@ export default function CreateMultipleDaysActivityPage() {
                                 // Áp dụng địa điểm chi tiết cho tất cả các buổi đang bật của ngày này
                                 setWeeklyPlan(prev => {
                                   const next = { ...prev };
-                                  next[selectedDayKey] = next[selectedDayKey].map(slot => 
-                                    slot.isActive 
-                                      ? { ...slot, detailedLocation: perDayDetailedLocation[selectedDayKey] }
-                                      : slot
-                                  );
+                                  // Tìm tất cả các date có cùng selectedDayKey
+                                  const dayDates = datesInRange.filter(d => getDayKeyFromDate(d) === selectedDayKey);
+                                  dayDates.forEach(date => {
+                                    if (!next[date]) {
+                                      next[date] = JSON.parse(JSON.stringify(defaultWeeklySlots));
+                                    }
+                                    next[date] = next[date].map(slot => 
+                                      slot.isActive 
+                                        ? { ...slot, detailedLocation: perDayDetailedLocation[selectedDayKey] }
+                                        : slot
+                                    );
+                                  });
                                   return next;
                                 });
                               }}
@@ -3667,11 +4156,18 @@ export default function CreateMultipleDaysActivityPage() {
                                 // Xóa tất cả địa điểm chi tiết từ các buổi đang bật của ngày này
                                 setWeeklyPlan(prev => {
                                   const next = { ...prev };
-                                  next[selectedDayKey] = next[selectedDayKey].map(slot => 
-                                    slot.isActive 
-                                      ? { ...slot, detailedLocation: '' }
-                                      : slot
-                                  );
+                                  // Tìm tất cả các date có cùng selectedDayKey
+                                  const dayDates = datesInRange.filter(d => getDayKeyFromDate(d) === selectedDayKey);
+                                  dayDates.forEach(date => {
+                                    if (!next[date]) {
+                                      next[date] = JSON.parse(JSON.stringify(defaultWeeklySlots));
+                                    }
+                                    next[date] = next[date].map(slot => 
+                                      slot.isActive 
+                                        ? { ...slot, detailedLocation: '' }
+                                        : slot
+                                    );
+                                  });
                                   return next;
                                 });
                                 // Xóa cả địa điểm chi tiết của ngày này

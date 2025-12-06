@@ -7,6 +7,7 @@ import AdminNav from '@/components/admin/AdminNav';
 import Footer from '@/components/common/Footer';
 import ProtectedRoute from '@/components/common/ProtectedRoute';
 import { Loader, UserPlus, ArrowLeft, CheckCircle2, XCircle, Info, User, GraduationCap, Shield, AlertCircle } from 'lucide-react';
+import { validatePassword } from '@/lib/passwordValidation';
 
 interface FormData {
   studentId: string;
@@ -203,8 +204,11 @@ export default function AddMemberPage() {
     // Validate password
     if (!formData.password) {
       newErrors.password = 'Mật khẩu là bắt buộc';
-    } else if (formData.password.length < 6) {
-      newErrors.password = 'Mật khẩu phải có ít nhất 6 ký tự';
+    } else {
+      const passwordValidation = validatePassword(formData.password);
+      if (!passwordValidation.valid) {
+        newErrors.password = passwordValidation.error || 'Mật khẩu không hợp lệ';
+      }
     }
 
     // Validate confirm password

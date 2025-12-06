@@ -23,8 +23,7 @@ const notificationSchema = new Schema<INotification>({
   userId: {
     type: Schema.Types.ObjectId,
     ref: 'User',
-    required: [true, 'User ID là bắt buộc'],
-    index: true
+    required: [true, 'User ID là bắt buộc']
   },
   title: {
     type: String,
@@ -45,14 +44,12 @@ const notificationSchema = new Schema<INotification>({
       message: 'Loại thông báo phải là info, success, warning hoặc error'
     },
     required: [true, 'Loại thông báo là bắt buộc'],
-    default: 'info',
-    index: true
+    default: 'info'
   },
   isRead: {
     type: Boolean,
     required: true,
-    default: false,
-    index: true
+    default: false
   },
   relatedType: {
     type: String,

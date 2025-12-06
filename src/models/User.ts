@@ -9,7 +9,8 @@ export interface IUser extends Document {
   studentId: string;
   name: string;
   email: string;
-  passwordHash: string;
+  passwordHash?: string;
+  googleId?: string;
   role: UserRole;
   phone?: string;
   class?: string;
@@ -18,6 +19,8 @@ export interface IUser extends Document {
   department?: string;
   isClubMember?: boolean;
   avatarUrl?: string;
+  resetPasswordToken?: string;
+  resetPasswordExpires?: Date;
   createdAt: Date;
   updatedAt: Date;
   
@@ -34,19 +37,19 @@ const userSchema = new Schema<IUser>({
     trim: true,
     validate: {
       validator: function(v: string) {
-        // Allow admin IDs or valid student IDs
-        if (v.startsWith('admin') || v.startsWith('superadmin')) return true;
+        // Allow admin IDs, Google IDs (g{googleId}), or valid student IDs
+        if (v.startsWith('admin') || v.startsWith('superadmin') || v.startsWith('g')) return true;
         return /^\d{13}$/.test(v); // 13 digits for student IDs
       },
-      message: 'Mã số sinh viên phải có 13 chữ số hoặc bắt đầu bằng "admin" hoặc "superadmin"'
+      message: 'Mã số sinh viên không hợp lệ'
     }
   },
   name: {
     type: String,
     required: [true, 'Họ và tên là bắt buộc'],
     trim: true,
-    minlength: [2, 'Họ và tên phải có ít nhất 2 ký tự'],
-    maxlength: [100, 'Họ và tên không được quá 100 ký tự']
+    minlength: [2, 'Họ và tên không hợp lệ'],
+    maxlength: [100, 'Họ và tên không hợp lệ']
   },
   email: {
     type: String,
@@ -56,23 +59,49 @@ const userSchema = new Schema<IUser>({
     lowercase: true,
     validate: {
       validator: function(v: string) {
-        // Allow admin emails or valid student emails
+        // Allow admin emails, valid student emails, or any email (for Google OAuth)
         if (v === 'admin@tdmu.edu.vn' || v === 'admin.clb@tdmu.edu.vn' || v === 'superadmin@tdmu.edu.vn') return true;
-        return /^[0-9]{13}@student\.tdmu\.edu\.vn$/.test(v);
+        if (/^[0-9]{13}@student\.tdmu\.edu\.vn$/.test(v)) return true;
+        // Allow any email format for Google OAuth users (they will have googleId)
+        // This validation will be checked in pre-save hook
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
       },
-      message: 'Email phải có định dạng: mã số sinh viên 13 chữ số@student.tdmu.edu.vn hoặc admin@tdmu.edu.vn hoặc admin.clb@tdmu.edu.vn hoặc superadmin@tdmu.edu.vn'
+      message: 'Email không hợp lệ'
     }
   },
   passwordHash: {
     type: String,
-    required: [true, 'Mật khẩu là bắt buộc'],
-    minlength: [6, 'Mật khẩu phải có ít nhất 6 ký tự']
+    required: false,
+    validate: {
+      validator: function(v: string | undefined) {
+        // Only validate if passwordHash is being set or modified
+        // Skip validation if field is not modified (for existing users)
+        if (!this.isModified('passwordHash') && !this.isNew) {
+          return true;
+        }
+        
+        // If passwordHash is provided, it must be at least 6 characters
+        // Note: This is the hashed password, so we can only check length
+        // Pattern validation (uppercase, special char) is done at API level before hashing
+        if (v) {
+          return v.length >= 6;
+        }
+        return true; // Optional if googleId exists
+      },
+      message: 'Mật khẩu phải có ít nhất 6 ký tự, 1 chữ cái viết hoa và 1 ký tự đặc biệt'
+    }
+  },
+  googleId: {
+    type: String,
+    unique: true,
+    sparse: true, // Allow multiple null values
+    trim: true
   },
   role: {
     type: String,
     enum: {
       values: ['SUPER_ADMIN', 'ADMIN', 'CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER', 'CLUB_STUDENT', 'STUDENT'],
-      message: 'Vai trò phải là SUPER_ADMIN, ADMIN, CLUB_LEADER, CLUB_DEPUTY, CLUB_MEMBER, CLUB_STUDENT hoặc STUDENT'
+      message: 'Vai trò không hợp lệ'
     },
     required: [true, 'Vai trò là bắt buộc'],
     default: 'STUDENT' as UserRole
@@ -85,7 +114,7 @@ const userSchema = new Schema<IUser>({
         if (!v) return true; // Optional field
         return /^[0-9]{10,11}$/.test(v);
       },
-      message: 'Số điện thoại phải có 10-11 chữ số'
+      message: 'Số điện thoại không hợp lệ'
     }
   },
   class: {
@@ -96,22 +125,27 @@ const userSchema = new Schema<IUser>({
   faculty: {
     type: String,
     trim: true,
+    required: false, // Optional field
     maxlength: [100, 'Tên khoa không được quá 100 ký tự'],
-    enum: {
-      values: [
-        'Trường Kinh Tế Tài Chính',
-        'Trường Luật Và Quản Lí Phát Triển',
-        'Viện Kỹ Thuật Công Nghệ',
-        'Viện Đào Tạo Ngoại Ngữ',
-        'Viện Đào Tạo CNTT Chuyển Đổi Số',
-        'Viện Đào Tạo Kiến Trúc Xây Dựng Và Giao Thông',
-        'Khoa Sư Phạm',
-        'Khoa Kiến Thức Chung',
-        'Khoa Công Nghiệp Văn Hóa Thể Thao Và Du Lịch',
-        'Ban Quản Lý Đào Tạo Sau Đại Học',
-        'Khác'
-      ],
-      message: 'Khoa/Viện không hợp lệ'
+    validate: {
+      validator: function(v: any) {
+        // Skip validation if value is undefined, null, or empty
+        if (v === undefined || v === null || v === '') {
+          return true;
+        }
+        
+        // Convert to string and trim
+        const value = String(v).trim();
+        if (value === '') {
+          return true;
+        }
+        
+        // Allow any faculty value (user can input custom faculty names)
+        // This is more flexible than restricting to a fixed list
+        // Minimum length check to ensure it's a valid name
+        return value.length >= 2 && value.length <= 100;
+      },
+      message: 'Khoa/Viện phải có từ 2 đến 100 ký tự'
     }
   },
   position: {
@@ -140,6 +174,13 @@ const userSchema = new Schema<IUser>({
       message: 'URL ảnh đại diện phải là một URL hợp lệ'
     }
   },
+  resetPasswordToken: {
+    type: String,
+    trim: true
+  },
+  resetPasswordExpires: {
+    type: Date
+  },
   // Removed soft delete fields since we're doing hard delete now
 
 }, {
@@ -148,8 +189,7 @@ const userSchema = new Schema<IUser>({
 });
 
 // Indexes for better query performance
-userSchema.index({ studentId: 1 });
-userSchema.index({ email: 1 });
+// Note: studentId, email, and googleId already have unique indexes from schema definition
 userSchema.index({ role: 1 });
 userSchema.index({ faculty: 1 });
 userSchema.index({ class: 1 });
@@ -158,6 +198,9 @@ userSchema.index({ class: 1 });
 // Instance method to compare password
 userSchema.methods.comparePassword = async function(candidatePassword: string): Promise<boolean> {
   try {
+    if (!this.passwordHash) {
+      return false; // User doesn't have a password (Google login only)
+    }
     return await bcrypt.compare(candidatePassword, this.passwordHash);
   } catch (error) {
     throw new Error('Lỗi khi so sánh mật khẩu');
@@ -170,21 +213,33 @@ userSchema.statics.hashPassword = async function(password: string): Promise<stri
   return await bcrypt.hash(password, saltRounds);
 };
 
-// Pre-save middleware to hash password if it's modified
-// DISABLED: We now hash password in the API before saving
-// userSchema.pre('save', async function(next) {
-//   // Only hash the password if it has been modified (or is new)
-//   if (!this.isModified('passwordHash')) return next();
-//   
-//   try {
-//     // Hash the password with cost of 12
-//     const saltRounds = 12;
-//     this.passwordHash = await bcrypt.hash(this.passwordHash, saltRounds);
-//     next();
-//   } catch (error) {
-//     next(error as Error);
-//   }
-// });
+// Pre-save middleware to validate that user has either passwordHash or googleId
+userSchema.pre('save', async function(next) {
+  // User must have either passwordHash or googleId
+  if (!this.passwordHash && !this.googleId) {
+    return next(new Error('User must have either passwordHash or googleId'));
+  }
+  
+  // If user has googleId, allow any email format
+  // If user doesn't have googleId, email must be student email or admin email
+  if (!this.googleId) {
+    const isAdminEmail = this.email === 'admin@tdmu.edu.vn' || 
+                        this.email === 'admin.clb@tdmu.edu.vn' || 
+                        this.email === 'superadmin@tdmu.edu.vn';
+    const isStudentEmail = /^[0-9]{13}@student\.tdmu\.edu\.vn$/.test(this.email);
+    
+    if (!isAdminEmail && !isStudentEmail) {
+      return next(new Error('Email phải có định dạng: mã số sinh viên 13 chữ số@student.tdmu.edu.vn hoặc admin@tdmu.edu.vn hoặc admin.clb@tdmu.edu.vn hoặc superadmin@tdmu.edu.vn'));
+    }
+  }
+  
+  // Ensure faculty is undefined if empty string
+  if (this.faculty && typeof this.faculty === 'string' && this.faculty.trim() === '') {
+    this.faculty = undefined;
+  }
+  
+  next();
+});
 
 // Virtual for getting user's display name
 userSchema.virtual('displayName').get(function() {

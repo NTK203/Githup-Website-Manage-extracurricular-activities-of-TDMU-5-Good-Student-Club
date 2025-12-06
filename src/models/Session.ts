@@ -14,8 +14,7 @@ const sessionSchema = new Schema<ISession>({
   userId: {
     type: Schema.Types.ObjectId,
     ref: 'User',
-    required: [true, 'User ID là bắt buộc'],
-    index: true
+    required: [true, 'User ID là bắt buộc']
   },
   role: {
     type: String,
@@ -23,14 +22,12 @@ const sessionSchema = new Schema<ISession>({
     enum: {
       values: ['SUPER_ADMIN', 'ADMIN', 'CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER', 'CLUB_STUDENT', 'STUDENT'],
       message: 'Role không hợp lệ'
-    },
-    index: true
+    }
   },
   lastActive: {
     type: Date,
     required: [true, 'Last active time là bắt buộc'],
-    default: Date.now,
-    index: true
+    default: Date.now
   }
 }, {
   timestamps: true,

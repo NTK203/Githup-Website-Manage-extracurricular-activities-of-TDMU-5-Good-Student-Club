@@ -21,13 +21,31 @@ import {
   AlertTriangle,
   Download,
   Trash2,
-  Loader2,
+  Loader,
   Map,
   Navigation,
   Image as ImageIcon,
   FileText,
   UserCircle,
-  Timer
+  Timer,
+  Sun,
+  Sunset,
+  Moon,
+  PlayCircle,
+  Square,
+  Eye,
+  PauseCircle,
+  Building2,
+  Target,
+  Zap,
+  ChevronLeft,
+  ChevronRight,
+  CalendarRange,
+  Sunrise,
+  XCircle,
+  Award,
+  TrendingUp,
+  Activity
 } from 'lucide-react';
 
 // Dynamically import Leaflet components to avoid SSR issues
@@ -189,18 +207,30 @@ interface TimeSlot {
   detailedLocation?: string;
 }
 
+interface DaySchedule {
+  day: number;
+  date: string; // ISO date string
+  activities: string;
+}
+
+interface LocationData {
+  lat: number;
+  lng: number;
+  address: string;
+  radius: number;
+}
+
 interface Activity {
   _id: string;
   name: string;
-  date: string;
+  date: string; // For single_day
+  startDate?: string; // For multiple_days
+  endDate?: string; // For multiple_days
   location: string;
   timeSlots: TimeSlot[];
-  locationData?: {
-    lat: number;
-    lng: number;
-    address: string;
-    radius: number;
-  };
+  schedule?: DaySchedule[]; // For multiple_days
+  type: 'single_day' | 'multiple_days';
+  locationData?: LocationData;
   multiTimeLocations?: Array<{
     timeSlot: 'morning' | 'afternoon' | 'evening';
     location: {
@@ -210,6 +240,10 @@ interface Activity {
     };
     radius: number;
   }>;
+  // Location data for multiple days
+  dailyLocations?: { [day: number]: LocationData };
+  perDayDetailedLocation?: { [day: number]: string };
+  weeklySlotLocations?: { [day: number]: { [slot: string]: LocationData } };
 }
 
 export default function StudentAttendancePage() {
@@ -228,7 +262,12 @@ export default function StudentAttendancePage() {
   const [currentTime, setCurrentTime] = useState(new Date());
   
   // Helper function to get verifier name
-  const getVerifierName = (verifiedBy: any): string => {
+  const getVerifierName = (verifiedBy: any, verifiedByName?: string | null): string => {
+    // Priority 1: Use verifiedByName if available (manual check-in)
+    if (verifiedByName && typeof verifiedByName === 'string' && verifiedByName.trim().length > 0) {
+      return verifiedByName.trim();
+    }
+    
     if (!verifiedBy) {
       return 'Người quản trị';
     }
@@ -258,6 +297,18 @@ export default function StudentAttendancePage() {
     
     return 'Người quản trị';
   };
+
+  // Helper function to check if attendance is manual check-in
+  const isManualCheckInRecord = (record: any): boolean => {
+    if (!record) return false;
+    // Check if verificationNote contains "thủ công" or "officer"
+    if (record.verificationNote && typeof record.verificationNote === 'string') {
+      const note = record.verificationNote.toLowerCase();
+      return note.includes('thủ công') || note.includes('officer') || note.includes('điểm danh thủ công');
+    }
+    // Check if verifiedByName exists (manual check-in always has this)
+    return !!(record.verifiedByName);
+  };
   
   // Attendance state for each time slot and check-in type
   type TimeSlotName = 'Buổi Sáng' | 'Buổi Chiều' | 'Buổi Tối';
@@ -278,6 +329,8 @@ export default function StudentAttendancePage() {
     photoUrl?: string;
     status: string;
     verifiedBy?: any;
+    verifiedByName?: string | null;
+    verifiedByEmail?: string | null;
     verifiedAt?: string;
     verificationNote?: string;
     cancelReason?: string;
@@ -307,6 +360,37 @@ export default function StudentAttendancePage() {
   // Image viewer modal states
   const [showImageModal, setShowImageModal] = useState(false);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+
+  // Multiple days states
+  const [selectedDaySlot, setSelectedDaySlot] = useState<{ day: number; slot: 'morning' | 'afternoon' | 'evening' } | null>(null);
+  const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
+  const [hasInitialized, setHasInitialized] = useState(false);
+  const [registeredDaySlots, setRegisteredDaySlots] = useState<Array<{ day: number; slot: 'morning' | 'afternoon' | 'evening' }>>([]);
+  const [parsedScheduleData, setParsedScheduleData] = useState<Array<{
+    day: number;
+    date: string;
+    slots: Array<{
+      name: string;
+      slotKey: 'morning' | 'afternoon' | 'evening';
+      startTime: string;
+      endTime: string;
+      activities?: string;
+      detailedLocation?: string;
+      mapLocation?: {
+        address: string;
+        lat?: number;
+        lng?: number;
+        radius?: number;
+      };
+    }>;
+    dayMapLocation?: {
+      address: string;
+      lat?: number;
+      lng?: number;
+      radius?: number;
+    };
+    dayDetailedLocation?: string;
+  }>>([]);
 
   // Handle ESC key to close image modal
   useEffect(() => {
@@ -383,12 +467,70 @@ export default function StudentAttendancePage() {
           return;
         }
 
+        const isMultipleDays = rawActivity.type === 'multiple_days';
+        
+        // Parse schedule for multiple days
+        let schedule: DaySchedule[] = [];
+        if (isMultipleDays && rawActivity.schedule) {
+          schedule = rawActivity.schedule.map((item: any) => ({
+            day: item.day,
+            date: item.date?.$date ? new Date(item.date.$date).toISOString().split('T')[0] : (item.date ? new Date(item.date).toISOString().split('T')[0] : ''),
+            activities: item.activities || ''
+          }));
+        }
+
+        // Parse location data for multiple days
+        let dailyLocations: { [day: number]: LocationData } = {};
+        let perDayDetailedLocation: { [day: number]: string } = {};
+        let weeklySlotLocations: { [day: number]: { [slot: string]: LocationData } } = {};
+
+        if (isMultipleDays && schedule.length > 0) {
+          schedule.forEach((daySchedule) => {
+            const activitiesText = daySchedule.activities || '';
+            
+            // Extract per day detailed location
+            const detailedLocationMatch = activitiesText.match(/Địa điểm chi tiết:\s*(.+?)(?:\n|$)/);
+            if (detailedLocationMatch) {
+              perDayDetailedLocation[daySchedule.day] = detailedLocationMatch[1].trim();
+            }
+
+            // Extract map location for per day mode
+            const mapLocationMatch = activitiesText.match(/Địa điểm map:\s*lat:([\d.]+),lng:([\d.]+),address:(.+?),radius:(\d+)/);
+            if (mapLocationMatch) {
+              dailyLocations[daySchedule.day] = {
+                lat: parseFloat(mapLocationMatch[1]),
+                lng: parseFloat(mapLocationMatch[2]),
+                address: mapLocationMatch[3].trim(),
+                radius: parseInt(mapLocationMatch[4])
+              };
+            }
+
+            // Extract per slot locations
+            const slotMatches = activitiesText.matchAll(/Buổi (Sáng|Chiều|Tối).*?Địa điểm map:\s*lat:([\d.]+),lng:([\d.]+),address:(.+?),radius:(\d+)/g);
+            for (const match of slotMatches) {
+              const slotName = match[1];
+              const slotKey = slotName === 'Sáng' ? 'morning' : slotName === 'Chiều' ? 'afternoon' : 'evening';
+              if (!weeklySlotLocations[daySchedule.day]) {
+                weeklySlotLocations[daySchedule.day] = {};
+              }
+              weeklySlotLocations[daySchedule.day][slotKey] = {
+                lat: parseFloat(match[2]),
+                lng: parseFloat(match[3]),
+                address: match[4].trim(),
+                radius: parseInt(match[5])
+              };
+            }
+          });
+        }
+
         setActivity({
           _id: rawActivity._id,
           name: rawActivity.name,
-          date: rawActivity.date?.$date 
+          date: isMultipleDays ? '' : (rawActivity.date?.$date 
             ? new Date(rawActivity.date.$date).toLocaleDateString('vi-VN')
-            : new Date(rawActivity.date).toLocaleDateString('vi-VN'),
+            : new Date(rawActivity.date).toLocaleDateString('vi-VN')),
+          startDate: isMultipleDays && rawActivity.startDate ? (rawActivity.startDate?.$date ? new Date(rawActivity.startDate.$date).toLocaleDateString('vi-VN') : new Date(rawActivity.startDate).toLocaleDateString('vi-VN')) : undefined,
+          endDate: isMultipleDays && rawActivity.endDate ? (rawActivity.endDate?.$date ? new Date(rawActivity.endDate.$date).toLocaleDateString('vi-VN') : new Date(rawActivity.endDate).toLocaleDateString('vi-VN')) : undefined,
           location: rawActivity.location,
           timeSlots: rawActivity.timeSlots?.filter((slot: any) => slot.isActive).map((slot: any) => ({
             name: slot.name,
@@ -398,16 +540,158 @@ export default function StudentAttendancePage() {
             activities: slot.activities || '',
             detailedLocation: slot.detailedLocation || ''
           })) || [],
+          schedule: schedule.length > 0 ? schedule : undefined,
+          type: rawActivity.type || 'single_day',
           locationData: rawActivity.locationData,
-          multiTimeLocations: rawActivity.multiTimeLocations
+          multiTimeLocations: rawActivity.multiTimeLocations,
+          dailyLocations,
+          perDayDetailedLocation,
+          weeklySlotLocations
         });
 
-        // Set map center based on activity location
-        if (rawActivity.locationData) {
-          setMapCenter([rawActivity.locationData.lat, rawActivity.locationData.lng]);
-        } else if (rawActivity.multiTimeLocations && rawActivity.multiTimeLocations.length > 0) {
-          const firstLocation = rawActivity.multiTimeLocations[0];
-          setMapCenter([firstLocation.location.lat, firstLocation.location.lng]);
+        // Parse schedule data for multiple days
+        if (isMultipleDays && schedule.length > 0) {
+          const parsedData = schedule.map((daySchedule) => {
+            const activitiesText = daySchedule.activities || '';
+            const lines = activitiesText.split('\n').filter(line => line.trim());
+            
+            const slots: Array<{
+              name: string;
+              slotKey: 'morning' | 'afternoon' | 'evening';
+              startTime: string;
+              endTime: string;
+              activities?: string;
+              detailedLocation?: string;
+              mapLocation?: {
+                address: string;
+                lat?: number;
+                lng?: number;
+                radius?: number;
+              };
+            }> = [];
+            
+            let dayDetailedLocation: string | undefined;
+            let dayMapLocation: { address: string; lat?: number; lng?: number; radius?: number } | undefined;
+            
+            lines.forEach(line => {
+              const trimmed = line.trim();
+              
+              // Parse buổi: "Buổi Sáng (07:00-11:30) - ..."
+              const slotMatch = trimmed.match(/^Buổi (Sáng|Chiều|Tối)\s*\((\d{2}:\d{2})-(\d{2}:\d{2})\)/);
+              if (slotMatch) {
+                const slotName = slotMatch[1];
+                const slotKey = slotName === 'Sáng' ? 'morning' : slotName === 'Chiều' ? 'afternoon' : 'evening';
+                const startTime = slotMatch[2];
+                const endTime = slotMatch[3];
+                
+                const activitiesMatch = trimmed.match(/-\s*([^-]+?)(?:\s*-\s*Địa điểm chi tiết|$)/);
+                const activities = activitiesMatch ? activitiesMatch[1].trim() : undefined;
+                
+                const detailedMatch = trimmed.match(/Địa điểm chi tiết:\s*(.+?)(?:\s*-\s*Địa điểm map|$)/);
+                const detailedLocation = detailedMatch ? detailedMatch[1].trim() : undefined;
+                
+                const mapMatch = trimmed.match(/Địa điểm map:\s*(.+?)(?:\s*\(([\d.]+),\s*([\d.]+)\)|$)/);
+                let mapLocation: { address: string; lat?: number; lng?: number; radius?: number } | undefined;
+                if (mapMatch) {
+                  const address = mapMatch[1].trim();
+                  const lat = mapMatch[2] ? parseFloat(mapMatch[2]) : undefined;
+                  const lng = mapMatch[3] ? parseFloat(mapMatch[3]) : undefined;
+                  const radiusMatch = trimmed.match(/Bán kính:\s*(\d+)m/);
+                  const radius = radiusMatch ? parseInt(radiusMatch[1]) : undefined;
+                  mapLocation = { address, lat, lng, radius };
+                }
+                
+                slots.push({
+                  name: `Buổi ${slotName}`,
+                  slotKey,
+                  startTime,
+                  endTime,
+                  activities,
+                  detailedLocation,
+                  mapLocation
+                });
+              } else if (trimmed.startsWith('Địa điểm chi tiết:') && !trimmed.includes('Buổi')) {
+                const match = trimmed.match(/Địa điểm chi tiết:\s*(.+?)(?:\s*-\s*Địa điểm map|$)/);
+                if (match) {
+                  dayDetailedLocation = match[1].trim();
+                }
+              } else if (trimmed.startsWith('Địa điểm map:') && !trimmed.includes('Buổi')) {
+                const mapMatch = trimmed.match(/Địa điểm map:\s*(.+?)(?:\s*\(([\d.]+),\s*([\d.]+)\)|$)/);
+                if (mapMatch) {
+                  const address = mapMatch[1].trim();
+                  const lat = mapMatch[2] ? parseFloat(mapMatch[2]) : undefined;
+                  const lng = mapMatch[3] ? parseFloat(mapMatch[3]) : undefined;
+                  const radiusMatch = trimmed.match(/Bán kính:\s*(\d+)m/);
+                  const radius = radiusMatch ? parseInt(radiusMatch[1]) : undefined;
+                  dayMapLocation = { address, lat, lng, radius };
+                }
+              }
+            });
+            
+            // Also check weeklySlotLocations and dailyLocations from parsed data
+            if (weeklySlotLocations[daySchedule.day]) {
+              Object.entries(weeklySlotLocations[daySchedule.day]).forEach(([slotKey, locationData]) => {
+                const slot = slots.find(s => s.slotKey === slotKey);
+                if (slot && !slot.mapLocation) {
+                  slot.mapLocation = {
+                    address: locationData.address,
+                    lat: locationData.lat,
+                    lng: locationData.lng,
+                    radius: locationData.radius
+                  };
+                }
+              });
+            }
+            
+            if (dailyLocations[daySchedule.day] && !dayMapLocation) {
+              dayMapLocation = {
+                address: dailyLocations[daySchedule.day].address,
+                lat: dailyLocations[daySchedule.day].lat,
+                lng: dailyLocations[daySchedule.day].lng,
+                radius: dailyLocations[daySchedule.day].radius
+              };
+            }
+            
+            if (perDayDetailedLocation[daySchedule.day] && !dayDetailedLocation) {
+              dayDetailedLocation = perDayDetailedLocation[daySchedule.day];
+            }
+            
+            return {
+              day: daySchedule.day,
+              date: daySchedule.date,
+              slots,
+              dayMapLocation,
+              dayDetailedLocation
+            };
+          });
+          
+          // Save registeredDaySlots
+          const userRegisteredDaySlots = userParticipant.registeredDaySlots && Array.isArray(userParticipant.registeredDaySlots)
+            ? userParticipant.registeredDaySlots
+            : [];
+          setRegisteredDaySlots(userRegisteredDaySlots);
+          
+          setParsedScheduleData(parsedData);
+        }
+
+        // Set map center based on activity location (for single day)
+        if (!isMultipleDays) {
+          if (rawActivity.locationData && 
+            typeof rawActivity.locationData.lat === 'number' && 
+            typeof rawActivity.locationData.lng === 'number' &&
+            !isNaN(rawActivity.locationData.lat) && 
+            !isNaN(rawActivity.locationData.lng)) {
+            setMapCenter([rawActivity.locationData.lat, rawActivity.locationData.lng]);
+          } else if (rawActivity.multiTimeLocations && rawActivity.multiTimeLocations.length > 0) {
+            const firstLocation = rawActivity.multiTimeLocations[0];
+            if (firstLocation.location && 
+                typeof firstLocation.location.lat === 'number' && 
+                typeof firstLocation.location.lng === 'number' &&
+                !isNaN(firstLocation.location.lat) && 
+                !isNaN(firstLocation.location.lng)) {
+              setMapCenter([firstLocation.location.lat, firstLocation.location.lng]);
+            }
+          }
         }
 
         setCheckedIn(userParticipant.checkedIn || false);
@@ -555,10 +839,166 @@ export default function StudentAttendancePage() {
     return R * c; // Distance in meters
   };
 
+  // Helper function to find currently available check-in slot
+  const findAvailableCheckInSlot = (): { day: number; slot: 'morning' | 'afternoon' | 'evening'; location: any } | null => {
+    if (!activity || activity.type !== 'multiple_days' || parsedScheduleData.length === 0) {
+      return null;
+    }
+
+    const now = currentTime;
+    
+    // Check all days and slots to find the one that's currently open for check-in
+    for (const dayData of parsedScheduleData) {
+      for (const slot of dayData.slots) {
+        if (!slot || !slot.slotKey) continue;
+        
+        const daySlotKey = `Ngày ${dayData.day} - ${slot.slotKey === 'morning' ? 'Buổi Sáng' : slot.slotKey === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối'}`;
+        const startRecord = (attendanceRecords || []).find(
+          (r) => r.timeSlot === daySlotKey && r.checkInType === 'start'
+        );
+        const endRecord = (attendanceRecords || []).find(
+          (r) => r.timeSlot === daySlotKey && r.checkInType === 'end'
+        );
+        
+        const slotDate = new Date(dayData.date);
+        const [startHours, startMinutes] = slot.startTime.split(':').map(Number);
+        const [endHours, endMinutes] = slot.endTime.split(':').map(Number);
+        
+        const slotStartTime = new Date(slotDate);
+        slotStartTime.setHours(startHours, startMinutes, 0, 0);
+        const slotEndTime = new Date(slotDate);
+        slotEndTime.setHours(endHours, endMinutes, 0, 0);
+        
+        const onTimeStartStart = new Date(slotStartTime);
+        onTimeStartStart.setMinutes(onTimeStartStart.getMinutes() - 15);
+        const lateStartEnd = new Date(slotStartTime);
+        lateStartEnd.setMinutes(lateStartEnd.getMinutes() + 30);
+        
+        const onTimeEndStart = new Date(slotEndTime);
+        onTimeEndStart.setMinutes(onTimeEndStart.getMinutes() - 15);
+        const lateEndEnd = new Date(slotEndTime);
+        lateEndEnd.setMinutes(lateEndEnd.getMinutes() + 30);
+        
+        const canCheckInStart = !startRecord && now >= onTimeStartStart && now <= lateStartEnd;
+        const canCheckInEnd = !endRecord && now >= onTimeEndStart && now <= lateEndEnd;
+        
+        if (canCheckInStart || canCheckInEnd) {
+          const location = slot.mapLocation || dayData.dayMapLocation;
+          return {
+            day: dayData.day,
+            slot: slot.slotKey as 'morning' | 'afternoon' | 'evening',
+            location: location
+          };
+        }
+      }
+    }
+    
+    return null;
+  };
+
   // Check if user location is within allowed radius
-  const checkLocationValidity = (userLat: number, userLng: number): { valid: boolean; distance?: number; message?: string } => {
+  // For multiple days, can optionally specify which slot to check (day and slotKey)
+  const checkLocationValidity = (userLat: number, userLng: number, targetSlot?: { day: number; slot: 'morning' | 'afternoon' | 'evening' }): { valid: boolean; distance?: number; message?: string } => {
     if (!activity) {
       return { valid: false, message: 'Không tìm thấy thông tin hoạt động' };
+    }
+
+    // Handle multiple days activities
+    if (activity.type === 'multiple_days') {
+      // Check if there's a slot currently open for check-in
+      const availableSlot = findAvailableCheckInSlot();
+      
+      // If there's a slot currently open, ONLY check against that slot
+      if (availableSlot && availableSlot.location) {
+        const location = availableSlot.location;
+        if (location.lat && location.lng) {
+          const distance = calculateDistance(
+            userLat,
+            userLng,
+            location.lat,
+            location.lng
+          );
+          
+          const slotName = availableSlot.slot === 'morning' ? 'Buổi Sáng' : availableSlot.slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+          const radius = location.radius || 200;
+          
+          if (distance <= radius) {
+            return { valid: true, distance };
+          } else {
+            return {
+              valid: false,
+              distance,
+              message: `Bạn đang cách vị trí điểm danh (Ngày ${availableSlot.day} - ${slotName}) ${distance.toFixed(0)}m. Vui lòng đến đúng vị trí (trong bán kính ${radius}m) để điểm danh.`
+            };
+          }
+        }
+      }
+      
+      // If no slot is currently open, allow user to select a day/slot and check against selected slot
+      // Priority 1: Check against the specific slot that user wants to check-in (if provided)
+      if (targetSlot) {
+        const dayData = parsedScheduleData.find(d => d.day === targetSlot.day);
+        if (dayData) {
+          const slot = dayData.slots.find(s => s.slotKey === targetSlot.slot);
+          const location = slot?.mapLocation || dayData.dayMapLocation;
+          
+          if (location && location.lat && location.lng) {
+            const distance = calculateDistance(
+              userLat,
+              userLng,
+              location.lat,
+              location.lng
+            );
+            
+            const slotName = targetSlot.slot === 'morning' ? 'Buổi Sáng' : targetSlot.slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+            const radius = location.radius || 200;
+            
+            if (distance <= radius) {
+              return { valid: true, distance };
+            } else {
+              return {
+                valid: false,
+                distance,
+                message: `Bạn đang cách vị trí điểm danh (Ngày ${targetSlot.day} - ${slotName}) ${distance.toFixed(0)}m. Vui lòng đến đúng vị trí (trong bán kính ${radius}m) để điểm danh.`
+              };
+            }
+          }
+        }
+      }
+      
+      // Priority 2: Check against selected slot (when user has selected a specific day/slot)
+      if (selectedDaySlot) {
+        const dayData = parsedScheduleData.find(d => d.day === selectedDaySlot.day);
+        if (dayData) {
+          const slot = dayData.slots.find(s => s.slotKey === selectedDaySlot.slot);
+          const location = slot?.mapLocation || dayData.dayMapLocation;
+          
+          if (location && location.lat && location.lng) {
+            const distance = calculateDistance(
+              userLat,
+              userLng,
+              location.lat,
+              location.lng
+            );
+            
+            const slotName = selectedDaySlot.slot === 'morning' ? 'Buổi Sáng' : selectedDaySlot.slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+            const radius = location.radius || 200;
+            
+            if (distance <= radius) {
+              return { valid: true, distance };
+            } else {
+              return {
+                valid: false,
+                distance,
+                message: `Bạn đang cách vị trí điểm danh (Ngày ${selectedDaySlot.day} - ${slotName}) ${distance.toFixed(0)}m. Vui lòng đến đúng vị trí (trong bán kính ${radius}m) để điểm danh.`
+              };
+            }
+          }
+        }
+      }
+      
+      // If no location found, allow check-in
+      return { valid: true, message: 'Hoạt động không yêu cầu vị trí cụ thể cho buổi này' };
     }
 
     // If no location data is required, allow check-in
@@ -699,9 +1139,294 @@ export default function StudentAttendancePage() {
     return `${hours}:${minutes}`;
   };
 
+  // Helper function để format date
+  const formatDateForDisplay = (dateStr: string): string => {
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return dateStr;
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      return `${day}/${month}/${year}`;
+    } catch {
+      return dateStr;
+    }
+  };
+
+  // Helper function để lấy dayKey từ date (Thứ 2 = 0, Chủ nhật = 6)
+  const getDayKeyFromDate = (dateStr: string): number => {
+    try {
+      const d = new Date(dateStr);
+      const day = d.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+      // Convert to Monday = 0, Tuesday = 1, ..., Sunday = 6
+      return day === 0 ? 6 : day - 1;
+    } catch {
+      return 0;
+    }
+  };
+
+  // Helper function to check if user has registered for a specific day
+  const hasRegisteredForDay = (dayNumber: number): boolean => {
+    if (registeredDaySlots.length === 0) return false;
+    return registeredDaySlots.some(ds => ds.day === dayNumber);
+  };
+
+  // Helper function to check if user has registered for a specific day and slot
+  const hasRegisteredForSlot = (dayNumber: number, slotKey: 'morning' | 'afternoon' | 'evening'): boolean => {
+    if (registeredDaySlots.length === 0) return false;
+    return registeredDaySlots.some(ds => ds.day === dayNumber && ds.slot === slotKey);
+  };
+
+  // Nhóm các ngày theo tuần (từ thứ 2 đến chủ nhật) - hiển thị tất cả các ngày
+  const weeks = useMemo(() => {
+    if (!parsedScheduleData || parsedScheduleData.length === 0) return [];
+    
+    type WeekDay = {
+      day: number;
+      date: string;
+      dayIndex: number;
+      dayKey: number; // 0 = Monday, 6 = Sunday
+      data?: typeof parsedScheduleData[0];
+    };
+    
+    type Week = {
+      weekNumber: number;
+      days: WeekDay[];
+    };
+    
+    const result: Week[] = [];
+    
+    let currentWeek: Week | null = null;
+    let weekNumber = 1;
+    
+    parsedScheduleData.forEach((dayData, idx) => {
+      const dayKey = getDayKeyFromDate(dayData.date);
+      
+      // Bắt đầu tuần mới khi gặp thứ 2 hoặc khi tuần hiện tại đã đủ 7 ngày
+      if (!currentWeek || dayKey === 0 || (currentWeek.days.length > 0 && currentWeek.days[currentWeek.days.length - 1].dayKey === 6)) {
+        // Đảm bảo tuần trước có đủ 7 ngày trước khi tạo tuần mới
+        if (currentWeek && currentWeek.days.length < 7) {
+          while (currentWeek.days.length < 7) {
+            const lastDayKey = currentWeek.days.length;
+            currentWeek.days.push({
+              day: 0,
+              date: '',
+              dayIndex: -1,
+              dayKey: lastDayKey,
+              data: undefined
+            });
+          }
+        }
+        currentWeek = { weekNumber, days: [] };
+        result.push(currentWeek);
+        weekNumber++;
+      }
+      
+      // Đảm bảo các ngày được sắp xếp đúng vị trí trong tuần
+      // Nếu có khoảng trống trước ngày này, điền vào
+      if (currentWeek) {
+        while (currentWeek.days.length < dayKey) {
+          const lastDayKey = currentWeek.days.length;
+          currentWeek.days.push({
+            day: 0,
+            date: '',
+            dayIndex: -1,
+            dayKey: lastDayKey,
+            data: undefined
+          });
+        }
+        
+        currentWeek.days.push({
+          day: dayData.day,
+          date: dayData.date,
+          dayIndex: idx,
+          dayKey,
+          data: dayData
+        });
+      }
+    });
+    
+    // Đảm bảo tuần cuối có đủ 7 ngày
+    if (result.length > 0) {
+      const lastWeek = result[result.length - 1];
+      while (lastWeek.days.length < 7) {
+        const lastDayKey = lastWeek.days.length;
+        lastWeek.days.push({
+          day: 0,
+          date: '',
+          dayIndex: -1,
+          dayKey: lastDayKey,
+          data: undefined
+        });
+      }
+    }
+    
+    return result;
+  }, [parsedScheduleData]);
+
+  // Reset currentWeekIndex khi parsedScheduleData thay đổi
+  useEffect(() => {
+    setCurrentWeekIndex(0);
+  }, [parsedScheduleData.length]);
+
+  // Tự động chọn ngày có dữ liệu khi chưa có ngày nào được chọn (ưu tiên ngày hiện tại, sau đó ngày gần nhất sắp tới) - chỉ chọn ngày đã đăng ký
+  useEffect(() => {
+    if (!hasInitialized && !selectedDaySlot && parsedScheduleData.length > 0 && registeredDaySlots.length > 0) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      // Filter to only registered days
+      const registeredDays = new Set(registeredDaySlots.map(ds => ds.day));
+      const registeredScheduleData = parsedScheduleData.filter(d => registeredDays.has(d.day));
+      
+      if (registeredScheduleData.length === 0) return;
+      
+      // Try to find current day
+      const currentDay = registeredScheduleData.find(d => {
+        if (!d.date) return false;
+        const scheduleDate = new Date(d.date);
+        scheduleDate.setHours(0, 0, 0, 0);
+        return scheduleDate.getTime() === today.getTime();
+      });
+      
+      let dayToSelect: typeof registeredScheduleData[0] | null = null;
+      
+      if (currentDay && currentDay.slots.length > 0) {
+        // Select current day
+        dayToSelect = currentDay;
+      } else {
+        // Find nearest upcoming day (closest future day)
+        const upcomingDays = registeredScheduleData
+          .map(d => {
+            if (!d.date) return null;
+            const scheduleDate = new Date(d.date);
+            scheduleDate.setHours(0, 0, 0, 0);
+            return { day: d, date: scheduleDate };
+          })
+          .filter((item): item is { day: typeof registeredScheduleData[0]; date: Date } => 
+            item !== null && item.date >= today && item.day.slots.length > 0
+          )
+          .sort((a, b) => a.date.getTime() - b.date.getTime());
+        
+        if (upcomingDays.length > 0) {
+          // Select nearest upcoming day
+          dayToSelect = upcomingDays[0].day;
+        } else {
+          // If no upcoming days, select first day with slots
+          const firstDayWithSlots = registeredScheduleData.find(d => d.slots.length > 0);
+          if (firstDayWithSlots) {
+            dayToSelect = firstDayWithSlots;
+          }
+        }
+      }
+      
+      if (dayToSelect && dayToSelect.slots.length > 0) {
+        setSelectedDaySlot({ day: dayToSelect.day, slot: dayToSelect.slots[0].slotKey });
+        setHasInitialized(true);
+      }
+    }
+  }, [parsedScheduleData, registeredDaySlots, selectedDaySlot, hasInitialized]);
+
+  // Tính toán thông tin tuần hiện tại
+  const weekInfo = useMemo(() => {
+    if (weeks.length === 0) {
+      return {
+        totalWeeks: 0,
+        currentWeek: null,
+        canGoPrev: false,
+        canGoNext: false,
+        startDateStr: '',
+        endDateStr: ''
+      };
+    }
+    const totalWeeks = weeks.length;
+    const currentWeek = weeks[currentWeekIndex] || weeks[0];
+    const canGoPrev = currentWeekIndex > 0;
+    const canGoNext = currentWeekIndex < totalWeeks - 1;
+    const startDateStr = currentWeek?.days?.[0] ? formatDateForDisplay(currentWeek.days[0].date) : '';
+    const endDateStr = currentWeek?.days && currentWeek.days.length > 0 ? formatDateForDisplay(currentWeek.days[currentWeek.days.length - 1].date) : '';
+    return {
+      totalWeeks,
+      currentWeek,
+      canGoPrev,
+      canGoNext,
+      startDateStr,
+      endDateStr
+    };
+  }, [weeks, currentWeekIndex]);
+
+  // Tạo mảng 7 ngày từ thứ 2 đến chủ nhật cho tuần hiện tại
+  const currentWeekDays = useMemo(() => {
+    if (!weekInfo.currentWeek) {
+      // Nếu chưa có tuần, tạo mảng rỗng với 7 ngày
+      return Array.from({ length: 7 }, (_, i) => ({
+        dayKey: i, // 0 = Monday, 6 = Sunday
+        day: null as number | null,
+        date: null as string | null,
+        data: null as (typeof parsedScheduleData[0] | null)
+      }));
+    }
+    
+    // Tạo mảng 7 ngày từ thứ 2 đến chủ nhật, đảm bảo đúng thứ tự
+    const weekDays = Array.from({ length: 7 }, (_, i) => {
+      const dayKey = i; // 0 = Monday, 6 = Sunday
+        // Tìm ngày có dayKey tương ứng trong tuần hiện tại (chỉ hiển thị ngày đã đăng ký)
+        const dayInWeek = weekInfo.currentWeek.days.find(d => d.dayKey === dayKey && d.data);
+      
+      if (dayInWeek && dayInWeek.data) {
+        return {
+          dayKey,
+          day: dayInWeek.day,
+          date: dayInWeek.date,
+          data: dayInWeek.data
+        };
+      }
+      
+      // Ngày không có trong tuần hiện tại
+      return {
+        dayKey,
+        day: null,
+        date: null,
+        data: null
+      };
+    });
+    
+    return weekDays;
+  }, [weekInfo.currentWeek]);
+
+  // Day labels
+  const dayLabels = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ nhật'];
+
+  // Update map center when selectedDaySlot changes (for multiple days)
+  useEffect(() => {
+    if (activity?.type === 'multiple_days' && selectedDaySlot && parsedScheduleData.length > 0) {
+      const dayData = parsedScheduleData.find(d => d.day === selectedDaySlot.day);
+      if (dayData) {
+        const slot = dayData.slots.find(s => s.slotKey === selectedDaySlot.slot);
+        const location = slot?.mapLocation || dayData.dayMapLocation;
+        console.log('Updating map center for slot:', {
+          selectedDaySlot,
+          slotKey: slot?.slotKey,
+          slotName: slot?.name,
+          hasSlotLocation: !!slot?.mapLocation,
+          hasDayLocation: !!dayData.dayMapLocation,
+          location: location
+        });
+        if (location && location.lat && location.lng &&
+            typeof location.lat === 'number' && 
+            typeof location.lng === 'number' &&
+            !isNaN(location.lat) &&
+            !isNaN(location.lng)) {
+          setMapCenter([location.lat, location.lng]);
+        }
+      }
+    }
+  }, [selectedDaySlot, parsedScheduleData, activity?.type]);
+
   // Helper function to get check-in time window for a slot
   // Returns both on-time window (auto-approve) and late window (pending)
-  const getCheckInTimeWindow = (slot: TimeSlot, checkInType: 'start' | 'end'): { 
+  // Supports both single_day and multiple_days activities
+  const getCheckInTimeWindow = (slot: TimeSlot | { startTime: string; endTime: string }, checkInType: 'start' | 'end', slotDate?: string): { 
     onTimeStart: string; 
     onTimeEnd: string; 
     lateStart: string; 
@@ -711,11 +1436,19 @@ export default function StudentAttendancePage() {
     
     try {
       let activityDate: Date;
-      const dateParts = activity.date.split('/');
-      if (dateParts.length === 3) {
-        activityDate = new Date(parseInt(dateParts[2]), parseInt(dateParts[1]) - 1, parseInt(dateParts[0]));
+      
+      // Handle multiple days - use slotDate if provided
+      if (activity.type === 'multiple_days' && slotDate) {
+        activityDate = new Date(slotDate);
+      } else if (activity.type === 'single_day') {
+        const dateParts = activity.date.split('/');
+        if (dateParts.length === 3) {
+          activityDate = new Date(parseInt(dateParts[2]), parseInt(dateParts[1]) - 1, parseInt(dateParts[0]));
+        } else {
+          activityDate = new Date(activity.date);
+        }
       } else {
-        activityDate = new Date(activity.date);
+        return null;
       }
       
       if (checkInType === 'start') {
@@ -771,36 +1504,71 @@ export default function StudentAttendancePage() {
   };
 
   // Helper function to calculate late/early time for an attendance record
+  // Supports both single_day and multiple_days activities
   const calculateLateEarlyForRecord = (record: {
     timeSlot: string;
     checkInType: string;
     checkInTime: string;
     lateReason?: string;
   }): { isLate: boolean; isEarly: boolean; isOnTime?: boolean; minutes?: number; isInLateWindow?: boolean } | null => {
-    if (!activity || !activity.timeSlots) return null;
-    
-    const timeSlot = activity.timeSlots.find(ts => ts.name === record.timeSlot && ts.isActive);
-    if (!timeSlot) return null;
+    if (!activity) return null;
     
     const checkInTime = new Date(record.checkInTime);
     
     try {
       let activityDate: Date;
-      const dateParts = activity.date.split('/');
-      if (dateParts.length === 3) {
-        activityDate = new Date(parseInt(dateParts[2]), parseInt(dateParts[1]) - 1, parseInt(dateParts[0]));
+      let slotStartTime: Date;
+      let slotEndTime: Date;
+      
+      // Handle multiple days - parse slotName format "Ngày X - Buổi Y"
+      if (activity.type === 'multiple_days') {
+        const dayMatch = record.timeSlot.match(/Ngày (\d+)/);
+        const slotNameMatch = record.timeSlot.match(/Buổi (Sáng|Chiều|Tối)/);
+        
+        if (!dayMatch || !slotNameMatch) return null;
+        
+        const day = parseInt(dayMatch[1]);
+        const slotName = slotNameMatch[1];
+        const slotKey = slotName === 'Sáng' ? 'morning' : slotName === 'Chiều' ? 'afternoon' : 'evening';
+        
+        const dayData = parsedScheduleData.find(d => d.day === day);
+        if (!dayData) return null;
+        
+        const slot = dayData.slots.find(s => s.slotKey === slotKey);
+        if (!slot) return null;
+        
+        activityDate = new Date(dayData.date);
+        const [startHours, startMinutes] = slot.startTime.split(':').map(Number);
+        const [endHours, endMinutes] = slot.endTime.split(':').map(Number);
+        
+        slotStartTime = new Date(activityDate);
+        slotStartTime.setHours(startHours, startMinutes, 0, 0);
+        
+        slotEndTime = new Date(activityDate);
+        slotEndTime.setHours(endHours, endMinutes, 0, 0);
       } else {
-        activityDate = new Date(activity.date);
+        // Handle single day
+        if (!activity.timeSlots) return null;
+        
+        const timeSlot = activity.timeSlots.find(ts => ts.name === record.timeSlot && ts.isActive);
+        if (!timeSlot) return null;
+        
+        const dateParts = activity.date.split('/');
+        if (dateParts.length === 3) {
+          activityDate = new Date(parseInt(dateParts[2]), parseInt(dateParts[1]) - 1, parseInt(dateParts[0]));
+        } else {
+          activityDate = new Date(activity.date);
+        }
+        
+        const [startHours, startMinutes] = timeSlot.startTime.split(':').map(Number);
+        const [endHours, endMinutes] = timeSlot.endTime.split(':').map(Number);
+        
+        slotStartTime = new Date(activityDate);
+        slotStartTime.setHours(startHours, startMinutes, 0, 0);
+        
+        slotEndTime = new Date(activityDate);
+        slotEndTime.setHours(endHours, endMinutes, 0, 0);
       }
-      
-      const [startHours, startMinutes] = timeSlot.startTime.split(':').map(Number);
-      const [endHours, endMinutes] = timeSlot.endTime.split(':').map(Number);
-      
-      const slotStartTime = new Date(activityDate);
-      slotStartTime.setHours(startHours, startMinutes, 0, 0);
-      
-      const slotEndTime = new Date(activityDate);
-      slotEndTime.setHours(endHours, endMinutes, 0, 0);
       
       let targetTime: Date;
       if (record.checkInType === 'start') {
@@ -862,6 +1630,7 @@ export default function StudentAttendancePage() {
 
   // Check if check-in is late or early for a specific time (helper function)
   // Returns: isLate, isEarly, minutesLate, minutesEarly, isValid (whether check-in is allowed), isInLateWindow (within late window)
+  // Supports both single_day and multiple_days activities
   const checkIfLateForTime = (slotName: string, checkInType: string, checkInTime: Date): { 
     isLate: boolean; 
     isEarly?: boolean; 
@@ -871,48 +1640,97 @@ export default function StudentAttendancePage() {
     isInLateWindow?: boolean;
     isOnTime?: boolean;
   } => {
-    if (!activity || !activity.timeSlots || activity.timeSlots.length === 0) {
+    if (!activity) {
       return { isLate: false, isValid: false };
     }
 
     const now = checkInTime;
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    // Parse activity date
     let activityDate: Date;
-    try {
-      const dateParts = activity.date.split('/');
-      if (dateParts.length === 3) {
-        activityDate = new Date(parseInt(dateParts[2]), parseInt(dateParts[1]) - 1, parseInt(dateParts[0]));
-      } else {
-        activityDate = new Date(activity.date);
+    let slotStartTime: Date;
+    let slotEndTime: Date;
+
+    // Handle multiple days - parse slotName format "Ngày X - Buổi Y"
+    if (activity.type === 'multiple_days') {
+      const dayMatch = slotName.match(/Ngày (\d+)/);
+      const slotNameMatch = slotName.match(/Buổi (Sáng|Chiều|Tối)/);
+      
+      if (!dayMatch || !slotNameMatch) {
+        return { isLate: false, isValid: false };
       }
-    } catch (e) {
-      return { isLate: false, isValid: false };
+      
+      const day = parseInt(dayMatch[1]);
+      const slotNamePart = slotNameMatch[1];
+      const slotKey = slotNamePart === 'Sáng' ? 'morning' : slotNamePart === 'Chiều' ? 'afternoon' : 'evening';
+      
+      const dayData = parsedScheduleData.find(d => d.day === day);
+      if (!dayData) {
+        return { isLate: false, isValid: false };
+      }
+      
+      const slot = dayData.slots.find(s => s.slotKey === slotKey);
+      if (!slot) {
+        return { isLate: false, isValid: false };
+      }
+      
+      activityDate = new Date(dayData.date);
+      const activityDateOnly = new Date(activityDate.getFullYear(), activityDate.getMonth(), activityDate.getDate());
+      const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+      // Check if the check-in date matches the slot date
+      if (activityDateOnly.getTime() !== todayOnly.getTime()) {
+        return { isLate: false, isValid: false };
+      }
+      
+      const [startHours, startMinutes] = slot.startTime.split(':').map(Number);
+      const [endHours, endMinutes] = slot.endTime.split(':').map(Number);
+      
+      slotStartTime = new Date(activityDate);
+      slotStartTime.setHours(startHours, startMinutes, 0, 0);
+      
+      slotEndTime = new Date(activityDate);
+      slotEndTime.setHours(endHours, endMinutes, 0, 0);
+    } else {
+      // Handle single day
+      if (!activity.timeSlots || activity.timeSlots.length === 0) {
+        return { isLate: false, isValid: false };
+      }
+
+      try {
+        const dateParts = activity.date.split('/');
+        if (dateParts.length === 3) {
+          activityDate = new Date(parseInt(dateParts[2]), parseInt(dateParts[1]) - 1, parseInt(dateParts[0]));
+        } else {
+          activityDate = new Date(activity.date);
+        }
+      } catch (e) {
+        return { isLate: false, isValid: false };
+      }
+
+      const activityDateOnly = new Date(activityDate.getFullYear(), activityDate.getMonth(), activityDate.getDate());
+      const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+      if (activityDateOnly.getTime() !== todayOnly.getTime()) {
+        return { isLate: false, isValid: false };
+      }
+
+      // Find the time slot
+      const timeSlot = activity.timeSlots.find(ts => ts.name === slotName && ts.isActive);
+      if (!timeSlot) {
+        return { isLate: false, isValid: false };
+      }
+
+      // Parse start and end times
+      const [startHours, startMinutes] = timeSlot.startTime.split(':').map(Number);
+      const [endHours, endMinutes] = timeSlot.endTime.split(':').map(Number);
+      
+      slotStartTime = new Date(activityDate);
+      slotStartTime.setHours(startHours, startMinutes, 0, 0);
+      
+      slotEndTime = new Date(activityDate);
+      slotEndTime.setHours(endHours, endMinutes, 0, 0);
     }
-
-    const activityDateOnly = new Date(activityDate.getFullYear(), activityDate.getMonth(), activityDate.getDate());
-    const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-    if (activityDateOnly.getTime() !== todayOnly.getTime()) {
-      return { isLate: false, isValid: false };
-    }
-
-    // Find the time slot
-    const timeSlot = activity.timeSlots.find(ts => ts.name === slotName && ts.isActive);
-    if (!timeSlot) {
-      return { isLate: false, isValid: false };
-    }
-
-    // Parse start and end times
-    const [startHours, startMinutes] = timeSlot.startTime.split(':').map(Number);
-    const [endHours, endMinutes] = timeSlot.endTime.split(':').map(Number);
-    
-    const slotStartTime = new Date(activityDate);
-    slotStartTime.setHours(startHours, startMinutes, 0, 0);
-    
-    const slotEndTime = new Date(activityDate);
-    slotEndTime.setHours(endHours, endMinutes, 0, 0);
 
     let targetTime: Date;
     if (checkInType === 'start') {
@@ -1070,6 +1888,39 @@ export default function StudentAttendancePage() {
       setLocationStatus({ valid: false, message: 'Trình duyệt không hỗ trợ định vị GPS' });
     }
   }, [activity]);
+
+  // Re-check location validity when selectedDaySlot changes (for multiple days)
+  useEffect(() => {
+    if (userLocation && activity) {
+      try {
+        const locationCheck = checkLocationValidity(userLocation.lat, userLocation.lng);
+        setLocationStatus(locationCheck);
+        console.log('Location status updated for slot:', {
+          selectedDaySlot,
+          locationStatus: locationCheck,
+          userLocation
+        });
+      } catch (error) {
+        console.error('Error checking location validity:', error);
+        setLocationStatus({ valid: false, message: 'Lỗi khi kiểm tra vị trí' });
+      }
+    } else if (activity?.type === 'multiple_days' && selectedDaySlot) {
+      // Check if selected slot has location
+      const dayData = parsedScheduleData.find(d => d.day === selectedDaySlot.day);
+      if (dayData) {
+        const slot = dayData.slots.find(s => s.slotKey === selectedDaySlot.slot);
+        const location = slot?.mapLocation || dayData.dayMapLocation;
+        
+        if (!location || !location.lat || !location.lng) {
+          // No location for this slot
+          setLocationStatus({ 
+            valid: true, 
+            message: 'Buổi này không yêu cầu vị trí cụ thể' 
+          });
+        }
+      }
+    }
+  }, [selectedDaySlot, parsedScheduleData, activity?.type, userLocation]);
 
   // Set video ref when video element is ready
   useEffect(() => {
@@ -1372,6 +2223,47 @@ export default function StudentAttendancePage() {
       return;
     }
 
+    // For multiple days, update selectedDaySlot to show correct location on map
+    if (activity.type === 'multiple_days' && slotName.includes(' - ')) {
+      const dayMatch = slotName.match(/Ngày (\d+)/);
+      const slotNameMatch = slotName.match(/Buổi (Sáng|Chiều|Tối)/);
+      
+      if (dayMatch && slotNameMatch) {
+        const day = parseInt(dayMatch[1]);
+        const slotNamePart = slotNameMatch[1];
+        const slotKey = slotNamePart === 'Sáng' ? 'morning' : slotNamePart === 'Chiều' ? 'afternoon' : 'evening';
+        
+        // Update selectedDaySlot to show correct location on map
+        console.log('Setting selectedDaySlot for check-in:', { day, slot: slotKey, slotName });
+        setSelectedDaySlot({ day, slot: slotKey });
+        
+        // Also update map center immediately to ensure map shows correct location
+        if (parsedScheduleData.length > 0) {
+          const dayData = parsedScheduleData.find(d => d.day === day);
+          if (dayData) {
+            const slot = dayData.slots.find(s => s.slotKey === slotKey);
+            const location = slot?.mapLocation || dayData.dayMapLocation;
+            console.log('Slot location check:', {
+              day,
+              slotKey,
+              hasSlot: !!slot,
+              hasSlotLocation: !!slot?.mapLocation,
+              hasDayLocation: !!dayData.dayMapLocation,
+              location: location
+            });
+            if (location && location.lat && location.lng &&
+                typeof location.lat === 'number' && 
+                typeof location.lng === 'number' &&
+                !isNaN(location.lat) &&
+                !isNaN(location.lng)) {
+              console.log('Updating map center immediately:', { lat: location.lat, lng: location.lng });
+              setMapCenter([location.lat, location.lng]);
+            }
+          }
+        }
+      }
+    }
+
     const slotStatus = attendanceStatus[slotName as TimeSlotName] || { start: false, end: false };
     const isAlreadyCheckedIn = checkInType === 'start' ? slotStatus.start : slotStatus.end;
 
@@ -1402,8 +2294,21 @@ export default function StudentAttendancePage() {
 
     // IMPORTANT: Check location validity BEFORE opening camera
     // If location is invalid, don't allow check-in
+    // Extract slot info for multiple days activities
+    let targetSlot: { day: number; slot: 'morning' | 'afternoon' | 'evening' } | undefined = undefined;
+    if (activity.type === 'multiple_days' && slotName.includes(' - ')) {
+      const dayMatch = slotName.match(/Ngày (\d+)/);
+      const slotNameMatch = slotName.match(/Buổi (Sáng|Chiều|Tối)/);
+      if (dayMatch && slotNameMatch) {
+        const day = parseInt(dayMatch[1]);
+        const slotNamePart = slotNameMatch[1];
+        const slotKey = slotNamePart === 'Sáng' ? 'morning' : slotNamePart === 'Chiều' ? 'afternoon' : 'evening';
+        targetSlot = { day, slot: slotKey };
+      }
+    }
+    
     if (userLocation) {
-      const locationCheck = checkLocationValidity(userLocation.lat, userLocation.lng);
+      const locationCheck = checkLocationValidity(userLocation.lat, userLocation.lng, targetSlot);
       if (!locationCheck.valid) {
         setError(locationCheck.message || 'Vị trí của bạn không đúng. Vui lòng đến đúng vị trí hoạt động để điểm danh.');
         return;
@@ -1425,7 +2330,8 @@ export default function StudentAttendancePage() {
 
         const locationCheck = checkLocationValidity(
           position.coords.latitude,
-          position.coords.longitude
+          position.coords.longitude,
+          targetSlot
         );
 
         if (!locationCheck.valid) {
@@ -1547,6 +2453,16 @@ export default function StudentAttendancePage() {
     const finalSlotName = slotName || pendingCheckIn?.slotName;
     const finalCheckInType = checkInType || pendingCheckIn?.checkInType;
     
+    // Debug logging
+    console.log('proceedWithCheckIn - Debug:', {
+      slotName,
+      checkInType,
+      pendingCheckIn,
+      finalSlotName,
+      finalCheckInType,
+      activityType: activity?.type
+    });
+    
     // Get check-in time from when photo was captured (stored in window)
     // This is the actual time the photo was taken, not when the request is sent
     const photoCheckInTime = (window as any).photoCheckInTime as Date | undefined;
@@ -1600,9 +2516,23 @@ export default function StudentAttendancePage() {
           
           // Check if location is valid before proceeding
           // If location is invalid, reject immediately (don't allow check-in)
+          // Extract slot info for multiple days activities
+          let targetSlot: { day: number; slot: 'morning' | 'afternoon' | 'evening' } | undefined = undefined;
+          if (activity?.type === 'multiple_days' && finalSlotName && finalSlotName.includes(' - ')) {
+            const dayMatch = finalSlotName.match(/Ngày (\d+)/);
+            const slotNameMatch = finalSlotName.match(/Buổi (Sáng|Chiều|Tối)/);
+            if (dayMatch && slotNameMatch) {
+              const day = parseInt(dayMatch[1]);
+              const slotNamePart = slotNameMatch[1];
+              const slotKey = slotNamePart === 'Sáng' ? 'morning' : slotNamePart === 'Chiều' ? 'afternoon' : 'evening';
+              targetSlot = { day, slot: slotKey };
+            }
+          }
+          
           const locationCheck = checkLocationValidity(
             position.coords.latitude,
-            position.coords.longitude
+            position.coords.longitude,
+            targetSlot
           );
 
           if (!locationCheck.valid) {
@@ -1705,32 +2635,102 @@ export default function StudentAttendancePage() {
         }
       }
 
+      // Validate required fields before preparing request body
+      if (!finalSlotName || !finalCheckInType) {
+        console.error('Missing required fields:', { finalSlotName, finalCheckInType });
+        setError('Dữ liệu điểm danh không hợp lệ. Vui lòng thử lại.');
+        setIsCheckingIn(false);
+        closeCamera();
+        delete (window as any).pendingCheckIn;
+        delete (window as any).photoCheckInTime;
+        return;
+      }
+
+      // Validate userId
+      const userId = (user as any).userId || (user as any)._id;
+      if (!userId) {
+        console.error('Missing userId');
+        setError('Không tìm thấy thông tin người dùng. Vui lòng đăng nhập lại.');
+        setIsCheckingIn(false);
+        closeCamera();
+        delete (window as any).pendingCheckIn;
+        delete (window as any).photoCheckInTime;
+        return;
+      }
+
+      // Convert timeSlot format for multiple days activities
+      // API expects "Buổi Sáng", "Buổi Chiều", or "Buổi Tối"
+      // But for multiple days, we send "Ngày X - Buổi Y", so we need to extract just the slot name
+      let apiTimeSlot = finalSlotName;
+      let dayNumber: number | undefined = undefined;
+      let slotDate: string | undefined = undefined;
+      
+      if (activity?.type === 'multiple_days' && finalSlotName.includes(' - ')) {
+        // Extract day number and slot name from "Ngày X - Buổi Y" format
+        const dayMatch = finalSlotName.match(/Ngày (\d+)/);
+        const slotNameMatch = finalSlotName.match(/Buổi (Sáng|Chiều|Tối)/);
+        
+        if (dayMatch && slotNameMatch) {
+          dayNumber = parseInt(dayMatch[1]);
+          apiTimeSlot = `Buổi ${slotNameMatch[1]}`;
+          
+          // Find the date for this day from schedule
+          if (parsedScheduleData && parsedScheduleData.length > 0) {
+            const dayData = parsedScheduleData.find(d => d.day === dayNumber);
+            if (dayData) {
+              slotDate = dayData.date;
+            }
+          }
+        } else {
+          console.error('Invalid timeSlot format for multiple days:', finalSlotName);
+          setError('Định dạng buổi điểm danh không hợp lệ. Vui lòng thử lại.');
+          setIsCheckingIn(false);
+          closeCamera();
+          delete (window as any).pendingCheckIn;
+          delete (window as any).photoCheckInTime;
+          return;
+        }
+      }
+
       // Prepare request body - ensure all required fields are present and valid
       const requestBody: {
         userId: string;
         checkedIn: boolean;
         location: { lat: number; lng: number; address?: string };
         photoUrl?: string | null;
-        timeSlot?: string;
-        checkInType?: string;
+        timeSlot: string;
+        checkInType: string;
         checkInTime?: string; // ISO string format
         lateReason?: string | null;
+        dayNumber?: number; // For multiple days
+        slotDate?: string; // For multiple days
       } = {
-        userId: (user as any).userId || (user as any)._id,
+        userId: userId,
         checkedIn: true,
         location: {
           lat: location.lat,
           lng: location.lng,
           ...(location.address ? { address: location.address } : {})
         },
+        timeSlot: apiTimeSlot,
+        checkInType: finalCheckInType,
         ...(photoUrl ? { photoUrl: photoUrl } : {}),
-        ...(finalSlotName ? { timeSlot: finalSlotName } : {}),
-        ...(finalCheckInType ? { checkInType: finalCheckInType } : {}),
         ...(checkInTime ? { checkInTime: checkInTime.toISOString() } : {}), // Send checkInTime (when photo was captured)
-        ...(lateReasonValue ? { lateReason: lateReasonValue.trim() } : {})
+        ...(lateReasonValue ? { lateReason: lateReasonValue.trim() } : {}),
+        ...(dayNumber !== undefined ? { dayNumber: dayNumber } : {}),
+        ...(slotDate ? { slotDate: slotDate } : {})
       };
 
       // Call API to mark attendance
+      console.log('Sending check-in request:', {
+        timeSlot: apiTimeSlot,
+        originalSlotName: finalSlotName,
+        checkInType: finalCheckInType,
+        activityType: activity?.type,
+        dayNumber: dayNumber,
+        slotDate: slotDate
+      });
+      
       const response = await fetch(`/api/activities/${activityId}/attendance`, {
         method: 'PATCH',
         headers: {
@@ -1741,6 +2741,14 @@ export default function StudentAttendancePage() {
       });
 
       const data = await response.json();
+      
+      console.log('Check-in response:', {
+        ok: response.ok,
+        status: response.status,
+        success: data.success,
+        message: data.message,
+        error: data.error
+      });
       
       if (!response.ok || !data.success) {
         // If rejected due to invalid location, show error but don't throw
@@ -1915,8 +2923,8 @@ export default function StudentAttendancePage() {
     return (
       <div className={`min-h-screen flex items-center justify-center ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto mb-4"></div>
-          <p className={`text-lg font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Đang tải...</p>
+          <Loader className={`w-12 h-12 animate-spin mx-auto mb-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`} />
+          <p className={`text-lg font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Đang tải dữ liệu</p>
         </div>
       </div>
     );
@@ -1982,52 +2990,56 @@ export default function StudentAttendancePage() {
     <div className={`min-h-screen flex flex-col ${isDarkMode ? 'bg-gray-900' : 'bg-gradient-to-br from-blue-50 via-white to-purple-50'}`}>
       <StudentNav />
       
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-5 lg:px-6 xl:px-8 py-5 sm:py-6 lg:py-8">
-        {/* Header - Compact Modern Design */}
-        <div className="mb-6">
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 md:px-8 py-4 sm:py-5 md:py-6">
+        {/* Header - Compact Design */}
+        <div className="mb-4">
           <button
             onClick={() => router.back()}
-            className={`mb-4 flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+            className={`mb-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
               isDarkMode 
                 ? 'text-gray-300 hover:text-white border border-gray-700' 
                 : 'text-gray-600 hover:text-gray-900 border border-gray-200'
             }`}
           >
-            <ArrowLeft className="w-4 h-4" />
+            <ArrowLeft className="w-3.5 h-3.5" />
             <span>Quay lại</span>
           </button>
 
           {/* Compact Header Card */}
-          <div className={`relative overflow-hidden rounded-2xl ${
+          <div className={`relative overflow-hidden rounded-xl ${
             isDarkMode 
-              ? 'border border-gray-700' 
-              : 'border border-gray-200'
+              ? 'border border-gray-700 bg-gray-800/50' 
+              : 'border border-gray-200 bg-white'
           }`}>
-            <div className="relative p-5 sm:p-6">
-              <div className="flex items-start justify-between gap-4 mb-4">
-                <div className="flex items-center gap-3 flex-1">
-                  <CheckCircle2 className={`w-5 h-5 ${
-                    isDarkMode ? 'text-blue-400' : 'text-blue-600'
-                  }`} />
-                  <div className="flex-1 min-w-0">
-                    <h1 className={`text-xl sm:text-2xl font-bold mb-1 truncate ${
-                        isDarkMode ? 'text-white' : 'text-gray-900'
-                      }`}>
-                      {activity.name}
-                      </h1>
-                    <div className="flex flex-wrap items-center gap-3 text-xs sm:text-sm">
-                      <div className={`flex items-center gap-1.5 ${
-                        isDarkMode ? 'text-gray-400' : 'text-gray-600'
-                      }`}>
-                        <Calendar className="w-3.5 h-3.5" />
-                        <span className="font-medium">{activity.date}</span>
-                      </div>
-                      <div className={`flex items-center gap-1.5 ${
-                        isDarkMode ? 'text-gray-400' : 'text-gray-600'
-                      }`}>
-                        <MapPin className="w-3.5 h-3.5" />
-                        <span className="font-medium truncate">{activity.location}</span>
-                      </div>
+            <div className="relative p-3 sm:p-4">
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 className={`w-4 h-4 flex-shrink-0 ${
+                  isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                }`} />
+                <div className="flex-1 min-w-0">
+                  <h1 className={`text-base sm:text-lg font-bold mb-1 truncate ${
+                      isDarkMode ? 'text-white' : 'text-gray-900'
+                    }`}>
+                    {activity.name}
+                  </h1>
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <div className={`flex items-center gap-1 ${
+                      isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                    }`}>
+                      <Calendar className="w-3 h-3" />
+                      <span>
+                        {activity.type === 'multiple_days' 
+                          ? activity.startDate && activity.endDate 
+                            ? `${activity.startDate} - ${activity.endDate}`
+                            : 'Nhiều ngày'
+                          : activity.date}
+                      </span>
+                    </div>
+                    <div className={`flex items-center gap-1 ${
+                      isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                    }`}>
+                      <MapPin className="w-3 h-3" />
+                      <span className="truncate">{activity.location}</span>
                     </div>
                   </div>
                 </div>
@@ -2038,12 +3050,12 @@ export default function StudentAttendancePage() {
 
         {/* Success/Error Messages - Compact Design */}
         {(successMessage || error) && !showSuccessModal && (
-          <div className="mb-4">
+          <div className="mb-3">
             {successMessage && (
-              <div className={`p-3 rounded-lg border ${isDarkMode ? 'border-green-500/30' : 'border-green-200'}`}>
+              <div className={`p-2 rounded-lg border text-xs ${isDarkMode ? 'border-green-500/30 bg-green-500/10' : 'border-green-200 bg-green-50'}`}>
                 <div className="flex items-center gap-2">
-                  <CheckCircle className={`w-5 h-5 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
-                  <p className={`text-sm font-medium flex-1 ${isDarkMode ? 'text-green-300' : 'text-green-700'}`}>
+                  <CheckCircle className={`w-3.5 h-3.5 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
+                  <p className={`font-medium flex-1 ${isDarkMode ? 'text-green-300' : 'text-green-700'}`}>
                     {successMessage}
                   </p>
                   <button
@@ -2052,17 +3064,17 @@ export default function StudentAttendancePage() {
                       isDarkMode ? 'text-green-400 hover:text-green-300' : 'text-green-600 hover:text-green-700'
                     }`}
                   >
-                    <X className="w-4 h-4" />
+                    <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
             )}
 
             {error && (
-              <div className={`p-3 rounded-lg border ${isDarkMode ? 'border-red-500/30' : 'border-red-200'}`}>
+              <div className={`p-2 rounded-lg border text-xs ${isDarkMode ? 'border-red-500/30 bg-red-500/10' : 'border-red-200 bg-red-50'}`}>
                 <div className="flex items-center gap-2">
-                  <AlertCircle className={`w-5 h-5 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />
-                  <p className={`text-sm font-medium flex-1 ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>
+                  <AlertCircle className={`w-3.5 h-3.5 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />
+                  <p className={`font-medium flex-1 ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>
                     {error}
                   </p>
                   <button
@@ -2071,7 +3083,7 @@ export default function StudentAttendancePage() {
                       isDarkMode ? 'text-red-400 hover:text-red-300' : 'text-red-600 hover:text-red-700'
                     }`}
                   >
-                    <X className="w-4 h-4" />
+                    <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
@@ -2079,102 +3091,2470 @@ export default function StudentAttendancePage() {
           </div>
         )}
 
-        {/* NEW DESIGN: Timeline Dashboard Layout */}
-        <div className="space-y-6">
-          {/* Dashboard Header - Glassmorphism Style */}
-          <div className={`relative overflow-hidden rounded-3xl ${
+        {/* Dashboard Header - Compact Design */}
+        <div className="space-y-3">
+          <div className={`relative overflow-hidden rounded-xl ${
             isDarkMode 
-              ? 'border border-gray-700/50' 
-              : 'border border-gray-200/50'
+              ? 'border border-gray-700 bg-gray-800/50' 
+              : 'border border-gray-200 bg-white'
           }`}>
-            <div className="relative p-6 sm:p-8 lg:p-10">
+            <div className="relative p-3 sm:p-4">
               {/* Header Info */}
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-8">
-                <div className="flex items-center gap-4">
-                  <MapPin className={`w-8 h-8 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <MapPin className={`w-5 h-5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
                   <div>
-                    <h1 className={`text-2xl lg:text-3xl font-bold mb-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    <h2 className={`text-lg sm:text-xl font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                       Điểm danh 
-                    </h1>
-                    <p className={`text-sm flex items-center gap-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      <Clock className="w-4 h-4" />
+                    </h2>
+                    <p className={`text-xs flex items-center gap-1.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      <Clock className="w-3 h-3" />
                       {formattedTime} • {formattedDate}
                     </p>
                   </div>
                 </div>
-                
+             
                 {/* Status Badges */}
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className={`px-4 py-2 rounded-xl border ${
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className={`px-2.5 py-1.5 rounded-lg border text-xs ${
                     isAllCompleted
-                      ? isDarkMode ? 'border-green-500/30' : 'border-green-200'
-                      : isDarkMode ? 'border-gray-600' : 'border-gray-200'
+                      ? isDarkMode ? 'border-green-500/30 bg-green-500/10' : 'border-green-200 bg-green-50'
+                      : isDarkMode ? 'border-gray-600 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
                   }`}>
-                    <span className={`text-sm font-bold flex items-center gap-2 ${
+                    <span className={`font-semibold flex items-center gap-1.5 ${
                       isAllCompleted
                         ? isDarkMode ? 'text-green-300' : 'text-green-700'
                         : isDarkMode ? 'text-gray-400' : 'text-gray-600'
                     }`}>
                       {isAllCompleted ? (
                         <>
-                          <CheckCircle2 className="w-4 h-4" />
+                          <CheckCircle2 className="w-3.5 h-3.5" />
                           Đã điểm danh
                         </>
                       ) : (
                         <>
-                          <Timer className="w-4 h-4" />
+                          <Timer className="w-3.5 h-3.5" />
                           Chưa điểm danh
                         </>
                       )}
                     </span>
                   </div>
-                  {locationStatus && (
-                    <div className={`px-4 py-2 rounded-xl border ${
-                      locationStatus.valid
-                        ? isDarkMode ? 'border-green-500/30' : 'border-green-200'
-                        : isDarkMode ? 'border-red-500/30' : 'border-red-200'
-                    }`}>
-                      <span className={`text-sm font-bold flex items-center gap-2 ${
+                  {locationStatus && (() => {
+                    // Get check-in location info
+                    let checkInLocationInfo: { day?: number; slotName?: string; address?: string } | null = null;
+                    
+                    if (activity?.type === 'multiple_days') {
+                      const availableSlot = findAvailableCheckInSlot();
+                      if (availableSlot && availableSlot.location && availableSlot.location.lat && availableSlot.location.lng) {
+                        const slotName = availableSlot.slot === 'morning' ? 'Buổi Sáng' : availableSlot.slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+                        checkInLocationInfo = {
+                          day: availableSlot.day,
+                          slotName: slotName,
+                          address: availableSlot.location.address
+                        };
+                      } else if (selectedDaySlot) {
+                        const dayData = parsedScheduleData.find(d => d.day === selectedDaySlot.day);
+                        if (dayData) {
+                          const slot = dayData.slots.find(s => s.slotKey === selectedDaySlot.slot);
+                          const location = slot?.mapLocation || dayData.dayMapLocation;
+                          const slotName = selectedDaySlot.slot === 'morning' ? 'Buổi Sáng' : selectedDaySlot.slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+                          // Only show location info if location exists
+                          if (location && location.lat && location.lng) {
+                            checkInLocationInfo = {
+                              day: selectedDaySlot.day,
+                              slotName: slotName,
+                              address: location?.address
+                            };
+                          } else {
+                            // Show slot info but indicate no location required
+                            checkInLocationInfo = {
+                              day: selectedDaySlot.day,
+                              slotName: slotName
+                            };
+                          }
+                        }
+                      }
+                    } else if (activity?.locationData) {
+                      checkInLocationInfo = {
+                        address: activity.locationData.address
+                      };
+                    }
+                    
+                    return (
+                      <div className={`px-2.5 py-1.5 rounded-lg border text-xs ${
                         locationStatus.valid
-                          ? isDarkMode ? 'text-green-300' : 'text-green-700'
-                          : isDarkMode ? 'text-red-300' : 'text-red-700'
+                          ? isDarkMode ? 'border-green-500/30 bg-green-500/10' : 'border-green-200 bg-green-50'
+                          : isDarkMode ? 'border-red-500/30 bg-red-500/10' : 'border-red-200 bg-red-50'
                       }`}>
-                        {locationStatus.valid ? (
-                          <>
-                            <CheckCircle2 className="w-4 h-4" />
-                            Vị trí hợp lệ
-                          </>
-                        ) : (
-                          <>
-                            <AlertTriangle className="w-4 h-4" />
-                            Vị trí không hợp lệ
-                          </>
-                        )}
-                      </span>
-                    </div>
-                  )}
+                        <div className="flex flex-col gap-1">
+                          <span className={`font-semibold flex items-center gap-1.5 ${
+                            locationStatus.valid
+                              ? isDarkMode ? 'text-green-300' : 'text-green-700'
+                              : isDarkMode ? 'text-red-300' : 'text-red-700'
+                          }`}>
+                            {locationStatus.valid ? (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                Vị trí hợp lệ
+                              </>
+                            ) : (
+                              <>
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                                Vị trí không hợp lệ
+                              </>
+                            )}
+                          </span>
+                          {locationStatus.distance !== undefined && (
+                            <span className={`text-[10px] ${
+                              locationStatus.valid
+                                ? isDarkMode ? 'text-green-400/80' : 'text-green-600/80'
+                                : isDarkMode ? 'text-red-400/80' : 'text-red-600/80'
+                            }`}>
+                              Khoảng cách: {locationStatus.distance.toFixed(0)}m
+                            </span>
+                          )}
+                          {checkInLocationInfo && (
+                            <span className={`text-[10px] ${
+                              isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                            }`}>
+                              {checkInLocationInfo.day ? `Ngày ${checkInLocationInfo.day} - ${checkInLocationInfo.slotName}` : 'Vị trí điểm danh'}
+                              {checkInLocationInfo.address ? ` • ${checkInLocationInfo.address}` : ' • Không yêu cầu vị trí cụ thể'}
+                            </span>
+                          )}
+                          {locationStatus?.message && !checkInLocationInfo && (
+                            <span className={`text-[10px] ${
+                              isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                            }`}>
+                              {locationStatus.message}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
           </div>
 
+          {/* Schedule Section for Multiple Days */}
+          {activity.type === 'multiple_days' && parsedScheduleData.length > 0 && (
+            <div className={`mb-3 rounded-xl border-2 p-3 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-50'}`}>
+                    <Calendar size={18} className="text-blue-500" />
+                  </div>
+                  <h2 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    Lịch trình điểm danh
+                  </h2>
+                </div>
+              </div>
+
+              {/* Overall Attendance Summary for Multiple Days */}
+              {(() => {
+                // Calculate total attendance percentage across all days
+                // Only count slots that user has registered for
+                // Calculate based on completed slots (buổi) instead of check-ins (lần)
+                let totalCompletedSlots = 0; // Number of slots with both start and end check-ins
+                let totalRegisteredSlots = 0; // Total number of registered slots
+                const slotOrder: ('morning' | 'afternoon' | 'evening')[] = ['morning', 'afternoon', 'evening'];
+                
+                parsedScheduleData.forEach(dayData => {
+                  slotOrder.forEach(slotKey => {
+                    // Only count if user has registered for this slot
+                    if (!hasRegisteredForSlot(dayData.day, slotKey)) {
+                      return;
+                    }
+                    
+                    const slot = dayData.slots.find(s => s.slotKey === slotKey);
+                    // Only count slots that actually exist and have data
+                    if (!slot || !slot.startTime || !slot.endTime) return;
+                    
+                    // Count this as a registered slot
+                    totalRegisteredSlots++;
+                    
+                    const slotName = slotKey === 'morning' ? 'Buổi Sáng' : slotKey === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+                    // Try multiple possible formats for timeSlot
+                    const daySlotKey1 = `Ngày ${dayData.day} - ${slotName}`;
+                    const daySlotKey2 = `Ngày ${dayData.day}-${slotName}`;
+                    const daySlotKey3 = `Ngày${dayData.day} - ${slotName}`;
+                    const daySlotKey4 = `Ngày${dayData.day}-${slotName}`;
+                    
+                    // Helper function to check if record matches any format
+                    const matchesTimeSlot = (r: any) => {
+                      const timeSlot = r.timeSlot || '';
+                      return timeSlot === daySlotKey1 || 
+                             timeSlot === daySlotKey2 || 
+                             timeSlot === daySlotKey3 || 
+                             timeSlot === daySlotKey4 ||
+                             timeSlot.includes(`Ngày ${dayData.day}`) && timeSlot.includes(slotName);
+                    };
+                    
+                    // Check if both start and end check-ins are completed
+                    const startRecord = (attendanceRecords || []).find(
+                      (r) => matchesTimeSlot(r) && 
+                             r.checkInType === 'start' && 
+                             (r.status === 'approved' || r.status === 'pending')
+                    );
+                    const endRecord = (attendanceRecords || []).find(
+                      (r) => matchesTimeSlot(r) && 
+                             r.checkInType === 'end' && 
+                             (r.status === 'approved' || r.status === 'pending')
+                    );
+                    
+                    // A slot is considered completed only if both start and end check-ins are done
+                    if (startRecord && endRecord) {
+                      totalCompletedSlots++;
+                    }
+                  });
+                });
+                
+                // Calculate overall percentage based on completed slots vs total registered slots
+                const overallPercentage = totalRegisteredSlots > 0 
+                  ? Math.round((totalCompletedSlots / totalRegisteredSlots) * 100 * 10) / 10 
+                  : 0;
+                const hasParticipated = overallPercentage >= 70; // >= 70% is considered "participated"
+                
+                // Calculate circle progress (0-100%)
+                const circleRadius = 45;
+                const displayRadius = circleRadius * 0.9; // Slightly smaller for better fit
+                const circleCircumference = 2 * Math.PI * displayRadius;
+                const circleOffset = circleCircumference - (overallPercentage / 100) * circleCircumference;
+                
+                // Use blue gradient colors for better visibility - darker and bolder
+                const progressColor = hasParticipated 
+                  ? (isDarkMode ? '#2563eb' : '#1d4ed8') // blue-600/700 - darker
+                  : (isDarkMode ? '#3b82f6' : '#2563eb'); // blue-500/600 - darker
+                const bgColor = isDarkMode ? '#334155' : '#cbd5e1'; // slate-700/slate-300 - darker for contrast
+                
+                return (
+                  <div className={`mb-3 p-5 rounded-2xl border-2 shadow-lg transition-all duration-300 ${
+                    hasParticipated
+                      ? isDarkMode 
+                        ? 'border-blue-500/50 bg-gradient-to-br from-blue-500/15 via-blue-600/10 to-blue-700/5' 
+                        : 'border-blue-400/60 bg-gradient-to-br from-blue-50 via-blue-100/80 to-indigo-50/60'
+                      : isDarkMode 
+                        ? 'border-blue-400/40 bg-gradient-to-br from-blue-500/10 via-blue-600/5 to-blue-700/3' 
+                        : 'border-blue-300/50 bg-gradient-to-br from-blue-50/80 via-indigo-50/60 to-blue-100/40'
+                  }`}>
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-5">
+                      {/* Circular Progress with Icon */}
+                      <div className="relative flex-shrink-0 w-[100px] h-[100px] sm:w-[110px] sm:h-[110px]">
+                        <svg width="100" height="100" className="transform -rotate-90 w-full h-full" viewBox="0 0 100 100">
+                          {/* Background circle - thicker and more visible */}
+                          <circle
+                            cx="50"
+                            cy="50"
+                            r={displayRadius}
+                            fill="none"
+                            stroke={bgColor}
+                            strokeWidth="14"
+                            className="opacity-50"
+                          />
+                          {/* Progress circle - much thicker and bolder */}
+                          <circle
+                            cx="50"
+                            cy="50"
+                            r={displayRadius}
+                            fill="none"
+                            stroke={progressColor}
+                            strokeWidth="16"
+                            strokeLinecap="round"
+                            strokeDasharray={circleCircumference}
+                            strokeDashoffset={circleOffset}
+                            className="transition-all duration-1000 ease-out"
+                            style={{
+                              filter: hasParticipated ? 'drop-shadow(0 0 8px rgba(37, 99, 235, 0.6))' : 'drop-shadow(0 0 6px rgba(59, 130, 246, 0.5))'
+                            }}
+                          />
+                        </svg>
+                        {/* Icon and Percentage in center */}
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                          {hasParticipated ? (
+                            <Award className={`w-5 h-5 sm:w-6 sm:h-6 mb-0.5 sm:mb-1 ${
+                              isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                            }`} strokeWidth={2.5} />
+                          ) : (
+                            <TrendingUp className={`w-5 h-5 sm:w-6 sm:h-6 mb-0.5 sm:mb-1 ${
+                              isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                            }`} strokeWidth={2.5} />
+                          )}
+                          <span className={`text-xl sm:text-2xl font-black leading-tight ${
+                            isDarkMode ? 'text-blue-300' : 'text-blue-700'
+                          }`}>
+                            {overallPercentage % 1 === 0 ? overallPercentage.toFixed(0) : overallPercentage.toFixed(1)}%
+                          </span>
+                          <span className={`text-[9px] sm:text-[10px] font-semibold mt-0.5 ${
+                            isDarkMode ? 'text-blue-400/70' : 'text-blue-600/70'
+                          }`}>
+                            / 100%
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {/* Info Section */}
+                      <div className="flex-1 min-w-0 w-full sm:w-auto">
+                        <div className="flex items-center gap-2 sm:gap-2.5 mb-2 sm:mb-3">
+                          <div className={`p-1.5 sm:p-2 rounded-lg sm:rounded-xl ${
+                            isDarkMode ? 'bg-blue-500/25' : 'bg-blue-100'
+                          }`}>
+                            <Activity className={`w-4 h-4 sm:w-5 sm:h-5 ${
+                              isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                            }`} strokeWidth={2.5} />
+                          </div>
+                          <h3 className={`text-sm sm:text-base font-bold ${
+                            isDarkMode ? 'text-white' : 'text-gray-900'
+                          }`}>
+                            Tổng quan tham gia hoạt động
+                          </h3>
+                        </div>
+                        
+                        <div className={`flex items-center gap-2.5 mb-3 px-3 py-2 rounded-xl ${
+                          isDarkMode ? 'bg-blue-500/15' : 'bg-blue-50/80'
+                        }`}>
+                          <div className={`p-1.5 rounded-lg ${
+                            isDarkMode ? 'bg-blue-500/30' : 'bg-blue-100'
+                          }`}>
+                            {hasParticipated ? (
+                              <CheckCircle2 className={`w-4 h-4 ${
+                                isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                              }`} strokeWidth={2.5} />
+                            ) : (
+                              <TrendingUp className={`w-4 h-4 ${
+                                isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                              }`} strokeWidth={2.5} />
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <p className={`text-xs font-medium mb-0.5 ${
+                              isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                            }`}>
+                              Phần trăm tham gia
+                            </p>
+                            <p className={`text-sm font-bold ${
+                              isDarkMode ? 'text-blue-300' : 'text-blue-700'
+                            }`}>
+                              {overallPercentage % 1 === 0 ? overallPercentage.toFixed(0) : overallPercentage.toFixed(1)}%
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <div className={`flex items-center gap-2.5 px-3 py-2 rounded-xl ${
+                          isDarkMode ? 'bg-slate-800/60' : 'bg-gray-100'
+                        }`}>
+                          <Clock className={`w-4 h-4 ${
+                            isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                          }`} strokeWidth={2} />
+                          <p className={`text-xs font-medium ${
+                            isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                          }`}>
+                            Đã điểm danh <span className="font-bold text-blue-600 dark:text-blue-400">{totalCompletedSlots}</span> / <span className="font-bold">{totalRegisteredSlots}</span> buổi
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+              
+              {/* Week Navigation */}
+              {weeks.length > 0 && (
+                <div className={`mb-3 rounded-lg border ${isDarkMode ? 'border-gray-600 bg-gray-800/50' : 'border-gray-300 bg-gray-50'} p-2`}>
+                  <div className="flex items-center justify-between gap-3">
+                    {/* Nút Previous */}
+                    <button
+                      onClick={() => setCurrentWeekIndex(prev => Math.max(0, prev - 1))}
+                      disabled={!weekInfo.canGoPrev}
+                      className={`flex items-center justify-center w-10 h-10 rounded-lg transition-all ${
+                        weekInfo.canGoPrev
+                          ? isDarkMode 
+                            ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 hover:scale-105 border border-blue-500/30' 
+                            : 'bg-blue-50 text-blue-600 hover:bg-blue-100 hover:scale-105 border border-blue-200'
+                          : isDarkMode 
+                            ? 'bg-gray-800/50 text-gray-500 opacity-50 cursor-not-allowed border border-gray-700' 
+                            : 'bg-gray-100 text-gray-400 opacity-50 cursor-not-allowed border border-gray-300'
+                      }`}
+                      title="Tuần trước"
+                    >
+                      <ChevronLeft size={20} strokeWidth={2.5} />
+                    </button>
+                    
+                    {/* Week Info Card */}
+                    <div className={`flex-1 flex items-center justify-center gap-3 px-4 py-3 rounded-lg ${
+                      isDarkMode 
+                        ? 'bg-gradient-to-r from-purple-500/20 to-indigo-500/20 border border-purple-500/30' 
+                        : 'bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200'
+                    }`}>
+                      <CalendarRange size={20} strokeWidth={2.5} className={isDarkMode ? 'text-purple-300' : 'text-purple-600'} />
+                      <div className="flex flex-col items-center gap-1">
+                        <div className={`flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                          <span className="text-base font-bold">Tuần</span>
+                          <span className="text-lg font-extrabold">{weekInfo.currentWeek?.weekNumber || 1}</span>
+                          {weekInfo.totalWeeks > 1 && (
+                            <>
+                              <span className="text-sm opacity-70">/</span>
+                              <span className="text-sm opacity-70">{weekInfo.totalWeeks}</span>
+                            </>
+                          )}
+                        </div>
+                        {weekInfo.currentWeek && weekInfo.startDateStr && weekInfo.endDateStr && (
+                          <div className={`flex items-center gap-1.5 text-xs font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                            <Calendar size={12} strokeWidth={2} />
+                            <span>{weekInfo.startDateStr} - {weekInfo.endDateStr}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Nút Next */}
+                    <button
+                      onClick={() => setCurrentWeekIndex(prev => Math.min(weekInfo.totalWeeks - 1, prev + 1))}
+                      disabled={!weekInfo.canGoNext}
+                      className={`flex items-center justify-center w-10 h-10 rounded-lg transition-all ${
+                        weekInfo.canGoNext
+                          ? isDarkMode 
+                            ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 hover:scale-105 border border-blue-500/30' 
+                            : 'bg-blue-50 text-blue-600 hover:bg-blue-100 hover:scale-105 border border-blue-200'
+                          : isDarkMode 
+                            ? 'bg-gray-800/50 text-gray-500 opacity-50 cursor-not-allowed border border-gray-700' 
+                            : 'bg-gray-100 text-gray-400 opacity-50 cursor-not-allowed border border-gray-300'
+                      }`}
+                      title="Tuần tiếp theo"
+                    >
+                      <ChevronRight size={20} strokeWidth={2.5} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Day Tabs */}
+              <div data-day-tabs-section className="flex justify-center overflow-x-auto gap-1.5 mb-3 no-scrollbar">
+                {currentWeekDays.map((weekDay, idx) => {
+                  const dayLabel = dayLabels[idx];
+                  const dayData = weekDay.data;
+                  const isInCurrentWeek = !!dayData;
+                  const isSelected = dayData && selectedDaySlot?.day === dayData.day;
+                  
+                  if (!dayData) {
+                    return (
+                      <div
+                        key={`day-tab-empty-${currentWeekIndex}-${weekDay.dayKey}`}
+                        className={`flex-shrink-0 px-3 py-2 rounded-lg text-xs font-semibold border-2 ${
+                          isDarkMode
+                            ? 'bg-gray-800/40 text-gray-400 opacity-60 border-gray-700/50'
+                            : 'bg-gray-50 text-gray-400 opacity-60 border-gray-200'
+                        }`}
+                      >
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="font-bold">{dayLabel}</span>
+                          <span className={`text-[9px] italic ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                            Ngoài phạm vi
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const scheduleDate = new Date(dayData.date);
+                  const dayDateShort = `${scheduleDate.getDate()}/${scheduleDate.getMonth() + 1}`;
+                  
+                  // Calculate attendance percentage for this day
+                  // Only count slots that user has registered for
+                  // Calculate attendance percentage for this day
+                  // Only count slots that user has registered for
+                  // Calculate based on completed slots (buổi) instead of check-ins (lần)
+                  // A slot is considered completed only if both start and end check-ins are done
+                  let completedSlots = 0; // Number of slots with both start and end check-ins
+                  let totalRegisteredSlotsForDay = 0; // Total number of registered slots for this day
+                  const slotOrder: ('morning' | 'afternoon' | 'evening')[] = ['morning', 'afternoon', 'evening'];
+                  
+                  slotOrder.forEach(slotKey => {
+                    // Only count if user has registered for this slot
+                    if (!hasRegisteredForSlot(dayData.day, slotKey)) {
+                      return;
+                    }
+                    
+                    const slot = dayData.slots.find(s => s.slotKey === slotKey);
+                    if (!slot) return; // Skip if slot doesn't exist for this day
+                    
+                    // Count this as a registered slot
+                    totalRegisteredSlotsForDay++;
+                    
+                    const slotName = slotKey === 'morning' ? 'Buổi Sáng' : slotKey === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+                    const daySlotKey = `Ngày ${dayData.day} - ${slotName}`;
+                    
+                    // Check if both start and end check-ins are completed
+                    const hasStartRecord = (attendanceRecords || []).some(
+                      (r) => r.timeSlot === daySlotKey && 
+                             r.checkInType === 'start' && 
+                             (r.status === 'approved' || r.status === 'pending')
+                    );
+                    const hasEndRecord = (attendanceRecords || []).some(
+                      (r) => r.timeSlot === daySlotKey && 
+                             r.checkInType === 'end' && 
+                             (r.status === 'approved' || r.status === 'pending')
+                    );
+                    
+                    // A slot is considered completed only if both start and end check-ins are done
+                    if (hasStartRecord && hasEndRecord) {
+                      completedSlots++;
+                    }
+                  });
+                  
+                  // Calculate percentage based on completed slots vs total registered slots
+                  const attendancePercentage = totalRegisteredSlotsForDay > 0 ? (completedSlots / totalRegisteredSlotsForDay) * 100 : 0;
+                  const isSufficientAttendance = attendancePercentage >= 80;
+                  
+                  // Check if user has registered for this day
+                  const isRegisteredForThisDay = hasRegisteredForDay(dayData.day);
+
+                  return (
+                    <button
+                      key={`day-tab-${currentWeekIndex}-${dayData.day}-${dayData.date}`}
+                      type="button"
+                      onClick={() => {
+                        if (isSelected) {
+                          setSelectedDaySlot(null);
+                        } else {
+                          // Find first available slot for this day, or default to morning
+                          const checkSlotAvailability = (slotKey: string) => {
+                            const slot = dayData.slots.find(s => s.slotKey === slotKey);
+                            if (!slot) return false;
+                            
+                            const daySlotKey = `Ngày ${dayData.day} - ${slotKey === 'morning' ? 'Buổi Sáng' : slotKey === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối'}`;
+                            const startRecord = (attendanceRecords || []).find(
+                              (r) => r.timeSlot === daySlotKey && r.checkInType === 'start'
+                            );
+                            const endRecord = (attendanceRecords || []).find(
+                              (r) => r.timeSlot === daySlotKey && r.checkInType === 'end'
+                            );
+                            
+                            const slotDate = new Date(dayData.date);
+                            const [startHours, startMinutes] = slot.startTime.split(':').map(Number);
+                            const [endHours, endMinutes] = slot.endTime.split(':').map(Number);
+                            
+                            const slotStartTime = new Date(slotDate);
+                            slotStartTime.setHours(startHours, startMinutes, 0, 0);
+                            const slotEndTime = new Date(slotDate);
+                            slotEndTime.setHours(endHours, endMinutes, 0, 0);
+                            
+                            const now = currentTime;
+                            const onTimeStartStart = new Date(slotStartTime);
+                            onTimeStartStart.setMinutes(onTimeStartStart.getMinutes() - 15);
+                            const lateStartEnd = new Date(slotStartTime);
+                            lateStartEnd.setMinutes(lateStartEnd.getMinutes() + 30);
+                            
+                            const onTimeEndStart = new Date(slotEndTime);
+                            onTimeEndStart.setMinutes(onTimeEndStart.getMinutes() - 15);
+                            const lateEndEnd = new Date(slotEndTime);
+                            lateEndEnd.setMinutes(lateEndEnd.getMinutes() + 30);
+                            
+                            const canCheckInStart = !startRecord && now >= onTimeStartStart && now <= lateStartEnd;
+                            const canCheckInEnd = !endRecord && now >= onTimeEndStart && now <= lateEndEnd;
+                            
+                            return canCheckInStart || canCheckInEnd;
+                          };
+                          
+                          const slotOrder: ('morning' | 'afternoon' | 'evening')[] = ['morning', 'afternoon', 'evening'];
+                          const firstAvailableSlot = slotOrder.find(s => checkSlotAvailability(s)) || 'morning';
+                          
+                          setSelectedDaySlot({ day: dayData.day, slot: firstAvailableSlot });
+                          
+                          // Update map center immediately
+                          const slot = dayData.slots.find(s => s.slotKey === firstAvailableSlot);
+                          const location = slot?.mapLocation || dayData.dayMapLocation;
+                          if (location && location.lat && location.lng &&
+                              typeof location.lat === 'number' && 
+                              typeof location.lng === 'number' &&
+                              !isNaN(location.lat) &&
+                              !isNaN(location.lng)) {
+                            setMapCenter([location.lat, location.lng]);
+                          }
+                        }
+                      }}
+                      className={`flex-shrink-0 px-3 py-2 rounded-lg text-xs font-semibold transition-all relative border-2 ${
+                        !isRegisteredForThisDay
+                          ? isSelected
+                            ? isDarkMode
+                              ? 'bg-gradient-to-r from-gray-600 to-gray-700 text-white shadow-lg border-gray-500'
+                              : 'bg-gradient-to-r from-gray-400 to-gray-500 text-white shadow-md border-gray-400'
+                            : isDarkMode
+                              ? 'bg-gray-800/70 text-gray-400 hover:bg-gray-700/80 border-gray-600/60'
+                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border-gray-300'
+                          : isSelected
+                          ? isDarkMode
+                            ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg border-blue-400'
+                            : 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-md border-blue-400'
+                          : isDarkMode
+                            ? 'bg-gray-800/90 text-gray-200 hover:bg-gray-700 border-gray-600/80'
+                            : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-300 shadow-sm'
+                      }`}
+                      title={!isRegisteredForThisDay ? 'Bạn chưa đăng ký tham gia ngày này' : undefined}
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold">{dayLabel}</span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                            totalRegisteredSlotsForDay > 0
+                              ? isSelected
+                                ? isDarkMode ? 'bg-white/25 text-white' : 'bg-white/35 text-white'
+                                : isDarkMode ? 'bg-emerald-500/50 text-emerald-100' : 'bg-emerald-500 text-white'
+                              : isSelected
+                                ? isDarkMode ? 'bg-white/15 text-white/80' : 'bg-white/25 text-white/90'
+                                : isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-500'
+                          }`}>{totalRegisteredSlotsForDay}/3</span>
+                          {/* Attendance status badge */}
+                          {totalRegisteredSlotsForDay > 0 && (
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                              isSufficientAttendance
+                                ? isSelected
+                                  ? isDarkMode ? 'bg-emerald-600 text-white border-2 border-emerald-400' : 'bg-emerald-600 text-white border-2 border-emerald-500'
+                                  : isDarkMode ? 'bg-emerald-600 text-white border-2 border-emerald-400' : 'bg-emerald-600 text-white border-2 border-emerald-500'
+                                : attendancePercentage >= 50
+                                  ? isSelected
+                                    ? isDarkMode ? 'bg-amber-600 text-white border-2 border-amber-400' : 'bg-amber-500 text-white border-2 border-amber-400'
+                                    : isDarkMode ? 'bg-amber-600 text-white border-2 border-amber-400' : 'bg-amber-500 text-white border-2 border-amber-400'
+                                  : isSelected
+                                    ? isDarkMode ? 'bg-orange-600 text-white border-2 border-orange-400' : 'bg-orange-500 text-white border-2 border-orange-400'
+                                    : isDarkMode ? 'bg-orange-600 text-white border-2 border-orange-400' : 'bg-orange-500 text-white border-2 border-orange-400'
+                            }`} title={`Đã điểm danh ${completedSlots}/${totalRegisteredSlotsForDay} buổi (${attendancePercentage.toFixed(0)}%)`}>
+                              {isSufficientAttendance ? '✓ Đủ' : `${attendancePercentage.toFixed(0)}%`}
+                            </span>
+                          )}
+                        </div>
+                        <span className={`text-[10px] font-medium ${
+                          isSelected
+                            ? isDarkMode ? 'text-white/90' : 'text-white'
+                            : isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                        }`}>
+                          {dayDateShort}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Time Slot Cards for Selected Day */}
+              {selectedDaySlot && (() => {
+                const dayData = parsedScheduleData.find(d => d.day === selectedDaySlot.day);
+                if (!dayData) return null;
+                
+                // Check if user has registered for this day
+                const isRegisteredForThisDay = hasRegisteredForDay(selectedDaySlot.day);
+
+                // Check which slots are available for check-in
+                const checkSlotAvailability = (slotKey: string) => {
+                  const slot = dayData.slots.find(s => s.slotKey === slotKey);
+                  if (!slot) return false;
+                  
+                  const daySlotKey = `Ngày ${dayData.day} - ${slotKey === 'morning' ? 'Buổi Sáng' : slotKey === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối'}`;
+                  const startRecord = (attendanceRecords || []).find(
+                    (r) => r.timeSlot === daySlotKey && r.checkInType === 'start'
+                  );
+                  const endRecord = (attendanceRecords || []).find(
+                    (r) => r.timeSlot === daySlotKey && r.checkInType === 'end'
+                  );
+                  
+                  const slotDate = new Date(dayData.date);
+                  const [startHours, startMinutes] = slot.startTime.split(':').map(Number);
+                  const [endHours, endMinutes] = slot.endTime.split(':').map(Number);
+                  
+                  const slotStartTime = new Date(slotDate);
+                  slotStartTime.setHours(startHours, startMinutes, 0, 0);
+                  const slotEndTime = new Date(slotDate);
+                  slotEndTime.setHours(endHours, endMinutes, 0, 0);
+                  
+                  const now = currentTime;
+                  const onTimeStartStart = new Date(slotStartTime);
+                  onTimeStartStart.setMinutes(onTimeStartStart.getMinutes() - 15);
+                  const lateStartEnd = new Date(slotStartTime);
+                  lateStartEnd.setMinutes(lateStartEnd.getMinutes() + 30);
+                  
+                  const onTimeEndStart = new Date(slotEndTime);
+                  onTimeEndStart.setMinutes(onTimeEndStart.getMinutes() - 15);
+                  const lateEndEnd = new Date(slotEndTime);
+                  lateEndEnd.setMinutes(lateEndEnd.getMinutes() + 30);
+                  
+                  const canCheckInStart = !startRecord && now >= onTimeStartStart && now <= lateStartEnd;
+                  const canCheckInEnd = !endRecord && now >= onTimeEndStart && now <= lateEndEnd;
+                  
+                  return canCheckInStart || canCheckInEnd;
+                };
+
+                // Sort slots: available first, then others
+                const slotOrder = ['morning', 'afternoon', 'evening'];
+                const sortedSlots = [...slotOrder].sort((a, b) => {
+                  const aAvailable = checkSlotAvailability(a);
+                  const bAvailable = checkSlotAvailability(b);
+                  if (aAvailable && !bAvailable) return -1;
+                  if (!aAvailable && bAvailable) return 1;
+                  return 0;
+                });
+
+                // Auto-select first available slot if current selected slot is not available
+                // This ensures map shows the correct location for the open check-in slot
+                const firstAvailableSlot = sortedSlots.find(s => checkSlotAvailability(s));
+                if (firstAvailableSlot && selectedDaySlot.slot !== firstAvailableSlot && 
+                    (firstAvailableSlot === 'morning' || firstAvailableSlot === 'afternoon' || firstAvailableSlot === 'evening')) {
+                  // Use setTimeout to avoid state update during render
+                  setTimeout(() => {
+                    const slot = dayData.slots.find(s => s.slotKey === firstAvailableSlot);
+                    const location = slot?.mapLocation || dayData.dayMapLocation;
+                    if (location && location.lat && location.lng &&
+                        typeof location.lat === 'number' && 
+                        typeof location.lng === 'number' &&
+                        !isNaN(location.lat) &&
+                        !isNaN(location.lng)) {
+                      setSelectedDaySlot({ day: selectedDaySlot.day, slot: firstAvailableSlot as 'morning' | 'afternoon' | 'evening' });
+                      setMapCenter([location.lat, location.lng]);
+                    }
+                  }, 0);
+                }
+
+                return (
+                  <div className="space-y-4 md:space-y-5">
+                    {/* Warning message if not registered for this day */}
+                    {!isRegisteredForThisDay && (
+                      <div className={`p-4 rounded-xl border-2 ${
+                        isDarkMode 
+                          ? 'bg-orange-500/10 border-orange-500/30 text-orange-300' 
+                          : 'bg-orange-50 border-orange-300 text-orange-800'
+                      }`}>
+                        <div className="flex items-center gap-3">
+                          <AlertTriangle size={20} strokeWidth={2.5} className={isDarkMode ? 'text-orange-400' : 'text-orange-600'} />
+                          <div className="flex-1">
+                            <h3 className={`text-sm font-bold mb-1 ${isDarkMode ? 'text-orange-300' : 'text-orange-800'}`}>
+                              Bạn chưa đăng ký tham gia ngày này
+                            </h3>
+                            <p className={`text-xs ${isDarkMode ? 'text-orange-200' : 'text-orange-700'}`}>
+                              Vui lòng đăng ký tham gia ngày này trước khi điểm danh.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* All Slots Section - Show all slots for registered days */}
+                    {isRegisteredForThisDay ? (
+                      <div className="space-y-3">
+                        {/* Show "Đang mở điểm danh" header only if there are available slots */}
+                        {sortedSlots.some(s => {
+                          const isRegistered = hasRegisteredForSlot(dayData.day, s as 'morning' | 'afternoon' | 'evening');
+                          return isRegistered && checkSlotAvailability(s);
+                        }) && (
+                        <div className="flex items-center gap-2 px-2">
+                          <div className={`h-1 flex-1 rounded-full ${isDarkMode ? 'bg-blue-500/30' : 'bg-blue-200'}`}></div>
+                          <span className={`text-xs font-bold px-3 py-1 rounded-full ${isDarkMode ? 'bg-blue-500/20 text-blue-300' : 'bg-blue-100 text-blue-700'}`}>
+                            Đang mở điểm danh
+                          </span>
+                          <div className={`h-1 flex-1 rounded-full ${isDarkMode ? 'bg-blue-500/30' : 'bg-blue-200'}`}></div>
+                        </div>
+                        )}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5 items-stretch overflow-visible w-full">
+                          {slotOrder.map((slotKey) => {
+                            // Check if user has registered for this specific slot
+                            const isRegisteredForThisSlot = hasRegisteredForSlot(dayData.day, slotKey as 'morning' | 'afternoon' | 'evening');
+                            
+                            // If not registered, don't show in this section (will be shown in "Other Slots" section)
+                            if (!isRegisteredForThisSlot) {
+                              return null;
+                            }
+                            
+                            // If registered but not available, don't show in this section (will be shown in "Other Slots" section)
+                            if (!checkSlotAvailability(slotKey)) {
+                              return null;
+                            }
+                            
+                            // Continue with existing slot card rendering for registered and available slots
+                      const slot = dayData.slots.find(s => s.slotKey === slotKey);
+                      const slotName = slotKey === 'morning' ? 'Buổi Sáng' : slotKey === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+                      const SlotIcon = slotKey === 'morning' ? Sunrise : slotKey === 'afternoon' ? Sun : Moon;
+                      
+                      const isActive = !!slot;
+                      const location = slot?.mapLocation || dayData.dayMapLocation;
+                      const hasLocation = !!(location?.lat && location?.lng);
+                      const isSelected = selectedDaySlot.slot === slotKey;
+
+                            // Get attendance status for this day/slot
+                            const daySlotKey = `Ngày ${dayData.day} - ${slotName}`;
+                            
+                            // Find attendance records for this day/slot
+                            // Only match records with exact daySlotKey to avoid showing records from other days
+                            const startRecord = (attendanceRecords || []).find(
+                              (r) => r.timeSlot === daySlotKey && r.checkInType === 'start'
+                            );
+                            const endRecord = (attendanceRecords || []).find(
+                              (r) => r.timeSlot === daySlotKey && r.checkInType === 'end'
+                            );
+
+                            // Calculate time windows and determine status for check-in
+                            type CheckInStatus = 'not_started' | 'available' | 'missed';
+                            
+                            let startStatus: CheckInStatus = 'not_started';
+                            let endStatus: CheckInStatus = 'not_started';
+                      let canCheckInStart = false;
+                      let canCheckInEnd = false;
+                      
+                      if (slot) {
+                        const slotDate = new Date(dayData.date);
+                        const [startHours, startMinutes] = slot.startTime.split(':').map(Number);
+                        const [endHours, endMinutes] = slot.endTime.split(':').map(Number);
+                        
+                        const slotStartTime = new Date(slotDate);
+                        slotStartTime.setHours(startHours, startMinutes, 0, 0);
+                        
+                        const slotEndTime = new Date(slotDate);
+                        slotEndTime.setHours(endHours, endMinutes, 0, 0);
+                        
+                        const now = currentTime;
+                        
+                        // On-time window: 15 minutes before to 15 minutes after (auto-approve)
+                        const onTimeStartStart = new Date(slotStartTime);
+                        onTimeStartStart.setMinutes(onTimeStartStart.getMinutes() - 15);
+                        const onTimeStartEnd = new Date(slotStartTime);
+                        onTimeStartEnd.setMinutes(onTimeStartEnd.getMinutes() + 15);
+                        
+                        // Late window: from 15 minutes after to 30 minutes after (pending, needs approval)
+                        const lateStartStart = new Date(slotStartTime);
+                        lateStartStart.setMinutes(lateStartStart.getMinutes() + 15);
+                        const lateStartEnd = new Date(slotStartTime);
+                        lateStartEnd.setMinutes(lateStartEnd.getMinutes() + 30);
+                        
+                              // Determine start check-in status
+                              if (startRecord) {
+                                // Already checked in
+                                startStatus = 'available';
+                                canCheckInStart = false;
+                              } else if (now < onTimeStartStart) {
+                                // Not started yet
+                                startStatus = 'not_started';
+                                canCheckInStart = false;
+                              } else if (now >= onTimeStartStart && now <= lateStartEnd) {
+                                // Within check-in window
+                                startStatus = 'available';
+                                canCheckInStart = true;
+                              } else if (now > lateStartEnd) {
+                                // Passed the check-in window
+                                startStatus = 'missed';
+                                canCheckInStart = false;
+                              }
+                        
+                        // Same logic for end check-in
+                        const onTimeEndStart = new Date(slotEndTime);
+                        onTimeEndStart.setMinutes(onTimeEndStart.getMinutes() - 15);
+                        const onTimeEndEnd = new Date(slotEndTime);
+                        onTimeEndEnd.setMinutes(onTimeEndEnd.getMinutes() + 15);
+                        
+                        const lateEndStart = new Date(slotEndTime);
+                        lateEndStart.setMinutes(lateEndStart.getMinutes() + 15);
+                        const lateEndEnd = new Date(slotEndTime);
+                        lateEndEnd.setMinutes(lateEndEnd.getMinutes() + 30);
+                        
+                              // Determine end check-in status
+                              if (endRecord) {
+                                // Already checked in
+                                endStatus = 'available';
+                                canCheckInEnd = false;
+                              } else if (now < onTimeEndStart) {
+                                // Not started yet
+                                endStatus = 'not_started';
+                                canCheckInEnd = false;
+                              } else if (now >= onTimeEndStart && now <= lateEndEnd) {
+                                // Within check-in window
+                                endStatus = 'available';
+                                canCheckInEnd = true;
+                              } else if (now > lateEndEnd) {
+                                // Passed the check-in window
+                                endStatus = 'missed';
+                                canCheckInEnd = false;
+                              }
+                      }
+
+                      return (
+                        <div
+                          key={slotKey}
+                          onClick={() => {
+                            // Update selected slot when clicking on a slot card
+                            setSelectedDaySlot({ day: dayData.day, slot: slotKey as 'morning' | 'afternoon' | 'evening' });
+                            // Update map center to show location of this slot
+                            if (location && location.lat && location.lng &&
+                                typeof location.lat === 'number' && 
+                                typeof location.lng === 'number' &&
+                                !isNaN(location.lat) &&
+                                !isNaN(location.lng)) {
+                              setMapCenter([location.lat, location.lng]);
+                            }
+                            // Location status will be updated automatically via useEffect
+                          }}
+                          className={`rounded-xl border-2 p-2.5 md:p-3 transition-all duration-200 min-w-[260px] max-w-full overflow-hidden w-full h-full flex flex-col cursor-pointer ${
+                            isSelected
+                              ? isDarkMode 
+                                ? 'bg-blue-900/30 border-blue-400 shadow-lg shadow-blue-500/30 ring-2 ring-blue-500/50' 
+                                : 'bg-blue-50 border-blue-500 shadow-lg shadow-blue-500/20 ring-2 ring-blue-500/30'
+                              : isDarkMode 
+                                ? 'bg-gray-800/50 border-blue-400 shadow-lg shadow-blue-500/20 hover:border-blue-300 hover:shadow-blue-500/30' 
+                                : 'bg-white border-blue-500 shadow-lg shadow-blue-500/10 hover:border-blue-400 hover:shadow-blue-500/20'
+                          }`}
+                          style={{
+                                borderColor: isSelected 
+                                  ? (isDarkMode ? '#60a5fa' : '#3b82f6')
+                                  : (isDarkMode ? '#60a5fa' : '#3b82f6'),
+                                borderWidth: isSelected ? '3px' : '2px',
+                                minHeight: '400px'
+                          }}
+                        >
+                          {/* Slot Header */}
+                          <div className="flex items-start justify-between mb-2.5 md:mb-3 gap-1.5 min-w-0 w-full flex-shrink-0">
+                            <div className="flex items-center gap-1.5 md:gap-2 flex-1 min-w-0 max-w-full">
+                              <SlotIcon className={`w-4 h-4 md:w-5 md:h-5 ${isActive ? (slotKey === 'morning' ? (isDarkMode ? 'text-yellow-400' : 'text-yellow-600') : slotKey === 'afternoon' ? (isDarkMode ? 'text-blue-400' : 'text-blue-600') : (isDarkMode ? 'text-purple-400' : 'text-purple-600')) : (isDarkMode ? 'text-gray-500' : 'text-gray-400')} flex-shrink-0`} />
+                              <div className="flex-1 min-w-0 max-w-full overflow-hidden">
+                                <h3 className={`text-sm md:text-base font-bold mb-0.5 md:mb-1 w-full ${isActive ? (isDarkMode ? 'text-white' : 'text-gray-900') : (isDarkMode ? 'text-gray-500' : 'text-gray-400')}`}>
+                                  {slotName}
+                                </h3>
+                                {slot && (
+                                  <div className="flex items-center gap-1 flex-wrap min-w-0">
+                                    <div className={`px-1.5 md:px-2 py-0.5 md:py-1 rounded border text-[10px] md:text-xs flex-shrink-0 ${
+                                      isDarkMode ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
+                                    }`}>
+                                      <span className={`font-semibold flex items-center gap-0.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                        <Clock className="w-2.5 h-2.5 md:w-3 md:h-3 flex-shrink-0" />
+                                        <span className="whitespace-nowrap">{slot.startTime}-{slot.endTime}</span>
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {isActive && slot ? (
+                            <>
+                              {/* Location Info */}
+                              {location && location.lat && location.lng ? (
+                                <div className={`mb-2.5 md:mb-3 p-2 md:p-2.5 rounded-lg border text-[10px] md:text-xs min-w-0 w-full overflow-hidden flex-shrink-0 ${
+                                  isDarkMode ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50'
+                                }`}>
+                                  <div className="flex items-start gap-1.5 md:gap-2 min-w-0 w-full">
+                                    <MapPin className={`w-3 h-3 md:w-3.5 md:h-3.5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} flex-shrink-0 mt-0.5`} />
+                                    <div className="flex-1 min-w-0 max-w-full overflow-hidden">
+                                      <p className={`font-semibold mb-0.5 text-[10px] md:text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                        Vị trí điểm danh
+                                      </p>
+                                      <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} break-words text-[10px] md:text-xs w-full line-clamp-2`}>
+                                        {location.address || `${location.lat?.toFixed(4)}, ${location.lng?.toFixed(4)}`}
+                                      </p>
+                                      {location.radius && (
+                                        <p className={`mt-0.5 font-medium flex items-center gap-1 text-[10px] md:text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                          <Target className="w-2.5 h-2.5 md:w-3 md:h-3 flex-shrink-0 text-blue-500" />
+                                          <span className="whitespace-nowrap">{location.radius}m</span>
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className={`mb-2.5 md:mb-3 p-2 md:p-2.5 rounded-lg border text-[10px] md:text-xs min-w-0 w-full overflow-hidden flex-shrink-0 ${
+                                  isDarkMode ? 'border-gray-700/50 bg-gray-800/20' : 'border-gray-200/50 bg-gray-50/50'
+                                }`}>
+                                  <div className="flex items-start gap-1.5 md:gap-2 min-w-0 w-full">
+                                    <MapPin className={`w-3 h-3 md:w-3.5 md:h-3.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} flex-shrink-0 mt-0.5`} />
+                                    <div className="flex-1 min-w-0 max-w-full overflow-hidden">
+                                      <p className={`font-semibold mb-0.5 text-[10px] md:text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                        Vị trí điểm danh
+                                      </p>
+                                      <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-[10px] md:text-xs italic`}>
+                                        Buổi này không yêu cầu vị trí cụ thể
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Check-in Actions */}
+                              <div className="flex justify-center items-center flex-1 w-full">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-2.5 place-items-center" style={{ maxWidth: '100%' }}>
+                                {/* Start Check-in */}
+                                {(() => {
+                                  const startWindow = slot ? getCheckInTimeWindow(slot, 'start', dayData.date) : null;
+                                  const visualStatus = startRecord ? 'done' : startStatus;
+                                  
+                                  const statusStyles: Record<string, { badge: string; badgeClass: string; icon: React.ReactNode; message: string; container: string; text: string; showButton?: boolean }> = {
+                                    done: {
+                                      badge: 'Đã điểm danh',
+                                      badgeClass: isDarkMode ? 'bg-green-600 text-white' : 'bg-green-500 text-white',
+                                      icon: <CheckCircle2 className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />,
+                                      message: 'Đã hoàn thành',
+                                      container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                      text: isDarkMode ? 'text-gray-200' : 'text-gray-700'
+                                    },
+                                    not_started: {
+                                      badge: 'Chưa đến giờ',
+                                      badgeClass: isDarkMode ? 'bg-gray-600 text-white' : 'bg-gray-400 text-white',
+                                      icon: <Timer className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />,
+                                      message: 'Chưa đến thời gian điểm danh',
+                                      container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                      text: isDarkMode ? 'text-gray-300' : 'text-gray-600'
+                                    },
+                                    available: {
+                                      badge: 'Đang mở',
+                                      badgeClass: isDarkMode ? 'bg-blue-600 text-white' : 'bg-blue-500 text-white',
+                                      icon: <Clock className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />,
+                                      message: 'Có thể điểm danh',
+                                      container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                      text: isDarkMode ? 'text-gray-200' : 'text-gray-700',
+                                      showButton: true
+                                    },
+                                    missed: {
+                                      badge: 'Đã hết hạn',
+                                      badgeClass: isDarkMode ? 'bg-red-600 text-white' : 'bg-red-500 text-white',
+                                      icon: <AlertTriangle className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />,
+                                      message: 'Đã bỏ lỡ điểm danh',
+                                      container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                      text: isDarkMode ? 'text-gray-200' : 'text-gray-700'
+                                    }
+                                  };
+                                  
+                                  const currentConfig = statusStyles[visualStatus];
+                                  
+                                  return (
+                                    <div className={`p-2 md:p-2.5 rounded-lg border-2 transition-all flex flex-col gap-1.5 md:gap-2 h-full min-h-[180px] min-w-0 max-w-full w-full overflow-hidden ${
+                                      visualStatus === 'done'
+                                        ? isDarkMode ? 'border-green-500 bg-gray-800' : 'border-green-500 bg-white'
+                                        : visualStatus === 'available'
+                                        ? isDarkMode ? 'border-blue-500 bg-gray-800' : 'border-blue-500 bg-white'
+                                        : visualStatus === 'missed'
+                                        ? isDarkMode ? 'border-red-500 bg-gray-800' : 'border-red-500 bg-white'
+                                        : isDarkMode ? 'border-gray-600 bg-gray-800' : 'border-gray-300 bg-white'
+                                    }`}>
+                                      <div className="flex items-center justify-between gap-1.5 md:gap-2 min-w-0 w-full">
+                                        <div className="flex items-center gap-1 md:gap-1.5 min-w-0 flex-1">
+                                          <Sun className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-yellow-400' : 'text-yellow-600'} flex-shrink-0`} />
+                                          <span className={`text-[10px] md:text-xs font-bold ${isDarkMode ? 'text-yellow-200' : 'text-yellow-700'}`}>Đầu buổi</span>
+                                        </div>
+                                        <span className={`px-1.5 md:px-2 py-0.5 md:py-1 rounded-full text-[9px] md:text-[10px] font-semibold flex-shrink-0 whitespace-nowrap ${currentConfig.badgeClass}`}>
+                                          {currentConfig.badge}
+                                        </span>
+                                      </div>
+                                      
+                                      {startWindow && (
+                                        <div className="rounded-lg border border-dashed px-2 md:px-2.5 py-1.5 md:py-2 text-[10px] md:text-xs space-y-0.5 min-w-0 w-full overflow-hidden">
+                                          <p className={`flex items-center justify-between gap-1.5 min-w-0 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                                            <span className="flex items-center gap-0.5 flex-shrink-0">
+                                              <CheckCircle className="w-2.5 h-2.5 md:w-3 md:h-3 text-green-500" />
+                                              <span className="whitespace-nowrap text-[10px] md:text-xs">Đúng giờ:</span>
+                                            </span>
+                                            <span className="font-medium whitespace-nowrap text-[10px] md:text-xs">{startWindow.onTimeStart}-{startWindow.onTimeEnd}</span>
+                                          </p>
+                                          <p className={`flex items-center justify-between gap-1.5 min-w-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                            <span className="flex items-center gap-0.5 flex-shrink-0">
+                                              <Timer className="w-2.5 h-2.5 md:w-3 md:h-3 text-orange-500" />
+                                              <span className="whitespace-nowrap text-[10px] md:text-xs">Trễ:</span>
+                                            </span>
+                                            <span className="font-medium whitespace-nowrap text-[10px] md:text-xs">{startWindow.lateStart}-{startWindow.lateEnd}</span>
+                                          </p>
+                                        </div>
+                                      )}
+                                      
+                                      {/* Location validity warning for available slots */}
+                                      {visualStatus === 'available' && locationStatus && !locationStatus.valid && (
+                                        <div className={`rounded-lg border-2 px-2 md:px-2.5 py-1.5 md:py-2 flex items-center gap-1.5 md:gap-2 min-w-0 w-full overflow-hidden ${
+                                          isDarkMode 
+                                            ? 'bg-red-500/20 border-red-500/50 text-red-300' 
+                                            : 'bg-red-50 border-red-300 text-red-700'
+                                        }`}>
+                                          <AlertTriangle className="w-3.5 h-3.5 md:w-4 md:h-4 flex-shrink-0" />
+                                          <p className={`text-[10px] md:text-xs font-semibold flex-1 min-w-0 ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>
+                                            Vị trí không hợp lệ{locationStatus.distance !== undefined ? ` (${locationStatus.distance.toFixed(0)}m)` : ''}
+                                          </p>
+                                        </div>
+                                      )}
+                                      
+                                      <div className={`flex items-center justify-between gap-1.5 md:gap-2 rounded-lg border px-2 md:px-2.5 py-1.5 md:py-2 min-w-0 w-full overflow-hidden ${currentConfig.container}`}>
+                                        <div className="flex items-center gap-1 md:gap-1.5 min-w-0 flex-1 overflow-hidden">
+                                          <div className="flex-shrink-0">{currentConfig.icon}</div>
+                                          <p className={`text-[10px] md:text-xs font-semibold ${currentConfig.text}`}>{currentConfig.message}</p>
+                                        </div>
+                                        {/* Show photo if already checked in, otherwise show button */}
+                                        {(() => {
+                                          // Check if we have a record with photo
+                                          const hasRecordWithPhoto = startRecord && startRecord.photoUrl;
+                                          const isDoneStatus = visualStatus === 'done';
+                                          
+                                          // Debug log
+                                          if (startRecord) {
+                                            console.log('Start check-in status:', {
+                                              daySlotKey,
+                                              hasRecord: !!startRecord,
+                                              hasPhoto: !!startRecord.photoUrl,
+                                              photoUrl: startRecord.photoUrl,
+                                              visualStatus,
+                                              isDoneStatus,
+                                              shouldShowPhoto: isDoneStatus && hasRecordWithPhoto
+                                            });
+                                          }
+                                          
+                                          if (isDoneStatus && hasRecordWithPhoto) {
+                                            return (
+                                              <div className="rounded-lg overflow-hidden border-2 flex-shrink-0" style={{
+                                                borderColor: isDarkMode ? '#10b981' : '#22c55e',
+                                                width: '60px',
+                                                height: '60px'
+                                              }}>
+                                                <img 
+                                                  src={startRecord.photoUrl} 
+                                                  alt="Điểm danh đầu buổi" 
+                                                  className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                                                  onClick={() => {
+                                                    setSelectedImageUrl(startRecord.photoUrl!);
+                                                    setShowImageModal(true);
+                                                  }}
+                                                />
+                                              </div>
+                                            );
+                                          }
+                                          
+                                          // Show button if available
+                                          if (currentConfig.showButton) {
+                                            return (
+                                              <button
+                                                onClick={() => handleSlotCheckIn(daySlotKey, 'start')}
+                                                disabled={isCheckingIn || (visualStatus === 'available' && locationStatus !== null && !locationStatus.valid)}
+                                                className={`px-2.5 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap flex-shrink-0 ${
+                                                  isDarkMode 
+                                                    ? 'bg-blue-600 text-white hover:bg-blue-500' 
+                                                    : 'bg-blue-600 text-white hover:bg-blue-500'
+                                                } ${isCheckingIn || (visualStatus === 'available' && locationStatus && !locationStatus.valid) ? 'opacity-50 cursor-not-allowed' : 'shadow-sm hover:shadow-md'}`}
+                                              >
+                                                {isCheckingIn ? (
+                                                  <Loader className="w-3 h-3 md:w-3.5 md:h-3.5 animate-spin" />
+                                                ) : (
+                                                  <>
+                                                    <Camera className="w-3 h-3 md:w-3.5 md:h-3.5 flex-shrink-0" />
+                                                    <span>Điểm danh</span>
+                                                  </>
+                                                )}
+                                              </button>
+                                            );
+                                          }
+                                          
+                                          return null;
+                                        })()}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+
+                                {/* End Check-in */}
+                                {(() => {
+                                  const endWindow = slot ? getCheckInTimeWindow(slot, 'end', dayData.date) : null;
+                                  const visualStatus = endRecord ? 'done' : endStatus;
+                                  
+                                  const statusStyles: Record<string, { badge: string; badgeClass: string; icon: React.ReactNode; message: string; container: string; text: string; showButton?: boolean }> = {
+                                    done: {
+                                      badge: 'Đã điểm danh',
+                                      badgeClass: isDarkMode ? 'bg-green-600 text-white' : 'bg-green-500 text-white',
+                                      icon: <CheckCircle2 className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />,
+                                      message: 'Đã hoàn thành',
+                                      container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                      text: isDarkMode ? 'text-gray-200' : 'text-gray-700'
+                                    },
+                                    not_started: {
+                                      badge: 'Chưa đến giờ',
+                                      badgeClass: isDarkMode ? 'bg-gray-600 text-white' : 'bg-gray-400 text-white',
+                                      icon: <Timer className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />,
+                                      message: 'Chưa đến thời gian điểm danh',
+                                      container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                      text: isDarkMode ? 'text-gray-300' : 'text-gray-600'
+                                    },
+                                    available: {
+                                      badge: 'Đang mở',
+                                      badgeClass: isDarkMode ? 'bg-blue-600 text-white' : 'bg-blue-500 text-white',
+                                      icon: <Clock className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />,
+                                      message: 'Có thể điểm danh',
+                                      container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                      text: isDarkMode ? 'text-gray-200' : 'text-gray-700',
+                                      showButton: true
+                                    },
+                                    missed: {
+                                      badge: 'Đã hết hạn',
+                                      badgeClass: isDarkMode ? 'bg-red-600 text-white' : 'bg-red-500 text-white',
+                                      icon: <AlertTriangle className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />,
+                                      message: 'Đã bỏ lỡ điểm danh',
+                                      container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                      text: isDarkMode ? 'text-gray-200' : 'text-gray-700'
+                                    }
+                                  };
+                                  
+                                  const currentConfig = statusStyles[visualStatus];
+                                  
+                                  return (
+                                    <div className={`p-2 md:p-2.5 rounded-lg border-2 transition-all flex flex-col gap-1.5 md:gap-2 h-full min-h-[180px] min-w-0 max-w-full w-full overflow-hidden ${
+                                      visualStatus === 'done'
+                                        ? isDarkMode ? 'border-green-500 bg-gray-800' : 'border-green-500 bg-white'
+                                        : visualStatus === 'available'
+                                        ? isDarkMode ? 'border-blue-500 bg-gray-800' : 'border-blue-500 bg-white'
+                                        : visualStatus === 'missed'
+                                        ? isDarkMode ? 'border-red-500 bg-gray-800' : 'border-red-500 bg-white'
+                                        : isDarkMode ? 'border-gray-600 bg-gray-800' : 'border-gray-300 bg-white'
+                                    }`}>
+                                      <div className="flex items-center justify-between gap-1.5 md:gap-2 min-w-0 w-full">
+                                        <div className="flex items-center gap-1 md:gap-1.5 min-w-0 flex-1">
+                                          <Moon className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-purple-400' : 'text-purple-600'} flex-shrink-0`} />
+                                          <span className={`text-[10px] md:text-xs font-bold ${isDarkMode ? 'text-purple-200' : 'text-purple-700'}`}>Cuối buổi</span>
+                                        </div>
+                                        <span className={`px-1.5 md:px-2 py-0.5 md:py-1 rounded-full text-[9px] md:text-[10px] font-semibold flex-shrink-0 whitespace-nowrap ${currentConfig.badgeClass}`}>
+                                          {currentConfig.badge}
+                                        </span>
+                                      </div>
+                                      
+                                      {endWindow && (
+                                        <div className="rounded-lg border border-dashed px-2 md:px-2.5 py-1.5 md:py-2 text-[10px] md:text-xs space-y-0.5 min-w-0 w-full overflow-hidden">
+                                          <p className={`flex items-center justify-between gap-1.5 min-w-0 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                                            <span className="flex items-center gap-0.5 flex-shrink-0">
+                                              <CheckCircle className="w-2.5 h-2.5 md:w-3 md:h-3 text-green-500" />
+                                              <span className="whitespace-nowrap text-[10px] md:text-xs">Đúng giờ:</span>
+                                            </span>
+                                            <span className="font-medium whitespace-nowrap text-[10px] md:text-xs">{endWindow.onTimeStart}-{endWindow.onTimeEnd}</span>
+                                          </p>
+                                          <p className={`flex items-center justify-between gap-1.5 min-w-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                            <span className="flex items-center gap-0.5 flex-shrink-0">
+                                              <Timer className="w-2.5 h-2.5 md:w-3 md:h-3 text-orange-500" />
+                                              <span className="whitespace-nowrap text-[10px] md:text-xs">Trễ:</span>
+                                            </span>
+                                            <span className="font-medium whitespace-nowrap text-[10px] md:text-xs">{endWindow.lateStart}-{endWindow.lateEnd}</span>
+                                          </p>
+                                        </div>
+                                      )}
+                                      
+                                      {/* Location validity warning for available slots */}
+                                      {visualStatus === 'available' && locationStatus && !locationStatus.valid && (
+                                        <div className={`rounded-lg border-2 px-2 md:px-2.5 py-1.5 md:py-2 flex items-center gap-1.5 md:gap-2 min-w-0 w-full overflow-hidden ${
+                                          isDarkMode 
+                                            ? 'bg-red-500/20 border-red-500/50 text-red-300' 
+                                            : 'bg-red-50 border-red-300 text-red-700'
+                                        }`}>
+                                          <AlertTriangle className="w-3.5 h-3.5 md:w-4 md:h-4 flex-shrink-0" />
+                                          <p className={`text-[10px] md:text-xs font-semibold flex-1 min-w-0 ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>
+                                            Vị trí không hợp lệ{locationStatus.distance !== undefined ? ` (${locationStatus.distance.toFixed(0)}m)` : ''}
+                                          </p>
+                                        </div>
+                                      )}
+                                      
+                                      <div className={`flex items-center justify-between gap-1.5 md:gap-2 rounded-lg border px-2 md:px-2.5 py-1.5 md:py-2 min-w-0 w-full overflow-hidden ${currentConfig.container}`}>
+                                        <div className="flex items-center gap-1 md:gap-1.5 min-w-0 flex-1 overflow-hidden">
+                                          <div className="flex-shrink-0">{currentConfig.icon}</div>
+                                          <p className={`text-[10px] md:text-xs font-semibold ${currentConfig.text}`}>{currentConfig.message}</p>
+                                        </div>
+                                        {/* Show photo if already checked in, otherwise show button */}
+                                        {(() => {
+                                          // Check if we have a record with photo
+                                          const hasRecordWithPhoto = endRecord && endRecord.photoUrl;
+                                          const isDoneStatus = visualStatus === 'done';
+                                          
+                                          // Debug log
+                                          if (endRecord) {
+                                            console.log('End check-in status:', {
+                                              daySlotKey,
+                                              hasRecord: !!endRecord,
+                                              hasPhoto: !!endRecord.photoUrl,
+                                              photoUrl: endRecord.photoUrl,
+                                              visualStatus,
+                                              isDoneStatus,
+                                              shouldShowPhoto: isDoneStatus && hasRecordWithPhoto
+                                            });
+                                          }
+                                          
+                                          if (isDoneStatus && hasRecordWithPhoto) {
+                                            return (
+                                              <div className="rounded-lg overflow-hidden border-2 flex-shrink-0" style={{
+                                                borderColor: isDarkMode ? '#10b981' : '#22c55e',
+                                                width: '60px',
+                                                height: '60px'
+                                              }}>
+                                                <img 
+                                                  src={endRecord.photoUrl} 
+                                                  alt="Điểm danh cuối buổi" 
+                                                  className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                                                  onClick={() => {
+                                                    setSelectedImageUrl(endRecord.photoUrl!);
+                                                    setShowImageModal(true);
+                                                  }}
+                                                />
+                                              </div>
+                                            );
+                                          }
+                                          
+                                          // Show button if available
+                                          if (currentConfig.showButton) {
+                                            return (
+                                              <button
+                                                onClick={() => handleSlotCheckIn(daySlotKey, 'end')}
+                                                disabled={isCheckingIn || (visualStatus === 'available' && locationStatus !== null && !locationStatus.valid)}
+                                                className={`px-2.5 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap flex-shrink-0 ${
+                                                  isDarkMode 
+                                                    ? 'bg-blue-600 text-white hover:bg-blue-500' 
+                                                    : 'bg-blue-600 text-white hover:bg-blue-500'
+                                                } ${isCheckingIn || (visualStatus === 'available' && locationStatus && !locationStatus.valid) ? 'opacity-50 cursor-not-allowed' : 'shadow-sm hover:shadow-md'}`}
+                                              >
+                                                {isCheckingIn ? (
+                                                  <Loader className="w-3 h-3 md:w-3.5 md:h-3.5 animate-spin" />
+                                                ) : (
+                                                  <>
+                                                    <Camera className="w-3 h-3 md:w-3.5 md:h-3.5 flex-shrink-0" />
+                                                    <span>Điểm danh</span>
+                                                  </>
+                                                )}
+                                              </button>
+                                            );
+                                          }
+                                          
+                                          return null;
+                                        })()}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                                </div>
+                              </div>
+
+                              {/* Attendance Records */}
+                              {(startRecord || endRecord) && (
+                                <div className={`mt-3 pt-3 border-t border-dashed flex-shrink-0`} style={{
+                                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+                                }}>
+                                  <div className="space-y-2">
+                                    {startRecord && (
+                                      <div className={`p-2 rounded-lg border text-xs ${
+                                        isDarkMode ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
+                                      }`}>
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <Sun className="w-3.5 h-3.5" />
+                                          <span className="font-semibold">Đầu buổi</span>
+                                        </div>
+                                        {slot && (() => {
+                                          const startWindow = getCheckInTimeWindow(slot, 'start', dayData.date);
+                                          return startWindow ? (
+                                            <div className="mb-2 space-y-0.5">
+                                              <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                <CheckCircle2 className="w-3 h-3" />
+                                                Đúng giờ: {startWindow.onTimeStart} - {startWindow.onTimeEnd}
+                                              </p>
+                                        <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                          <Timer className="w-3 h-3" />
+                                                Trễ: {startWindow.lateStart} - {startWindow.lateEnd}
+                                              </p>
+                                            </div>
+                                          ) : null;
+                                        })()}
+                                        {/* Status Badges */}
+                                        <div className="flex flex-wrap gap-2 mb-2">
+                                          {(() => {
+                                            const lateEarlyInfo = calculateLateEarlyForRecord(startRecord);
+                                            return (
+                                              <>
+                                                {lateEarlyInfo && startRecord.status !== 'rejected' && (
+                                                  <>
+                                                    {lateEarlyInfo.isOnTime ? (
+                                                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                        isDarkMode 
+                                                          ? 'text-green-300 border-green-500/40' 
+                                                          : 'text-green-700 border-green-300/60'
+                                                      }`}>
+                                                        <CheckCircle2 className={`w-4 h-4 ${
+                                                          isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                        }`} />
+                                                        <span className="font-bold">Đúng giờ</span>
+                                                      </div>
+                                                    ) : (
+                                                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                        lateEarlyInfo.isEarly
+                                                          ? isDarkMode 
+                                                            ? 'text-blue-300 border-blue-500/40' 
+                                                            : 'text-blue-700 border-blue-300/60'
+                                                          : isDarkMode 
+                                                            ? 'text-pink-300 border-pink-500/40' 
+                                                            : 'text-pink-700 border-pink-300/60'
+                                                      }`}>
+                                                        <Clock className={`w-4 h-4 ${
+                                                          lateEarlyInfo.isEarly
+                                                            ? isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                                                            : isDarkMode ? 'text-pink-400' : 'text-pink-600'
+                                                        }`} />
+                                                        <span className="font-bold">
+                                                          {lateEarlyInfo.isEarly ? 'Sớm' : 'Trễ'} {lateEarlyInfo.minutes !== undefined ? formatMinutesToHours(lateEarlyInfo.minutes) : ''}
+                                                        </span>
+                                                      </div>
+                                                    )}
+                                                  </>
+                                                )}
+                                                {startRecord.status !== 'rejected' && (
+                                                  <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                    startRecord.status === 'approved'
+                                                      ? isDarkMode 
+                                                        ? 'text-green-300 border-green-500/40' 
+                                                        : 'text-green-700 border-green-300/60'
+                                                      : isDarkMode 
+                                                        ? 'text-amber-300 border-amber-500/40' 
+                                                        : 'text-amber-700 border-amber-300/60'
+                                                  }`}>
+                                                    {startRecord.status === 'approved' ? (
+                                                      <CheckCircle2 className={`w-4 h-4 ${
+                                                        isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                      }`} />
+                                                    ) : (
+                                                      <Timer className={`w-4 h-4 ${
+                                                        isDarkMode ? 'text-amber-400' : 'text-amber-600'
+                                                      }`} />
+                                                    )}
+                                                    <span className="font-bold">
+                                                      {startRecord.status === 'approved' 
+                                                        ? (isManualCheckInRecord(startRecord) && ((startRecord as any).verifiedByName || startRecord.verifiedBy)
+                                                            ? `Đã được điểm danh bởi ${getVerifierName(startRecord.verifiedBy, (startRecord as any).verifiedByName)}`
+                                                            : 'Đã xác nhận')
+                                                        : 'Chờ xác nhận'}
+                                                    </span>
+                                    </div>
+                                                )}
+                                              </>
+                                            );
+                                          })()}
+                                        </div>
+                                        {startRecord.photoUrl && (
+                                          <img 
+                                            src={startRecord.photoUrl} 
+                                            alt="Start check-in" 
+                                            className="w-full h-20 object-cover rounded mb-1 cursor-pointer"
+                                            onClick={() => {
+                                              setSelectedImageUrl(startRecord.photoUrl!);
+                                              setShowImageModal(true);
+                                            }}
+                                          />
+                                        )}
+                                        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                          {new Date(startRecord.checkInTime).toLocaleString('vi-VN', { 
+                                            hour: '2-digit', 
+                                            minute: '2-digit', 
+                                            second: '2-digit',
+                                            day: '2-digit',
+                                            month: '2-digit',
+                                            year: 'numeric'
+                                          })}
+                                        </p>
+                                        {isManualCheckInRecord(startRecord) && ((startRecord as any).verifiedByName || startRecord.verifiedBy) && (
+                                          <p className={`text-xs mt-1 flex items-center gap-1 ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
+                                            <User className="w-3 h-3" />
+                                            Đã được điểm danh bởi: <span className="font-semibold">{getVerifierName(startRecord.verifiedBy, (startRecord as any).verifiedByName)}</span>
+                                          </p>
+                                        )}
+                                      </div>
+                                    )}
+                                    {endRecord && (
+                                      <div className={`p-2 rounded-lg border text-xs ${
+                                        isDarkMode ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
+                                      }`}>
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <Moon className="w-3.5 h-3.5" />
+                                          <span className="font-semibold">Cuối buổi</span>
+                                        </div>
+                                        {slot && (() => {
+                                          const endWindow = getCheckInTimeWindow(slot, 'end', dayData.date);
+                                          return endWindow ? (
+                                            <div className="mb-2 space-y-0.5">
+                                              <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                <CheckCircle2 className="w-3 h-3" />
+                                                Đúng giờ: {endWindow.onTimeStart} - {endWindow.onTimeEnd}
+                                              </p>
+                                              <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                                <Timer className="w-3 h-3" />
+                                                Trễ: {endWindow.lateStart} - {endWindow.lateEnd}
+                                              </p>
+                                            </div>
+                                          ) : null;
+                                        })()}
+                                        {/* Status Badges */}
+                                        <div className="flex flex-wrap gap-2 mb-2">
+                                          {(() => {
+                                            const lateEarlyInfo = calculateLateEarlyForRecord(endRecord);
+                                            return (
+                                              <>
+                                                {lateEarlyInfo && endRecord.status !== 'rejected' && (
+                                                  <>
+                                                    {lateEarlyInfo.isOnTime ? (
+                                                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                        isDarkMode 
+                                                          ? 'text-green-300 border-green-500/40' 
+                                                          : 'text-green-700 border-green-300/60'
+                                                      }`}>
+                                                        <CheckCircle2 className={`w-4 h-4 ${
+                                                          isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                        }`} />
+                                                        <span className="font-bold">Đúng giờ</span>
+                                                      </div>
+                                                    ) : (
+                                                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                        lateEarlyInfo.isEarly
+                                                          ? isDarkMode 
+                                                            ? 'text-blue-300 border-blue-500/40' 
+                                                            : 'text-blue-700 border-blue-300/60'
+                                                          : isDarkMode 
+                                                            ? 'text-pink-300 border-pink-500/40' 
+                                                            : 'text-pink-700 border-pink-300/60'
+                                                      }`}>
+                                                        <Clock className={`w-4 h-4 ${
+                                                          lateEarlyInfo.isEarly
+                                                            ? isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                                                            : isDarkMode ? 'text-pink-400' : 'text-pink-600'
+                                                        }`} />
+                                                        <span className="font-bold">
+                                                          {lateEarlyInfo.isEarly ? 'Sớm' : 'Trễ'} {lateEarlyInfo.minutes !== undefined ? formatMinutesToHours(lateEarlyInfo.minutes) : ''}
+                                                        </span>
+                                                      </div>
+                                                    )}
+                                                  </>
+                                                )}
+                                                {endRecord.status !== 'rejected' && (
+                                                  <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                    endRecord.status === 'approved'
+                                                      ? isDarkMode 
+                                                        ? 'text-green-300 border-green-500/40' 
+                                                        : 'text-green-700 border-green-300/60'
+                                                      : isDarkMode 
+                                                        ? 'text-amber-300 border-amber-500/40' 
+                                                        : 'text-amber-700 border-amber-300/60'
+                                                  }`}>
+                                                    {endRecord.status === 'approved' ? (
+                                                      <CheckCircle2 className={`w-4 h-4 ${
+                                                        isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                      }`} />
+                                                    ) : (
+                                                      <Timer className={`w-4 h-4 ${
+                                                        isDarkMode ? 'text-amber-400' : 'text-amber-600'
+                                                      }`} />
+                                                    )}
+                                                    <span className="font-bold">
+                                                      {endRecord.status === 'approved' 
+                                                        ? (isManualCheckInRecord(endRecord) && ((endRecord as any).verifiedByName || endRecord.verifiedBy)
+                                                            ? `Đã được điểm danh bởi ${getVerifierName(endRecord.verifiedBy, (endRecord as any).verifiedByName)}`
+                                                            : 'Đã xác nhận')
+                                                        : 'Chờ xác nhận'}
+                                                    </span>
+                                                  </div>
+                                                )}
+                                              </>
+                                            );
+                                          })()}
+                                        </div>
+                                        {endRecord.photoUrl && (
+                                          <img 
+                                            src={endRecord.photoUrl} 
+                                            alt="End check-in" 
+                                            className="w-full h-20 object-cover rounded mb-1 cursor-pointer"
+                                            onClick={() => {
+                                              setSelectedImageUrl(endRecord.photoUrl!);
+                                              setShowImageModal(true);
+                                            }}
+                                          />
+                                        )}
+                                        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                          {new Date(endRecord.checkInTime).toLocaleString('vi-VN', { 
+                                            hour: '2-digit', 
+                                            minute: '2-digit', 
+                                            second: '2-digit',
+                                            day: '2-digit',
+                                            month: '2-digit',
+                                            year: 'numeric'
+                                          })}
+                                        </p>
+                                        {isManualCheckInRecord(endRecord) && ((endRecord as any).verifiedByName || endRecord.verifiedBy) && (
+                                          <p className={`text-xs mt-1 flex items-center gap-1 ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
+                                            <User className="w-3 h-3" />
+                                            Đã được điểm danh bởi: <span className="font-semibold">{getVerifierName(endRecord.verifiedBy, (endRecord as any).verifiedByName)}</span>
+                                          </p>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <div className={`text-center py-8 rounded-lg flex-1 flex flex-col items-center justify-center ${
+                              isDarkMode ? 'border border-gray-700' : 'border border-gray-200'
+                            }`}>
+                              <div className={`w-10 h-10 mx-auto mb-2 rounded-full flex items-center justify-center ${
+                                isDarkMode ? 'bg-gray-700' : 'bg-gray-200'
+                              }`}>
+                                <XCircle size={18} className={isDarkMode ? 'text-gray-500' : 'text-gray-400'} strokeWidth={2} />
+                              </div>
+                              <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                                Buổi này chưa được kích hoạt
+                              </p>
+                            </div>
+                          )}
+                            </div>
+                          );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {/* Other Slots Section - Show all slots that are not available OR not registered */}
+                    {isRegisteredForThisDay ? (() => {
+                      // Check if there are any slots to show in this section
+                      const hasOtherSlots = slotOrder.some(slotKey => {
+                        const isRegistered = hasRegisteredForSlot(dayData.day, slotKey as 'morning' | 'afternoon' | 'evening');
+                        const isAvailable = checkSlotAvailability(slotKey);
+                        return !isRegistered || !isAvailable;
+                      });
+                      
+                      if (!hasOtherSlots) return null;
+                      
+                      return (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 px-2">
+                          <div className={`h-1 flex-1 rounded-full ${isDarkMode ? 'bg-gray-500/30' : 'bg-gray-200'}`}></div>
+                          <span className={`text-xs font-bold px-3 py-1 rounded-full ${isDarkMode ? 'bg-gray-500/20 text-gray-300' : 'bg-gray-100 text-gray-700'}`}>
+                            Các buổi khác
+                          </span>
+                          <div className={`h-1 flex-1 rounded-full ${isDarkMode ? 'bg-gray-500/30' : 'bg-gray-200'}`}></div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5 items-stretch overflow-visible w-full">
+                            {slotOrder.map((slotKey) => {
+                              // Check if user has registered for this specific slot
+                              const isRegisteredForThisSlot = hasRegisteredForSlot(dayData.day, slotKey as 'morning' | 'afternoon' | 'evening');
+                              const isAvailable = checkSlotAvailability(slotKey);
+                              
+                              // Only show slots that are either not registered OR not available
+                              if (isRegisteredForThisSlot && isAvailable) {
+                                return null; // Already shown in "Available Slots" section
+                              }
+                              
+                              // If not registered, show "Not registered" card
+                              if (!isRegisteredForThisSlot) {
+                                const slot = dayData.slots.find(s => s.slotKey === slotKey);
+                                const slotName = slotKey === 'morning' ? 'Buổi Sáng' : slotKey === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+                                const SlotIcon = slotKey === 'morning' ? Sunrise : slotKey === 'afternoon' ? Sun : Moon;
+                                
+                                return (
+                                  <div
+                                    key={slotKey}
+                                    className={`rounded-xl border-2 p-2.5 md:p-3 transition-all duration-200 min-w-[260px] max-w-full overflow-hidden w-full h-full flex flex-col ${
+                                      isDarkMode 
+                                        ? 'bg-gray-800/30 border-gray-600/50 opacity-60' 
+                                        : 'bg-gray-100 border-gray-300 opacity-60'
+                                    }`}
+                                    style={{
+                                      minHeight: '400px'
+                                    }}
+                                  >
+                                    {/* Slot Header */}
+                                    <div className="flex items-start justify-between mb-2.5 md:mb-3 gap-1.5 min-w-0 w-full flex-shrink-0">
+                                      <div className="flex items-center gap-1.5 md:gap-2 flex-1 min-w-0 max-w-full">
+                                        <SlotIcon className={`w-4 h-4 md:w-5 md:h-5 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} flex-shrink-0`} />
+                                        <div className="flex-1 min-w-0 max-w-full overflow-hidden">
+                                          <h3 className={`text-sm md:text-base font-bold mb-0.5 md:mb-1 w-full ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                                            {slotName}
+                                          </h3>
+                                          {slot && (
+                                            <div className="flex items-center gap-1 flex-wrap min-w-0">
+                                              <div className={`px-1.5 md:px-2 py-0.5 md:py-1 rounded border text-[10px] md:text-xs flex-shrink-0 ${
+                                                isDarkMode ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
+                                              }`}>
+                                                <span className={`font-semibold flex items-center gap-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                  <Clock className="w-2.5 h-2.5 md:w-3 md:h-3 flex-shrink-0" />
+                                                  <span className="whitespace-nowrap">{slot.startTime}-{slot.endTime}</span>
+                                                </span>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    
+                                    {/* Not Registered Message */}
+                                    <div className={`flex-1 flex items-center justify-center p-4 rounded-lg border-2 border-dashed ${
+                                      isDarkMode 
+                                        ? 'bg-gray-800/50 border-gray-600/50' 
+                                        : 'bg-gray-50 border-gray-300'
+                                    }`}>
+                                      <div className="text-center">
+                                        <XCircle className={`w-12 h-12 md:w-16 md:h-16 mx-auto mb-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} strokeWidth={1.5} />
+                                        <p className={`text-sm md:text-base font-semibold mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                          Không đăng ký
+                                        </p>
+                                        <p className={`text-xs md:text-sm ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                                          Bạn chưa đăng ký tham gia buổi này
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              
+                              // Continue with existing rendering for registered slots that are not available
+                            const slot = dayData.slots.find(s => s.slotKey === slotKey);
+                            const slotName = slotKey === 'morning' ? 'Buổi Sáng' : slotKey === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+                            const SlotIcon = slotKey === 'morning' ? Sunrise : slotKey === 'afternoon' ? Sun : Moon;
+                            const isActive = !!slot;
+                            const location = slot?.mapLocation || dayData.dayMapLocation;
+                            const hasLocation = !!(location?.lat && location?.lng);
+                            const isSelected = selectedDaySlot.slot === slotKey;
+                            
+                            // Get attendance status for this day/slot
+                            const daySlotKey = `Ngày ${dayData.day} - ${slotName}`;
+                            
+                            // Find attendance records for this day/slot
+                            // Only match records with exact daySlotKey to avoid showing records from other days
+                            const startRecord = (attendanceRecords || []).find(
+                              (r) => r.timeSlot === daySlotKey && r.checkInType === 'start'
+                            );
+                            const endRecord = (attendanceRecords || []).find(
+                              (r) => r.timeSlot === daySlotKey && r.checkInType === 'end'
+                            );
+
+                            // Calculate time windows and determine status for check-in
+                            type CheckInStatus = 'not_started' | 'available' | 'missed';
+                            
+                            let startStatus: CheckInStatus = 'not_started';
+                            let endStatus: CheckInStatus = 'not_started';
+                            let canCheckInStart = false;
+                            let canCheckInEnd = false;
+                            
+                            if (slot) {
+                              const slotDate = new Date(dayData.date);
+                              const [startHours, startMinutes] = slot.startTime.split(':').map(Number);
+                              const [endHours, endMinutes] = slot.endTime.split(':').map(Number);
+                              
+                              const slotStartTime = new Date(slotDate);
+                              slotStartTime.setHours(startHours, startMinutes, 0, 0);
+                              
+                              const slotEndTime = new Date(slotDate);
+                              slotEndTime.setHours(endHours, endMinutes, 0, 0);
+                              
+                              const now = currentTime;
+                              
+                              // On-time window: 15 minutes before to 15 minutes after (auto-approve)
+                              const onTimeStartStart = new Date(slotStartTime);
+                              onTimeStartStart.setMinutes(onTimeStartStart.getMinutes() - 15);
+                              const onTimeStartEnd = new Date(slotStartTime);
+                              onTimeStartEnd.setMinutes(onTimeStartEnd.getMinutes() + 15);
+                              
+                              // Late window: from 15 minutes after to 30 minutes after (pending, needs approval)
+                              const lateStartStart = new Date(slotStartTime);
+                              lateStartStart.setMinutes(lateStartStart.getMinutes() + 15);
+                              const lateStartEnd = new Date(slotStartTime);
+                              lateStartEnd.setMinutes(lateStartEnd.getMinutes() + 30);
+                              
+                              // Determine start check-in status
+                              if (startRecord) {
+                                // Already checked in
+                                startStatus = 'available';
+                                canCheckInStart = false;
+                              } else if (now < onTimeStartStart) {
+                                // Not started yet
+                                startStatus = 'not_started';
+                                canCheckInStart = false;
+                              } else if (now >= onTimeStartStart && now <= lateStartEnd) {
+                                // Within check-in window
+                                startStatus = 'available';
+                                canCheckInStart = true;
+                              } else if (now > lateStartEnd) {
+                                // Passed the check-in window
+                                startStatus = 'missed';
+                                canCheckInStart = false;
+                              }
+                              
+                              // Same logic for end check-in
+                              const onTimeEndStart = new Date(slotEndTime);
+                              onTimeEndStart.setMinutes(onTimeEndStart.getMinutes() - 15);
+                              const onTimeEndEnd = new Date(slotEndTime);
+                              onTimeEndEnd.setMinutes(onTimeEndEnd.getMinutes() + 15);
+                              
+                              const lateEndStart = new Date(slotEndTime);
+                              lateEndStart.setMinutes(lateEndStart.getMinutes() + 15);
+                              const lateEndEnd = new Date(slotEndTime);
+                              lateEndEnd.setMinutes(lateEndEnd.getMinutes() + 30);
+                              
+                              // Determine end check-in status
+                              if (endRecord) {
+                                // Already checked in
+                                endStatus = 'available';
+                                canCheckInEnd = false;
+                              } else if (now < onTimeEndStart) {
+                                // Not started yet
+                                endStatus = 'not_started';
+                                canCheckInEnd = false;
+                              } else if (now >= onTimeEndStart && now <= lateEndEnd) {
+                                // Within check-in window
+                                endStatus = 'available';
+                                canCheckInEnd = true;
+                              } else if (now > lateEndEnd) {
+                                // Passed the check-in window
+                                endStatus = 'missed';
+                                canCheckInEnd = false;
+                              }
+                            }
+
+                            return (
+                              <div
+                                key={slotKey}
+                                onClick={() => {
+                                  // Update selected slot when clicking on a slot card
+                                  setSelectedDaySlot({ day: dayData.day, slot: slotKey as 'morning' | 'afternoon' | 'evening' });
+                                  // Update map center to show location of this slot
+                                  if (location && location.lat && location.lng &&
+                                      typeof location.lat === 'number' && 
+                                      typeof location.lng === 'number' &&
+                                      !isNaN(location.lat) &&
+                                      !isNaN(location.lng)) {
+                                    setMapCenter([location.lat, location.lng]);
+                                  }
+                                  // Location status will be updated automatically via useEffect
+                                }}
+                                className={`rounded-xl border-2 p-2.5 md:p-3 transition-all duration-200 min-w-[260px] max-w-full overflow-hidden w-full h-full flex flex-col cursor-pointer ${
+                                  isSelected
+                                    ? isDarkMode 
+                                      ? 'bg-blue-900/30 border-blue-400 shadow-lg shadow-blue-500/30 ring-2 ring-blue-500/50' 
+                                      : 'bg-blue-50 border-blue-500 shadow-lg shadow-blue-500/20 ring-2 ring-blue-500/30'
+                                    : isDarkMode 
+                                      ? 'bg-gray-800/50 border-gray-600 shadow-lg hover:border-blue-400 hover:shadow-blue-500/20' 
+                                      : 'bg-white border-gray-300 shadow-lg hover:border-blue-400 hover:shadow-blue-500/10'
+                                }`}
+                                style={{
+                                      borderColor: isSelected 
+                                        ? (isDarkMode ? '#60a5fa' : '#3b82f6')
+                                        : (isDarkMode ? '#4b5563' : '#d1d5db'),
+                                      borderWidth: isSelected ? '3px' : '2px',
+                                      minHeight: '400px'
+                                }}
+                              >
+                                {/* Slot Header */}
+                                <div className="flex items-start justify-between mb-2.5 md:mb-3 gap-1.5 min-w-0 w-full">
+                                  <div className="flex items-center gap-1.5 md:gap-2 flex-1 min-w-0 max-w-full">
+                                    <SlotIcon className={`w-4 h-4 md:w-5 md:h-5 ${isActive ? (slotKey === 'morning' ? (isDarkMode ? 'text-yellow-400' : 'text-yellow-600') : slotKey === 'afternoon' ? (isDarkMode ? 'text-blue-400' : 'text-blue-600') : (isDarkMode ? 'text-purple-400' : 'text-purple-600')) : (isDarkMode ? 'text-gray-500' : 'text-gray-400')} flex-shrink-0`} />
+                                    <div className="flex-1 min-w-0 max-w-full overflow-visible">
+                                      <h3 className={`text-sm md:text-base font-bold mb-0.5 md:mb-1 w-full ${isActive ? (isDarkMode ? 'text-white' : 'text-gray-900') : (isDarkMode ? 'text-gray-500' : 'text-gray-400')}`}>
+                                        {slotName}
+                                      </h3>
+                                      {slot && (
+                                        <div className="flex items-center gap-1 flex-wrap min-w-0">
+                                          <div className={`px-1.5 md:px-2 py-0.5 md:py-1 rounded border text-[10px] md:text-xs flex-shrink-0 ${
+                                            isDarkMode ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
+                                          }`}>
+                                            <span className={`font-semibold flex items-center gap-0.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                              <Clock className="w-2.5 h-2.5 md:w-3 md:h-3 flex-shrink-0" />
+                                              <span className="whitespace-nowrap">{slot.startTime}-{slot.endTime}</span>
+                                            </span>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                {isActive && slot ? (
+                                  <>
+                                    {/* Location Info */}
+                                    {location && (
+                                      <div className={`mb-2.5 md:mb-3 p-2 md:p-2.5 rounded-lg border text-[10px] md:text-xs min-w-0 w-full overflow-visible ${
+                                        isDarkMode ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50'
+                                      }`}>
+                                        <div className="flex items-start gap-1.5 md:gap-2 min-w-0 w-full">
+                                          <MapPin className={`w-3 h-3 md:w-3.5 md:h-3.5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} flex-shrink-0 mt-0.5`} />
+                                          <div className="flex-1 min-w-0 max-w-full overflow-visible">
+                                            <p className={`font-semibold mb-0.5 text-[10px] md:text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                              Vị trí điểm danh
+                                            </p>
+                                            <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} break-words text-[10px] md:text-xs w-full`}>
+                                              {location.address || `${location.lat?.toFixed(4)}, ${location.lng?.toFixed(4)}`}
+                                            </p>
+                                            {location.radius && (
+                                              <p className={`mt-0.5 font-medium flex items-center gap-1 text-[10px] md:text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                <Target className="w-2.5 h-2.5 md:w-3 md:h-3 flex-shrink-0 text-blue-500" />
+                                                <span className="whitespace-nowrap">{location.radius}m</span>
+                                              </p>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Check-in Actions */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-2.5 w-full min-w-0">
+                                      {/* Start Check-in */}
+                                      {(() => {
+                                        const startWindow = slot ? getCheckInTimeWindow(slot, 'start', dayData.date) : null;
+                                        const visualStatus = startRecord ? 'done' : startStatus;
+                                        
+                                        const statusStyles: Record<string, { badge: string; badgeClass: string; icon: React.ReactNode; message: string; container: string; text: string; showButton?: boolean }> = {
+                                          done: {
+                                            badge: 'Đã điểm danh',
+                                            badgeClass: isDarkMode ? 'bg-green-600 text-white' : 'bg-green-500 text-white',
+                                            icon: <CheckCircle2 className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />,
+                                            message: 'Đã hoàn thành',
+                                            container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                            text: isDarkMode ? 'text-gray-200' : 'text-gray-700'
+                                          },
+                                          not_started: {
+                                            badge: 'Chưa đến giờ',
+                                            badgeClass: isDarkMode ? 'bg-gray-600 text-white' : 'bg-gray-400 text-white',
+                                            icon: <Timer className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />,
+                                            message: 'Chưa đến thời gian điểm danh',
+                                            container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                            text: isDarkMode ? 'text-gray-300' : 'text-gray-600'
+                                          },
+                                          available: {
+                                            badge: 'Đang mở',
+                                            badgeClass: isDarkMode ? 'bg-blue-600 text-white' : 'bg-blue-500 text-white',
+                                            icon: <Clock className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />,
+                                            message: 'Có thể điểm danh',
+                                            container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                            text: isDarkMode ? 'text-gray-200' : 'text-gray-700',
+                                            showButton: true
+                                          },
+                                          missed: {
+                                            badge: 'Đã hết hạn',
+                                            badgeClass: isDarkMode ? 'bg-red-600 text-white' : 'bg-red-500 text-white',
+                                            icon: <AlertTriangle className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />,
+                                            message: 'Đã bỏ lỡ điểm danh',
+                                            container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                            text: isDarkMode ? 'text-gray-200' : 'text-gray-700'
+                                          }
+                                        };
+                                        
+                                        const currentConfig = statusStyles[visualStatus];
+                                        
+                                        return (
+                                          <div className={`p-2 md:p-2.5 rounded-lg border-2 transition-all flex flex-col gap-1.5 md:gap-2 h-full min-h-[180px] min-w-0 max-w-full w-full overflow-hidden ${
+                                            visualStatus === 'done'
+                                              ? isDarkMode ? 'border-green-500 bg-gray-800' : 'border-green-500 bg-white'
+                                              : visualStatus === 'available'
+                                              ? isDarkMode ? 'border-blue-500 bg-gray-800' : 'border-blue-500 bg-white'
+                                              : visualStatus === 'missed'
+                                              ? isDarkMode ? 'border-red-500 bg-gray-800' : 'border-red-500 bg-white'
+                                              : isDarkMode ? 'border-gray-600 bg-gray-800' : 'border-gray-300 bg-white'
+                                          }`}>
+                                            <div className="flex items-center justify-between gap-1.5 md:gap-2 min-w-0 w-full">
+                                              <div className="flex items-center gap-1 md:gap-1.5 min-w-0 flex-1">
+                                                <Sun className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-yellow-400' : 'text-yellow-600'} flex-shrink-0`} />
+                                                <span className={`text-[10px] md:text-xs font-bold ${isDarkMode ? 'text-yellow-200' : 'text-yellow-700'}`}>Đầu buổi</span>
+                                              </div>
+                                              <span className={`px-1.5 md:px-2 py-0.5 md:py-1 rounded-full text-[9px] md:text-[10px] font-semibold flex-shrink-0 whitespace-nowrap ${currentConfig.badgeClass}`}>
+                                                {currentConfig.badge}
+                                              </span>
+                                            </div>
+                                            
+                                            {startWindow && (
+                                              <div className="rounded-lg border border-dashed px-2 md:px-2.5 py-1.5 md:py-2 text-[10px] md:text-xs space-y-0.5 min-w-0 w-full overflow-visible">
+                                                <p className={`flex items-center justify-between gap-1.5 min-w-0 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                                                  <span className="flex items-center gap-0.5 flex-shrink-0">
+                                                    <CheckCircle className="w-2.5 h-2.5 md:w-3 md:h-3 text-green-500" />
+                                                    <span className="whitespace-nowrap text-[10px] md:text-xs">Đúng giờ:</span>
+                                                  </span>
+                                                  <span className="font-medium whitespace-nowrap text-[10px] md:text-xs">{startWindow.onTimeStart}-{startWindow.onTimeEnd}</span>
+                                                </p>
+                                                <p className={`flex items-center justify-between gap-1.5 min-w-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                  <span className="flex items-center gap-0.5 flex-shrink-0">
+                                                    <Timer className="w-2.5 h-2.5 md:w-3 md:h-3 text-orange-500" />
+                                                    <span className="whitespace-nowrap text-[10px] md:text-xs">Trễ:</span>
+                                                  </span>
+                                                  <span className="font-medium whitespace-nowrap text-[10px] md:text-xs">{startWindow.lateStart}-{startWindow.lateEnd}</span>
+                                                </p>
+                                              </div>
+                                            )}
+                                            
+                                            <div className={`flex items-center justify-between gap-1.5 md:gap-2 rounded-lg border px-2 md:px-2.5 py-1.5 md:py-2 min-w-0 w-full overflow-visible ${currentConfig.container}`}>
+                                              <div className="flex items-center gap-1 md:gap-1.5 min-w-0 flex-1 overflow-visible">
+                                                <div className="flex-shrink-0">{currentConfig.icon}</div>
+                                                <p className={`text-[10px] md:text-xs font-semibold ${currentConfig.text}`}>{currentConfig.message}</p>
+                                              </div>
+                                              {/* Show photo if already checked in, otherwise show button */}
+                                              {visualStatus === 'done' && startRecord && startRecord.photoUrl ? (
+                                                <div className="rounded-lg overflow-hidden border-2 flex-shrink-0" style={{
+                                                  borderColor: isDarkMode ? '#10b981' : '#22c55e',
+                                                  width: '60px',
+                                                  height: '60px'
+                                                }}>
+                                                  <img 
+                                                    src={startRecord.photoUrl} 
+                                                    alt="Điểm danh đầu buổi" 
+                                                    className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                                                    onClick={() => {
+                                                      setSelectedImageUrl(startRecord.photoUrl!);
+                                                      setShowImageModal(true);
+                                                    }}
+                                                  />
+                                                </div>
+                                              ) : currentConfig.showButton ? (
+                                                <button
+                                                  onClick={() => handleSlotCheckIn(daySlotKey, 'start')}
+                                                  disabled={isCheckingIn}
+                                                  className={`px-2.5 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap flex-shrink-0 ${
+                                                    isDarkMode 
+                                                      ? 'bg-blue-600 text-white hover:bg-blue-500' 
+                                                      : 'bg-blue-600 text-white hover:bg-blue-500'
+                                                  } ${isCheckingIn ? 'opacity-50 cursor-not-allowed' : 'shadow-sm hover:shadow-md'}`}
+                                                >
+                                                  {isCheckingIn ? (
+                                                    <Loader className="w-3 h-3 md:w-3.5 md:h-3.5 animate-spin" />
+                                                  ) : (
+                                                    <>
+                                                      <Camera className="w-3 h-3 md:w-3.5 md:h-3.5 flex-shrink-0" />
+                                                      <span>Điểm danh</span>
+                                                    </>
+                                                  )}
+                                                </button>
+                                              ) : null}
+                                            </div>
+                                          </div>
+                                  );
+                                })()}
+
+                                {/* End Check-in */}
+                                {(() => {
+                                  const endWindow = slot ? getCheckInTimeWindow(slot, 'end', dayData.date) : null;
+                                        const visualStatus = endRecord ? 'done' : endStatus;
+                                        
+                                        const statusStyles: Record<string, { badge: string; badgeClass: string; icon: React.ReactNode; message: string; container: string; text: string; showButton?: boolean }> = {
+                                          done: {
+                                            badge: 'Đã điểm danh',
+                                            badgeClass: isDarkMode ? 'bg-green-600 text-white' : 'bg-green-500 text-white',
+                                            icon: <CheckCircle2 className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />,
+                                            message: 'Đã hoàn thành',
+                                            container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                            text: isDarkMode ? 'text-gray-200' : 'text-gray-700'
+                                          },
+                                          not_started: {
+                                            badge: 'Chưa đến giờ',
+                                            badgeClass: isDarkMode ? 'bg-gray-600 text-white' : 'bg-gray-400 text-white',
+                                            icon: <Timer className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />,
+                                            message: 'Chưa đến thời gian điểm danh',
+                                            container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                            text: isDarkMode ? 'text-gray-300' : 'text-gray-600'
+                                          },
+                                          available: {
+                                            badge: 'Đang mở',
+                                            badgeClass: isDarkMode ? 'bg-blue-600 text-white' : 'bg-blue-500 text-white',
+                                            icon: <Clock className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />,
+                                            message: 'Có thể điểm danh',
+                                            container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                            text: isDarkMode ? 'text-gray-200' : 'text-gray-700',
+                                            showButton: true
+                                          },
+                                          missed: {
+                                            badge: 'Đã hết hạn',
+                                            badgeClass: isDarkMode ? 'bg-red-600 text-white' : 'bg-red-500 text-white',
+                                            icon: <AlertTriangle className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />,
+                                            message: 'Đã bỏ lỡ điểm danh',
+                                            container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                            text: isDarkMode ? 'text-gray-200' : 'text-gray-700'
+                                          }
+                                        };
+                                        
+                                        const currentConfig = statusStyles[visualStatus];
+                                        
+                                  return (
+                                          <div className={`p-2 md:p-2.5 rounded-lg border-2 transition-all flex flex-col gap-1.5 md:gap-2 h-full min-h-[180px] min-w-0 max-w-full w-full overflow-hidden ${
+                                            visualStatus === 'done'
+                                              ? isDarkMode ? 'border-green-500 bg-gray-800' : 'border-green-500 bg-white'
+                                              : visualStatus === 'available'
+                                              ? isDarkMode ? 'border-blue-500 bg-gray-800' : 'border-blue-500 bg-white'
+                                              : visualStatus === 'missed'
+                                              ? isDarkMode ? 'border-red-500 bg-gray-800' : 'border-red-500 bg-white'
+                                              : isDarkMode ? 'border-gray-600 bg-gray-800' : 'border-gray-300 bg-white'
+                                          }`}>
+                                            <div className="flex items-center justify-between gap-1.5 md:gap-2 min-w-0 w-full">
+                                              <div className="flex items-center gap-1 md:gap-1.5 min-w-0 flex-1">
+                                                <Moon className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-purple-400' : 'text-purple-600'} flex-shrink-0`} />
+                                                <span className={`text-[10px] md:text-xs font-bold ${isDarkMode ? 'text-purple-200' : 'text-purple-700'}`}>Cuối buổi</span>
+                                              </div>
+                                              <span className={`px-1.5 md:px-2 py-0.5 md:py-1 rounded-full text-[9px] md:text-[10px] font-semibold flex-shrink-0 whitespace-nowrap ${currentConfig.badgeClass}`}>
+                                                {currentConfig.badge}
+                                        </span>
+                                      </div>
+                                            
+                                      {endWindow && (
+                                              <div className="rounded-lg border border-dashed px-2 md:px-2.5 py-1.5 md:py-2 text-[10px] md:text-xs space-y-0.5 min-w-0 w-full overflow-visible">
+                                                <p className={`flex items-center justify-between gap-1.5 min-w-0 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                                                  <span className="flex items-center gap-0.5 flex-shrink-0">
+                                                    <CheckCircle className="w-2.5 h-2.5 md:w-3 md:h-3 text-green-500" />
+                                                    <span className="whitespace-nowrap text-[10px] md:text-xs">Đúng giờ:</span>
+                                                  </span>
+                                                  <span className="font-medium whitespace-nowrap text-[10px] md:text-xs">{endWindow.onTimeStart}-{endWindow.onTimeEnd}</span>
+                                                </p>
+                                                <p className={`flex items-center justify-between gap-1.5 min-w-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                  <span className="flex items-center gap-0.5 flex-shrink-0">
+                                                    <Timer className="w-2.5 h-2.5 md:w-3 md:h-3 text-orange-500" />
+                                                    <span className="whitespace-nowrap text-[10px] md:text-xs">Trễ:</span>
+                                                  </span>
+                                                  <span className="font-medium whitespace-nowrap text-[10px] md:text-xs">{endWindow.lateStart}-{endWindow.lateEnd}</span>
+                                          </p>
+                                        </div>
+                                      )}
+                                            
+                                            <div className={`flex items-center justify-between gap-1.5 md:gap-2 rounded-lg border px-2 md:px-2.5 py-1.5 md:py-2 min-w-0 w-full overflow-visible ${currentConfig.container}`}>
+                                              <div className="flex items-center gap-1 md:gap-1.5 min-w-0 flex-1 overflow-visible">
+                                                <div className="flex-shrink-0">{currentConfig.icon}</div>
+                                                <p className={`text-[10px] md:text-xs font-semibold ${currentConfig.text}`}>{currentConfig.message}</p>
+                                              </div>
+                                              {/* Show photo if already checked in, otherwise show button */}
+                                              {visualStatus === 'done' && endRecord && endRecord.photoUrl ? (
+                                                <div className="rounded-lg overflow-hidden border-2 flex-shrink-0" style={{
+                                                  borderColor: isDarkMode ? '#10b981' : '#22c55e',
+                                                  width: '60px',
+                                                  height: '60px'
+                                                }}>
+                                                  <img 
+                                                    src={endRecord.photoUrl} 
+                                                    alt="Điểm danh cuối buổi" 
+                                                    className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                                                    onClick={() => {
+                                                      setSelectedImageUrl(endRecord.photoUrl!);
+                                                      setShowImageModal(true);
+                                                    }}
+                                                  />
+                                                </div>
+                                              ) : currentConfig.showButton ? (
+                                                <button
+                                                  onClick={() => handleSlotCheckIn(daySlotKey, 'end')}
+                                                  disabled={isCheckingIn}
+                                                  className={`px-2.5 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap flex-shrink-0 ${
+                                                    isDarkMode 
+                                                      ? 'bg-blue-600 text-white hover:bg-blue-500' 
+                                                      : 'bg-blue-600 text-white hover:bg-blue-500'
+                                                  } ${isCheckingIn ? 'opacity-50 cursor-not-allowed' : 'shadow-sm hover:shadow-md'}`}
+                                                >
+                                                  {isCheckingIn ? (
+                                                    <Loader className="w-3 h-3 md:w-3.5 md:h-3.5 animate-spin" />
+                                                  ) : (
+                                                    <>
+                                                      <Camera className="w-3 h-3 md:w-3.5 md:h-3.5 flex-shrink-0" />
+                                                      <span>Điểm danh</span>
+                                                    </>
+                                                  )}
+                                                </button>
+                                              ) : null}
+                                            </div>
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+
+                              {/* Attendance Records */}
+                              {(startRecord || endRecord) && (
+                                <div className={`mt-3 pt-3 border-t border-dashed`} style={{
+                                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+                                }}>
+                                  <div className="space-y-2">
+                                    {startRecord && (
+                                      <div className={`p-2 rounded-lg border text-xs ${
+                                        isDarkMode ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
+                                      }`}>
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <Sun className="w-3.5 h-3.5" />
+                                          <span className="font-semibold">Đầu buổi</span>
+                                        </div>
+                                        {slot && (() => {
+                                          const startWindow = getCheckInTimeWindow(slot, 'start', dayData.date);
+                                          return startWindow ? (
+                                            <div className="mb-2 space-y-0.5">
+                                              <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                <CheckCircle2 className="w-3 h-3" />
+                                                Đúng giờ: {startWindow.onTimeStart} - {startWindow.onTimeEnd}
+                                              </p>
+                                              <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                                <Timer className="w-3 h-3" />
+                                                Trễ: {startWindow.lateStart} - {startWindow.lateEnd}
+                                              </p>
+                                            </div>
+                                          ) : null;
+                                        })()}
+                                        {/* Status Badges */}
+                                        <div className="flex flex-wrap gap-2 mb-2">
+                                          {(() => {
+                                            const lateEarlyInfo = calculateLateEarlyForRecord(startRecord);
+                                            return (
+                                              <>
+                                                {lateEarlyInfo && startRecord.status !== 'rejected' && (
+                                                  <>
+                                                    {lateEarlyInfo.isOnTime ? (
+                                                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                        isDarkMode 
+                                                          ? 'text-green-300 border-green-500/40' 
+                                                          : 'text-green-700 border-green-300/60'
+                                                      }`}>
+                                                        <CheckCircle2 className={`w-4 h-4 ${
+                                                          isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                        }`} />
+                                                        <span className="font-bold">Đúng giờ</span>
+                                                      </div>
+                                                    ) : (
+                                                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                        lateEarlyInfo.isEarly
+                                                          ? isDarkMode 
+                                                            ? 'text-blue-300 border-blue-500/40' 
+                                                            : 'text-blue-700 border-blue-300/60'
+                                                          : isDarkMode 
+                                                            ? 'text-pink-300 border-pink-500/40' 
+                                                            : 'text-pink-700 border-pink-300/60'
+                                                      }`}>
+                                                        <Clock className={`w-4 h-4 ${
+                                                          lateEarlyInfo.isEarly
+                                                            ? isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                                                            : isDarkMode ? 'text-pink-400' : 'text-pink-600'
+                                                        }`} />
+                                                        <span className="font-bold">
+                                                          {lateEarlyInfo.isEarly ? 'Sớm' : 'Trễ'} {lateEarlyInfo.minutes !== undefined ? formatMinutesToHours(lateEarlyInfo.minutes) : ''}
+                                                        </span>
+                                                      </div>
+                                                    )}
+                                                  </>
+                                                )}
+                                                {startRecord.status !== 'rejected' && (
+                                                  <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                    startRecord.status === 'approved'
+                                                      ? isDarkMode 
+                                                        ? 'text-green-300 border-green-500/40' 
+                                                        : 'text-green-700 border-green-300/60'
+                                                      : isDarkMode 
+                                                        ? 'text-amber-300 border-amber-500/40' 
+                                                        : 'text-amber-700 border-amber-300/60'
+                                                  }`}>
+                                                    {startRecord.status === 'approved' ? (
+                                                      <CheckCircle2 className={`w-4 h-4 ${
+                                                        isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                      }`} />
+                                                    ) : (
+                                                      <Timer className={`w-4 h-4 ${
+                                                        isDarkMode ? 'text-amber-400' : 'text-amber-600'
+                                                      }`} />
+                                                    )}
+                                                    <span className="font-bold">
+                                                      {startRecord.status === 'approved' ? 'Đã xác nhận' : 'Chờ xác nhận'}
+                                                    </span>
+                                                  </div>
+                                                )}
+                                              </>
+                                            );
+                                          })()}
+                                        </div>
+                                        {startRecord.photoUrl && (
+                                          <img 
+                                            src={startRecord.photoUrl} 
+                                            alt="Start check-in" 
+                                            className="w-full h-20 object-cover rounded mb-1 cursor-pointer"
+                                            onClick={() => {
+                                              setSelectedImageUrl(startRecord.photoUrl!);
+                                              setShowImageModal(true);
+                                            }}
+                                          />
+                                        )}
+                                        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                          {new Date(startRecord.checkInTime).toLocaleString('vi-VN', { 
+                                            hour: '2-digit', 
+                                            minute: '2-digit', 
+                                            second: '2-digit',
+                                            day: '2-digit',
+                                            month: '2-digit',
+                                            year: 'numeric'
+                                          })}
+                                        </p>
+                                        {isManualCheckInRecord(startRecord) && ((startRecord as any).verifiedByName || startRecord.verifiedBy) && (
+                                          <p className={`text-xs mt-1 flex items-center gap-1 ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
+                                            <User className="w-3 h-3" />
+                                            Đã được điểm danh bởi: <span className="font-semibold">{getVerifierName(startRecord.verifiedBy, (startRecord as any).verifiedByName)}</span>
+                                          </p>
+                                        )}
+                                      </div>
+                                    )}
+                                    {endRecord && (
+                                      <div className={`p-2 rounded-lg border text-xs ${
+                                        isDarkMode ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
+                                      }`}>
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <Moon className="w-3.5 h-3.5" />
+                                          <span className="font-semibold">Cuối buổi</span>
+                                        </div>
+                                        {slot && (() => {
+                                          const endWindow = getCheckInTimeWindow(slot, 'end', dayData.date);
+                                          return endWindow ? (
+                                            <div className="mb-2 space-y-0.5">
+                                              <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                <CheckCircle2 className="w-3 h-3" />
+                                                Đúng giờ: {endWindow.onTimeStart} - {endWindow.onTimeEnd}
+                                              </p>
+                                              <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                                <Timer className="w-3 h-3" />
+                                                Trễ: {endWindow.lateStart} - {endWindow.lateEnd}
+                                              </p>
+                                            </div>
+                                          ) : null;
+                                        })()}
+                                        {/* Status Badges */}
+                                        <div className="flex flex-wrap gap-2 mb-2">
+                                          {(() => {
+                                            const lateEarlyInfo = calculateLateEarlyForRecord(endRecord);
+                                            return (
+                                              <>
+                                                {lateEarlyInfo && endRecord.status !== 'rejected' && (
+                                                  <>
+                                                    {lateEarlyInfo.isOnTime ? (
+                                                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                        isDarkMode 
+                                                          ? 'text-green-300 border-green-500/40' 
+                                                          : 'text-green-700 border-green-300/60'
+                                                      }`}>
+                                                        <CheckCircle2 className={`w-4 h-4 ${
+                                                          isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                        }`} />
+                                                        <span className="font-bold">Đúng giờ</span>
+                                                      </div>
+                                                    ) : (
+                                                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                        lateEarlyInfo.isEarly
+                                                          ? isDarkMode 
+                                                            ? 'text-blue-300 border-blue-500/40' 
+                                                            : 'text-blue-700 border-blue-300/60'
+                                                          : isDarkMode 
+                                                            ? 'text-pink-300 border-pink-500/40' 
+                                                            : 'text-pink-700 border-pink-300/60'
+                                                      }`}>
+                                                        <Clock className={`w-4 h-4 ${
+                                                          lateEarlyInfo.isEarly
+                                                            ? isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                                                            : isDarkMode ? 'text-pink-400' : 'text-pink-600'
+                                                        }`} />
+                                                        <span className="font-bold">
+                                                          {lateEarlyInfo.isEarly ? 'Sớm' : 'Trễ'} {lateEarlyInfo.minutes !== undefined ? formatMinutesToHours(lateEarlyInfo.minutes) : ''}
+                                                        </span>
+                                                      </div>
+                                                    )}
+                                                  </>
+                                                )}
+                                                {endRecord.status !== 'rejected' && (
+                                                  <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                    endRecord.status === 'approved'
+                                                      ? isDarkMode 
+                                                        ? 'text-green-300 border-green-500/40' 
+                                                        : 'text-green-700 border-green-300/60'
+                                                      : isDarkMode 
+                                                        ? 'text-amber-300 border-amber-500/40' 
+                                                        : 'text-amber-700 border-amber-300/60'
+                                                  }`}>
+                                                    {endRecord.status === 'approved' ? (
+                                                      <CheckCircle2 className={`w-4 h-4 ${
+                                                        isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                      }`} />
+                                                    ) : (
+                                                      <Timer className={`w-4 h-4 ${
+                                                        isDarkMode ? 'text-amber-400' : 'text-amber-600'
+                                                      }`} />
+                                                    )}
+                                                    <span className="font-bold">
+                                                      {endRecord.status === 'approved' 
+                                                        ? (isManualCheckInRecord(endRecord) && ((endRecord as any).verifiedByName || endRecord.verifiedBy)
+                                                            ? `Đã được điểm danh bởi ${getVerifierName(endRecord.verifiedBy, (endRecord as any).verifiedByName)}`
+                                                            : 'Đã xác nhận')
+                                                        : 'Chờ xác nhận'}
+                                                    </span>
+                                                  </div>
+                                                )}
+                                              </>
+                                            );
+                                          })()}
+                                        </div>
+                                        {endRecord.photoUrl && (
+                                          <img 
+                                            src={endRecord.photoUrl} 
+                                            alt="End check-in" 
+                                            className="w-full h-20 object-cover rounded mb-1 cursor-pointer"
+                                            onClick={() => {
+                                              setSelectedImageUrl(endRecord.photoUrl!);
+                                              setShowImageModal(true);
+                                            }}
+                                          />
+                                        )}
+                                        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                          {new Date(endRecord.checkInTime).toLocaleString('vi-VN', { 
+                                            hour: '2-digit', 
+                                            minute: '2-digit', 
+                                            second: '2-digit',
+                                            day: '2-digit',
+                                            month: '2-digit',
+                                            year: 'numeric'
+                                          })}
+                                        </p>
+                                        {isManualCheckInRecord(endRecord) && ((endRecord as any).verifiedByName || endRecord.verifiedBy) && (
+                                          <p className={`text-xs mt-1 flex items-center gap-1 ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
+                                            <User className="w-3 h-3" />
+                                            Đã được điểm danh bởi: <span className="font-semibold">{getVerifierName(endRecord.verifiedBy, (endRecord as any).verifiedByName)}</span>
+                                          </p>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <div className={`text-center py-8 rounded-lg flex-1 flex flex-col items-center justify-center ${
+                              isDarkMode ? 'border border-gray-700' : 'border border-gray-200'
+                            }`}>
+                              <div className={`w-10 h-10 mx-auto mb-2 rounded-full flex items-center justify-center ${
+                                isDarkMode ? 'bg-gray-700' : 'bg-gray-200'
+                              }`}>
+                                <XCircle size={18} className={isDarkMode ? 'text-gray-500' : 'text-gray-400'} strokeWidth={2} />
+                              </div>
+                              <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                                Buổi này chưa được kích hoạt
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                        </div>
+                  </div>
+                );
+                    })() : null}
+
+              {/* Info Message */}
+              {selectedDaySlot && (
+                <div className={`mt-3 p-2 rounded-lg border ${isDarkMode ? 'bg-blue-500/10 border-blue-500/30' : 'bg-blue-50 border-blue-200'}`}>
+                  <div className="flex items-center gap-2">
+                    <AlertCircle size={14} className="text-blue-500" />
+                    <p className={`text-xs font-medium ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`}>
+                      Đang hiển thị điểm danh cho {selectedDaySlot.slot === 'morning' ? 'Buổi Sáng' : selectedDaySlot.slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối'} - Ngày {selectedDaySlot.day}
+                    </p>
+                  </div>
+                </div>
+              )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
           {/* Timeline View - Main Content */}
-          {activity.timeSlots && activity.timeSlots.length > 0 ? (
-            <div className="space-y-4">
+          {activity.type === 'single_day' && activity.timeSlots && activity.timeSlots.length > 0 ? (
+            <div className="space-y-3">
               {/* Timeline Header */}
-              <div className="flex items-center gap-3 mb-4">
-                <div className={`h-0.5 flex-1 rounded-full ${
+              <div className="flex items-center gap-2">
+                <div className={`h-px flex-1 rounded-full ${
                   isDarkMode ? 'bg-gray-700' : 'bg-gray-200'
                 }`}></div>
-                <h2 className={`text-lg lg:text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                <h2 className={`text-base sm:text-lg font-bold flex items-center gap-1.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  <Clock className="w-4 h-4" />
                   Lịch trình điểm danh
                 </h2>
-                <div className={`h-0.5 flex-1 rounded-full ${
+                <div className={`h-px flex-1 rounded-full ${
                   isDarkMode ? 'bg-gray-700' : 'bg-gray-200'
                 }`}></div>
               </div>
 
-              {/* Summary Card - Tổng quan lịch trình điểm danh */}
+              {/* Summary Card - Compact Design */}
               {(() => {
                 // Tính số buổi đã hoàn thành (cả đầu và cuối buổi đều được approved)
                 const totalSlots = activity.timeSlots?.length || 0;
@@ -2197,32 +5577,32 @@ export default function StudentAttendancePage() {
                 const isCompleted = completedSlots === totalSlots && totalSlots > 0;
 
                 return (
-                  <div className={`mb-6 p-4 rounded-xl border-2 ${
+                  <div className={`p-3 rounded-lg border ${
                     isCompleted
                       ? isDarkMode 
-                        ? 'border-green-500/40' 
-                        : 'border-green-300'
+                        ? 'border-green-500/40 bg-green-500/10' 
+                        : 'border-green-300 bg-green-50'
                       : isDarkMode 
-                        ? 'border-blue-500/40' 
-                        : 'border-blue-300'
+                        ? 'border-blue-500/40 bg-blue-500/10' 
+                        : 'border-blue-300 bg-blue-50'
                   }`}>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2.5">
                       {isCompleted ? (
-                        <CheckCircle2 className={`w-6 h-6 ${
+                        <CheckCircle2 className={`w-5 h-5 ${
                           isDarkMode ? 'text-green-400' : 'text-green-600'
                         }`} />
                       ) : (
-                        <Timer className={`w-6 h-6 ${
+                        <Timer className={`w-5 h-5 ${
                           isDarkMode ? 'text-blue-400' : 'text-blue-600'
                         }`} />
                       )}
                       <div className="flex-1">
-                        <h3 className={`text-sm font-semibold mb-1 ${
+                        <h3 className={`text-xs font-semibold mb-0.5 ${
                           isDarkMode ? 'text-gray-300' : 'text-gray-700'
                         }`}>
                           Tổng quan điểm danh
                         </h3>
-                        <p className={`text-lg font-bold ${
+                        <p className={`text-sm font-bold ${
                           isCompleted
                             ? isDarkMode ? 'text-green-300' : 'text-green-700'
                             : isDarkMode ? 'text-blue-300' : 'text-blue-700'
@@ -2234,7 +5614,7 @@ export default function StudentAttendancePage() {
                             : `Đã đi ${completedSlots}/${totalSlots} buổi`}
                         </p>
                         {!isCompleted && totalSlots > 1 && (
-                          <p className={`text-xs mt-1 ${
+                          <p className={`text-xs mt-0.5 ${
                             isDarkMode ? 'text-gray-400' : 'text-gray-600'
                           }`}>
                             {completedSlots === 0 
@@ -2248,8 +5628,8 @@ export default function StudentAttendancePage() {
                 );
               })()}
 
-              {/* Timeline Cards - Optimized Size */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-5">
+              {/* Timeline Cards - Compact Size */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 {activity.timeSlots.map((slot, idx) => {
                     // Parse activity date for check-in window calculation
                     let activityDate: Date;
@@ -2320,25 +5700,22 @@ export default function StudentAttendancePage() {
                     const timeSlotKey = slotLocationMap[slot.name];
                     const slotLocation = activity.multiTimeLocations?.find(mtl => mtl.timeSlot === timeSlotKey);
                     
-                    // Color scheme
+                    // Color scheme with proper icons
                     const slotDesign = {
                       'Buổi Sáng': {
-                        border: isDarkMode ? 'border-yellow-500/40' : 'border-yellow-300',
-                        icon: Clock,
+                        icon: Sun,
                         iconColor: isDarkMode ? 'text-yellow-400' : 'text-yellow-600',
                         text: isDarkMode ? 'text-yellow-200' : 'text-yellow-800',
                         accent: isDarkMode ? 'text-yellow-300' : 'text-yellow-600'
                       },
                       'Buổi Chiều': {
-                        border: isDarkMode ? 'border-blue-500/40' : 'border-blue-300',
-                        icon: Clock,
+                        icon: Sunset,
                         iconColor: isDarkMode ? 'text-blue-400' : 'text-blue-600',
                         text: isDarkMode ? 'text-blue-200' : 'text-blue-800',
                         accent: isDarkMode ? 'text-blue-300' : 'text-blue-600'
                       },
                       'Buổi Tối': {
-                        border: isDarkMode ? 'border-purple-500/40' : 'border-purple-300',
-                        icon: Clock,
+                        icon: Moon,
                         iconColor: isDarkMode ? 'text-purple-400' : 'text-purple-600',
                         text: isDarkMode ? 'text-purple-200' : 'text-purple-800',
                         accent: isDarkMode ? 'text-purple-300' : 'text-purple-600'
@@ -2351,58 +5728,54 @@ export default function StudentAttendancePage() {
                     return (
                       <div 
                         key={idx} 
-                        className={`group relative overflow-hidden rounded-2xl border-2 transition-all duration-300 hover:scale-[1.01] ${
-                          design.border
-                        } ${
-                          isDarkMode ? 'shadow-lg' : 'shadow-md'
+                        className={`group relative overflow-hidden rounded-xl border-2 transition-all duration-200 ${
+                          isDarkMode ? 'bg-gray-800/50 border-white' : 'bg-white border-black'
                         }`}
+                        style={{
+                          borderColor: isDarkMode ? '#ffffff' : '#000000',
+                          borderWidth: '2px'
+                        }}
                       >
-                        <div className="relative p-4 lg:p-5">
+                        <div className="relative p-3">
                           {/* Header Section */}
-                          <div className="flex items-start justify-between mb-4">
-                            <div className="flex items-center gap-3 flex-1">
-                              <SlotIcon className={`w-6 h-6 ${design.iconColor}`} />
-                              <div className="flex-1">
-                                <h3 className={`text-lg lg:text-xl font-bold mb-1.5 ${design.text}`}>
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex items-center gap-2 flex-1">
+                              <SlotIcon className={`w-5 h-5 ${design.iconColor} flex-shrink-0`} />
+                              <div className="flex-1 min-w-0">
+                                <h3 className={`text-base font-bold mb-1 ${design.text}`}>
                                   {slot.name}
                                 </h3>
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                  <div className={`px-3 py-1.5 rounded-lg border ${
-                                    isDarkMode ? 'border-gray-700' : 'border-gray-200'
+                                  <div className={`px-2 py-1 rounded border text-xs ${
+                                    isDarkMode ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
                                   }`}>
-                                    <span className={`text-xs font-semibold flex items-center gap-1 ${design.accent}`}>
+                                    <span className={`font-semibold flex items-center gap-1 ${design.accent}`}>
                                       <Clock className="w-3 h-3" />
                                       {slot.startTime} - {slot.endTime}
                                     </span>
                                   </div>
                                   {isDuringSlot && (
-                                    <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
-                                      isDarkMode ? 'border-green-500/30 text-green-300' : 'border-green-200 text-green-700'
+                                    <span className={`px-2 py-1 rounded text-xs font-semibold border flex items-center gap-1 ${
+                                      isDarkMode ? 'border-green-500/30 text-green-300 bg-green-500/10' : 'border-green-200 text-green-700 bg-green-50'
                                     }`}>
-                                      <span className="flex items-center gap-1">
-                                        <CheckCircle2 className="w-3 h-3" />
-                                        Đang diễn ra
-                                      </span>
+                                      <PlayCircle className="w-3 h-3" />
+                                      Đang diễn ra
                                     </span>
                                   )}
                                   {isBeforeSlot && (
-                                    <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
-                                      isDarkMode ? 'border-gray-600 text-gray-400' : 'border-gray-200 text-gray-600'
+                                    <span className={`px-2 py-1 rounded text-xs font-semibold border flex items-center gap-1 ${
+                                      isDarkMode ? 'border-gray-600 text-gray-400 bg-gray-800/50' : 'border-gray-200 text-gray-600 bg-gray-50'
                                     }`}>
-                                      <span className="flex items-center gap-1">
-                                        <Timer className="w-3 h-3" />
-                                        Sắp tới
-                                      </span>
+                                      <Timer className="w-3 h-3" />
+                                      Sắp tới
                                     </span>
                                   )}
                                   {isAfterSlot && (
-                                    <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
-                                      isDarkMode ? 'border-gray-600 text-gray-500' : 'border-gray-200 text-gray-500'
+                                    <span className={`px-2 py-1 rounded text-xs font-semibold border flex items-center gap-1 ${
+                                      isDarkMode ? 'border-gray-600 text-gray-500 bg-gray-800/50' : 'border-gray-200 text-gray-500 bg-gray-50'
                                     }`}>
-                                      <span className="flex items-center gap-1">
-                                        <CheckCircle2 className="w-3 h-3" />
-                                        Đã kết thúc
-                                      </span>
+                                      <Square className="w-3 h-3" />
+                                      Đã kết thúc
                                     </span>
                                   )}
                                 </div>
@@ -2412,16 +5785,16 @@ export default function StudentAttendancePage() {
                           
                           {/* Location Info - Compact Design */}
                           {(slotLocation || activity.locationData) && (
-                            <div className={`mb-4 p-3 rounded-xl border ${
-                              isDarkMode ? 'border-gray-700' : 'border-gray-200'
+                            <div className={`mb-3 p-2 rounded-lg border text-xs ${
+                              isDarkMode ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50'
                             }`}>
-                              <div className="flex items-start gap-2.5">
-                                <MapPin className={`w-5 h-5 ${design.iconColor} flex-shrink-0`} />
+                              <div className="flex items-start gap-2">
+                                <MapPin className={`w-3.5 h-3.5 ${design.iconColor} flex-shrink-0 mt-0.5`} />
                                 <div className="flex-1 min-w-0">
-                                  <p className={`text-xs font-bold mb-0.5 ${design.accent}`}>
+                                  <p className={`font-semibold mb-0.5 ${design.accent}`}>
                                     Vị trí điểm danh
                                   </p>
-                                  <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} truncate`}>
+                                  <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} truncate`}>
                                     {slotLocation?.location.address || 
                                      activity.locationData?.address || 
                                      (slotLocation ? `${slotLocation.location.lat.toFixed(4)}, ${slotLocation.location.lng.toFixed(4)}` : 
@@ -2429,8 +5802,8 @@ export default function StudentAttendancePage() {
                                       'Chưa có thông tin')}
                                   </p>
                                   {(slotLocation?.radius || activity.locationData?.radius) && (
-                                    <p className={`text-xs mt-0.5 font-medium flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                      <Navigation className="w-3 h-3" />
+                                    <p className={`mt-0.5 font-medium flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                      <Target className="w-3 h-3" />
                                       {(slotLocation?.radius || activity.locationData?.radius)}m
                                     </p>
                                   )}
@@ -2440,31 +5813,34 @@ export default function StudentAttendancePage() {
                           )}
                           
                           {/* Check-in Actions - Compact Design */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             {/* Start Check-in Button */}
                             {(() => {
                               const startWindow = getCheckInTimeWindow(slot, 'start');
                               return (
-                                <div className={`p-3 rounded-xl backdrop-blur-sm border transition-all ${
+                                <div className={`p-2.5 rounded-lg border transition-all ${
                                   slotStatus.start
                                     ? isDarkMode ? 'bg-green-500/20 border-green-500/40' : 'bg-green-50 border-green-300'
-                                    : isDarkMode ? 'bg-black/20 border-white/10' : 'bg-white/60 border-gray-200/50'
+                                    : isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-200'
                                 }`}>
-                                  <div className="flex items-center justify-between mb-2">
-                                    <span className={`text-xs font-bold ${design.accent}`}>
-                                      🌅 Đầu buổi
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <span className={`text-xs font-bold flex items-center gap-1 ${design.accent}`}>
+                                      <Sun className="w-3.5 h-3.5" />
+                                      Đầu buổi
                                     </span>
                                     {slotStatus.start && (
-                                      <span className="text-base">✅</span>
+                                      <CheckCircle2 className={`w-4 h-4 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
                                     )}
                                   </div>
                                   {startWindow && (
-                                    <div className="mb-2 space-y-1">
-                                      <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                        ⏰ Đúng giờ (tự duyệt): {startWindow.onTimeStart} - {startWindow.onTimeEnd}
+                                    <div className="mb-1.5 space-y-0.5 text-xs">
+                                      <p className={`flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                        <CheckCircle className="w-3 h-3" />
+                                        <span>Đúng giờ: {startWindow.onTimeStart} - {startWindow.onTimeEnd}</span>
                                       </p>
-                                      <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-                                        ⏳ Trễ (cần duyệt): {startWindow.lateStart} - {startWindow.lateEnd}
+                                      <p className={`flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                        <Timer className="w-3 h-3" />
+                                        <span>Trễ: {startWindow.lateStart} - {startWindow.lateEnd}</span>
                                       </p>
                                     </div>
                                   )}
@@ -2477,17 +5853,17 @@ export default function StudentAttendancePage() {
                                     <button
                                       onClick={() => handleSlotCheckIn(slot.name, 'start')}
                                       disabled={isCheckingIn}
-                                      className={`w-full px-3 py-2 rounded-lg text-xs font-bold transition-all transform hover:scale-105 flex items-center justify-center gap-2 ${
+                                      className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                                         isDarkMode 
                                           ? 'bg-blue-600 text-white hover:bg-blue-700' 
                                           : 'bg-blue-600 text-white hover:bg-blue-700'
                                       } ${isCheckingIn ? 'opacity-50' : ''}`}
                                     >
                                       {isCheckingIn ? (
-                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        <Loader className="w-3.5 h-3.5 animate-spin" />
                                       ) : (
                                         <>
-                                          <Camera className="w-4 h-4" />
+                                          <Camera className="w-3.5 h-3.5" />
                                           Điểm danh
                                         </>
                                       )}
@@ -2506,26 +5882,29 @@ export default function StudentAttendancePage() {
                             {(() => {
                               const endWindow = getCheckInTimeWindow(slot, 'end');
                               return (
-                                <div className={`p-3 rounded-xl backdrop-blur-sm border transition-all ${
+                                <div className={`p-2.5 rounded-lg border transition-all ${
                                   slotStatus.end
                                     ? isDarkMode ? 'bg-green-500/20 border-green-500/40' : 'bg-green-50 border-green-300'
-                                    : isDarkMode ? 'bg-black/20 border-white/10' : 'bg-white/60 border-gray-200/50'
+                                    : isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-200'
                                 }`}>
-                                  <div className="flex items-center justify-between mb-2">
-                                    <span className={`text-xs font-bold ${design.accent}`}>
-                                      🌙 Cuối buổi
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <span className={`text-xs font-bold flex items-center gap-1 ${design.accent}`}>
+                                      <Moon className="w-3.5 h-3.5" />
+                                      Cuối buổi
                                     </span>
                                     {slotStatus.end && (
-                                      <span className="text-base">✅</span>
+                                      <CheckCircle2 className={`w-4 h-4 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
                                     )}
                                   </div>
                                   {endWindow && (
-                                    <div className="mb-2 space-y-1">
-                                      <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                        ⏰ Đúng giờ (tự duyệt): {endWindow.onTimeStart} - {endWindow.onTimeEnd}
+                                    <div className="mb-1.5 space-y-0.5 text-xs">
+                                      <p className={`flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                        <CheckCircle className="w-3 h-3" />
+                                        <span>Đúng giờ: {endWindow.onTimeStart} - {endWindow.onTimeEnd}</span>
                                       </p>
-                                      <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-                                        ⏳ Trễ (cần duyệt): {endWindow.lateStart} - {endWindow.lateEnd}
+                                      <p className={`flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                        <Timer className="w-3 h-3" />
+                                        <span>Trễ: {endWindow.lateStart} - {endWindow.lateEnd}</span>
                                       </p>
                                     </div>
                                   )}
@@ -2538,17 +5917,17 @@ export default function StudentAttendancePage() {
                                     <button
                                       onClick={() => handleSlotCheckIn(slot.name, 'end')}
                                       disabled={isCheckingIn}
-                                      className={`w-full px-3 py-2 rounded-lg text-xs font-bold transition-all transform hover:scale-105 flex items-center justify-center gap-2 ${
+                                      className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                                         isDarkMode 
                                           ? 'bg-blue-600 text-white hover:bg-blue-700' 
                                           : 'bg-blue-600 text-white hover:bg-blue-700'
                                       } ${isCheckingIn ? 'opacity-50' : ''}`}
                                     >
                                       {isCheckingIn ? (
-                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        <Loader className="w-3.5 h-3.5 animate-spin" />
                                       ) : (
                                         <>
-                                          <Camera className="w-4 h-4" />
+                                          <Camera className="w-3.5 h-3.5" />
                                           Điểm danh
                                         </>
                                       )}
@@ -2838,7 +6217,7 @@ export default function StudentAttendancePage() {
                                             >
                                               {isCheckingIn ? (
                                                 <>
-                                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                                  <Loader className="w-4 h-4 animate-spin" />
                                                   Đang xử lý...
                                                 </>
                                               ) : (
@@ -2873,18 +6252,21 @@ export default function StudentAttendancePage() {
                                   }`}>
                                     <div className="flex items-center justify-between mb-2">
                                       <div className="flex-1">
-                                        <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                          🌅 Đầu buổi
+                                        <p className={`text-xs font-bold flex items-center gap-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                                          <Sun className="w-3.5 h-3.5" />
+                                          Đầu buổi
                                         </p>
                                         {(() => {
                                           const startWindow = getCheckInTimeWindow(slot, 'start');
                                           return startWindow ? (
                                             <div className="mt-0.5 space-y-0.5">
-                                              <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                ⏰ Đúng giờ: {startWindow.onTimeStart} - {startWindow.onTimeEnd}
+                                              <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                <CheckCircle className="w-3 h-3" />
+                                                Đúng giờ: {startWindow.onTimeStart} - {startWindow.onTimeEnd}
                                               </p>
-                                              <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-                                                ⏳ Trễ: {startWindow.lateStart} - {startWindow.lateEnd}
+                                              <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                                <Timer className="w-3 h-3" />
+                                                Trễ: {startWindow.lateStart} - {startWindow.lateEnd}
                                               </p>
                                             </div>
                                           ) : null;
@@ -2894,16 +6276,12 @@ export default function StudentAttendancePage() {
                                     
                                     {/* Status Badge - Chưa điểm danh */}
                                     <div className="flex flex-wrap gap-2 mb-3">
-                                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs shadow-sm transition-all duration-200 ${
+                                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
                                         isDarkMode 
-                                          ? 'bg-gradient-to-r from-gray-500/20 via-gray-600/20 to-gray-700/20 text-gray-300 border border-gray-500/40 backdrop-blur-sm' 
-                                          : 'bg-gradient-to-r from-gray-50 via-gray-100 to-gray-200 text-gray-700 border border-gray-300/60 backdrop-blur-sm'
+                                          ? 'bg-gray-800/50 text-gray-300 border-gray-600' 
+                                          : 'bg-gray-50 text-gray-700 border-gray-200'
                                       }`}>
-                                        <div className={`w-4 h-4 rounded-full flex items-center justify-center ${
-                                          isDarkMode ? 'bg-gray-500/30' : 'bg-gray-200'
-                                        }`}>
-                                          <span className="text-xs">⏸️</span>
-                                        </div>
+                                        <PauseCircle className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
                                         <span className="font-bold">Chưa điểm danh</span>
                                       </div>
                                     </div>
@@ -2913,7 +6291,7 @@ export default function StudentAttendancePage() {
                                       isDarkMode ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-100 border-gray-300'
                                     }`}>
                                       <div className="text-center">
-                                        <p className={`text-2xl mb-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>📷</p>
+                                        <ImageIcon className={`w-8 h-8 mx-auto mb-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
                                         <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                           Chưa có ảnh điểm danh
                                         </p>
@@ -3154,7 +6532,7 @@ export default function StudentAttendancePage() {
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                                                   </svg>
                                                   <span className={`text-xs font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                                    {getVerifierName(endRecord.verifiedBy)}
+                                                    {getVerifierName(endRecord.verifiedBy, endRecord.verifiedByName)}
                                                   </span>
                                                 </div>
                                                 {endRecord.verifiedAt && (
@@ -3219,18 +6597,21 @@ export default function StudentAttendancePage() {
                                   }`}>
                                     <div className="flex items-center justify-between mb-2">
                                       <div className="flex-1">
-                                        <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                          🌙 Cuối buổi
+                                        <p className={`text-xs font-bold flex items-center gap-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                                          <Moon className="w-3.5 h-3.5" />
+                                          Cuối buổi
                                         </p>
                                         {(() => {
                                           const endWindow = getCheckInTimeWindow(slot, 'end');
                                           return endWindow ? (
                                             <div className="mt-0.5 space-y-0.5">
-                                              <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                ⏰ Đúng giờ: {endWindow.onTimeStart} - {endWindow.onTimeEnd}
+                                              <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                <CheckCircle className="w-3 h-3" />
+                                                Đúng giờ: {endWindow.onTimeStart} - {endWindow.onTimeEnd}
                                               </p>
-                                              <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-                                                ⏳ Trễ: {endWindow.lateStart} - {endWindow.lateEnd}
+                                              <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                                <Timer className="w-3 h-3" />
+                                                Trễ: {endWindow.lateStart} - {endWindow.lateEnd}
                                               </p>
                                             </div>
                                           ) : null;
@@ -3240,16 +6621,12 @@ export default function StudentAttendancePage() {
                                     
                                     {/* Status Badge - Chưa điểm danh */}
                                     <div className="flex flex-wrap gap-2 mb-3">
-                                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs shadow-sm transition-all duration-200 ${
+                                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
                                         isDarkMode 
-                                          ? 'bg-gradient-to-r from-gray-500/20 via-gray-600/20 to-gray-700/20 text-gray-300 border border-gray-500/40 backdrop-blur-sm' 
-                                          : 'bg-gradient-to-r from-gray-50 via-gray-100 to-gray-200 text-gray-700 border border-gray-300/60 backdrop-blur-sm'
+                                          ? 'bg-gray-800/50 text-gray-300 border-gray-600' 
+                                          : 'bg-gray-50 text-gray-700 border-gray-200'
                                       }`}>
-                                        <div className={`w-4 h-4 rounded-full flex items-center justify-center ${
-                                          isDarkMode ? 'bg-gray-500/30' : 'bg-gray-200'
-                                        }`}>
-                                          <span className="text-xs">⏸️</span>
-                                        </div>
+                                        <PauseCircle className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
                                         <span className="font-bold">Chưa điểm danh</span>
                                       </div>
                                     </div>
@@ -3259,7 +6636,7 @@ export default function StudentAttendancePage() {
                                       isDarkMode ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-100 border-gray-300'
                                     }`}>
                                       <div className="text-center">
-                                        <p className={`text-2xl mb-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>📷</p>
+                                        <ImageIcon className={`w-8 h-8 mx-auto mb-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
                                         <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                           Chưa có ảnh điểm danh
                                         </p>
@@ -3272,29 +6649,29 @@ export default function StudentAttendancePage() {
                           
                           {/* Status Message - Compact Design */}
                           {!isDuringSlot && (
-                            <div className={`mt-4 pt-4 border-t border-dashed`} style={{
+                            <div className={`mt-3 pt-3 border-t border-dashed`} style={{
                               borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
                             }}>
                               {isBeforeSlot && (
-                                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${
+                                <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs ${
                                   isDarkMode 
                                     ? 'bg-gray-700/50 border border-gray-600' 
                                     : 'bg-gray-100 border border-gray-300'
                                 }`}>
-                                  <span className="text-base">⏰</span>
-                                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                  <Timer className={`w-3.5 h-3.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
+                                  <p className={`font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                                     Chưa đến thời gian buổi này
                                   </p>
                                 </div>
                               )}
                               {isAfterSlot && (
-                                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${
+                                <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs ${
                                   isDarkMode 
                                     ? 'bg-gray-700/50 border border-gray-600' 
                                     : 'bg-gray-100 border border-gray-300'
                                 }`}>
-                                  <span className="text-base">✅</span>
-                                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                  <CheckCircle2 className={`w-3.5 h-3.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
+                                  <p className={`font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                                     Đã qua thời gian buổi này
                                   </p>
                                 </div>
@@ -3308,38 +6685,40 @@ export default function StudentAttendancePage() {
               </div>
             </div>
           ) : (
-            <div className={`text-center py-12 rounded-2xl ${
-              isDarkMode ? 'bg-gray-800/50' : 'bg-gray-50'
+            <div className={`text-center py-8 rounded-xl border ${
+              isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-200'
             }`}>
-              <p className={`text-4xl mb-3 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>📅</p>
-              <p className={`text-base font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              <Calendar className={`w-12 h-12 mx-auto mb-3 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
+              <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                 Không có buổi nào được lên lịch
               </p>
             </div>
           )}
           
-          {/* Map Section - Full Width Below Timeline */}
-          {((activity.locationData || (activity.multiTimeLocations && activity.multiTimeLocations.length > 0)) || userLocation) && !showCamera && (
-            <div className="mt-6">
-            {/* Interactive Map - Simplified Design */}
-            <div className={`rounded-2xl lg:rounded-3xl overflow-hidden ${
+          {/* Map Section - Compact Design */}
+          {((activity.type === 'multiple_days' && selectedDaySlot && parsedScheduleData.length > 0) || 
+            (activity.type === 'single_day' && (activity.locationData || (activity.multiTimeLocations && activity.multiTimeLocations.length > 0))) || 
+            userLocation) && !showCamera && (
+            <div className="mt-4">
+            {/* Interactive Map - Compact Design */}
+            <div className={`rounded-xl overflow-hidden ${
               isDarkMode 
-                ? 'bg-gray-800/90 border border-gray-700' 
+                ? 'bg-gray-800/50 border border-gray-700' 
                 : 'bg-white border border-gray-200'
-            } shadow-xl lg:shadow-2xl`}>
+            } shadow-lg`}>
                 {/* Map Header - Compact */}
-                <div className={`p-4 sm:p-5 border-b ${
-                  isDarkMode ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
+                <div className={`p-3 border-b ${
+                  isDarkMode ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50'
                 }`}>
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
                         isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
                       }`}>
-                        <span className="text-xl">🗺️</span>
+                        <Map className={`w-4 h-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
                       </div>
                       <div>
-                        <h3 className={`text-base lg:text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                        <h3 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                           Bản đồ tương tác
                         </h3>
                         <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
@@ -3348,7 +6727,7 @@ export default function StudentAttendancePage() {
                       </div>
                     </div>
                     {locationStatus && (
-                      <div className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
+                      <div className={`px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-1 ${
                         locationStatus.valid
                           ? isDarkMode 
                             ? 'bg-green-500/20 text-green-300 border border-green-500/30' 
@@ -3357,27 +6736,38 @@ export default function StudentAttendancePage() {
                             ? 'bg-red-500/20 text-red-300 border border-red-500/30' 
                             : 'bg-red-100 text-red-700 border border-red-200'
                       }`}>
-                        {locationStatus.valid ? '✅' : '⚠️'}
+                        {locationStatus.valid ? (
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                        ) : (
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                        )}
                       </div>
                     )}
                   </div>
                 </div>
                 
-                <div className="relative overflow-hidden" style={{ height: '400px' }}>
-                  <MapContainer
-                    center={mapCenter}
-                    zoom={13}
-                    style={{ height: '100%', width: '100%', zIndex: 1 }}
-                    zoomControl={true}
-                    doubleClickZoom={false}
-                    dragging={true}
-                    scrollWheelZoom={true}
-                    key={`map-${mapCenter[0]}-${mapCenter[1]}`}
-                    whenReady={() => {
-                      // Map is ready, this prevents errors with markers
-                    }}
-                    preferCanvas={false}
-                  >
+                <div className="relative overflow-hidden" style={{ height: '350px' }}>
+                  {mapCenter && 
+                   Array.isArray(mapCenter) && 
+                   mapCenter.length === 2 && 
+                   typeof mapCenter[0] === 'number' && 
+                   typeof mapCenter[1] === 'number' &&
+                   !isNaN(mapCenter[0]) && 
+                   !isNaN(mapCenter[1]) ? (
+                    <MapContainer
+                      center={mapCenter}
+                      zoom={13}
+                      style={{ height: '100%', width: '100%', zIndex: 1 }}
+                      zoomControl={true}
+                      doubleClickZoom={false}
+                      dragging={true}
+                      scrollWheelZoom={true}
+                      key={`map-${selectedDaySlot ? `${selectedDaySlot.day}-${selectedDaySlot.slot}` : 'default'}-${mapCenter[0]}-${mapCenter[1]}`}
+                      whenReady={() => {
+                        // Map is ready, this prevents errors with markers
+                      }}
+                      preferCanvas={false}
+                    >
                     <TileLayer
                       url={isDarkMode
                         ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
@@ -3390,26 +6780,132 @@ export default function StudentAttendancePage() {
                     {(() => {
                       const bounds: [number, number][] = [];
                       
-                      // Add activity locations to bounds
-                      if (activity.locationData) {
-                        bounds.push([activity.locationData.lat, activity.locationData.lng]);
-                      }
-                      if (activity.multiTimeLocations) {
-                        activity.multiTimeLocations.forEach(mtl => {
-                          bounds.push([mtl.location.lat, mtl.location.lng]);
-                        });
+                      // Handle multiple days activities
+                      if (activity.type === 'multiple_days' && selectedDaySlot) {
+                        const dayData = parsedScheduleData.find(d => d.day === selectedDaySlot.day);
+                        if (dayData) {
+                          const slot = dayData.slots.find(s => s.slotKey === selectedDaySlot.slot);
+                          const location = slot?.mapLocation || dayData.dayMapLocation;
+                          if (location && location.lat && location.lng &&
+                              typeof location.lat === 'number' && 
+                              typeof location.lng === 'number' &&
+                              !isNaN(location.lat) &&
+                              !isNaN(location.lng)) {
+                            bounds.push([location.lat, location.lng]);
+                          }
+                        }
+                      } else {
+                        // Add activity locations to bounds (single day)
+                        if (activity.locationData && 
+                            typeof activity.locationData.lat === 'number' && 
+                            typeof activity.locationData.lng === 'number' &&
+                            !isNaN(activity.locationData.lat) &&
+                            !isNaN(activity.locationData.lng)) {
+                          bounds.push([activity.locationData.lat, activity.locationData.lng]);
+                        }
+                        if (activity.multiTimeLocations) {
+                          activity.multiTimeLocations.forEach(mtl => {
+                            if (mtl?.location &&
+                                typeof mtl.location.lat === 'number' && 
+                                typeof mtl.location.lng === 'number' &&
+                                !isNaN(mtl.location.lat) &&
+                                !isNaN(mtl.location.lng)) {
+                              bounds.push([mtl.location.lat, mtl.location.lng]);
+                            }
+                          });
+                        }
                       }
                       
                       // Add user location to bounds
-                      if (userLocation) {
+                      if (userLocation &&
+                          typeof userLocation.lat === 'number' && 
+                          typeof userLocation.lng === 'number' &&
+                          !isNaN(userLocation.lat) &&
+                          !isNaN(userLocation.lng)) {
                         bounds.push([userLocation.lat, userLocation.lng]);
                       }
                       
                       return bounds.length > 0 ? <FitBounds bounds={bounds} /> : null;
                     })()}
 
-                    {/* Activity Location Marker - Larger and more visible */}
-                    {activity.locationData && (
+                    {/* Activity Location Marker - For Multiple Days */}
+                    {activity.type === 'multiple_days' && selectedDaySlot && (() => {
+                      const dayData = parsedScheduleData.find(d => d.day === selectedDaySlot.day);
+                      if (dayData) {
+                        const slot = dayData.slots.find(s => s.slotKey === selectedDaySlot.slot);
+                        const location = slot?.mapLocation || dayData.dayMapLocation;
+                        if (location && location.lat && location.lng &&
+                            typeof location.lat === 'number' && 
+                            typeof location.lng === 'number' &&
+                            !isNaN(location.lat) &&
+                            !isNaN(location.lng)) {
+                          const slotName = selectedDaySlot.slot === 'morning' ? 'Buổi Sáng' : selectedDaySlot.slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+                          return (
+                            <>
+                              <Marker 
+                                key={`activity-marker-${selectedDaySlot.day}-${selectedDaySlot.slot}-${location.lat}-${location.lng}`}
+                                position={[location.lat, location.lng]}
+                                icon={(() => {
+                                  if (typeof window !== 'undefined') {
+                                    const L = require('leaflet');
+                                    return L.divIcon({
+                                      className: 'activity-location-marker',
+                                      html: `<div style="
+                                        background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+                                        width: 56px;
+                                        height: 56px;
+                                        border-radius: 50%;
+                                        border: 5px solid white;
+                                        box-shadow: 0 6px 20px rgba(37, 99, 235, 0.6), 0 0 0 3px rgba(37, 99, 235, 0.3);
+                                        display: flex;
+                                        align-items: center;
+                                        justify-content: center;
+                                        font-size: 28px;
+                                        font-weight: bold;
+                                      ">📍</div>`,
+                                      iconSize: [56, 56],
+                                      iconAnchor: [28, 28]
+                                    });
+                                  }
+                                  return undefined;
+                                })()}
+                              >
+                                <Popup>
+                                  <div className="text-center">
+                                    <p className="font-bold text-sm">🏢 {activity.name}</p>
+                                    <p className="text-xs mt-1">Ngày {selectedDaySlot.day} - {slotName}</p>
+                                    <p className="text-xs mt-1">{location.address || 'N/A'}</p>
+                                    <p className="text-xs mt-1">Bán kính: {location.radius || 200}m</p>
+                                  </div>
+                                </Popup>
+                              </Marker>
+                              {typeof location.radius === 'number' && !isNaN(location.radius) && location.radius > 0 && (
+                                <Circle
+                                  key={`circle-${selectedDaySlot.day}-${selectedDaySlot.slot}-${location.lat}-${location.lng}`}
+                                  center={[location.lat, location.lng]}
+                                  radius={location.radius}
+                                  pathOptions={{
+                                    color: '#2563eb',
+                                    fillColor: '#3b82f6',
+                                    fillOpacity: 0.25,
+                                    weight: 4,
+                                    dashArray: '10, 5'
+                                  }}
+                                />
+                              )}
+                            </>
+                          );
+                        }
+                      }
+                      return null;
+                    })()}
+
+                    {/* Activity Location Marker - For Single Day */}
+                    {activity.type === 'single_day' && activity.locationData && 
+                     typeof activity.locationData.lat === 'number' && 
+                     typeof activity.locationData.lng === 'number' &&
+                     !isNaN(activity.locationData.lat) &&
+                     !isNaN(activity.locationData.lng) && (
                       <>
                         <Marker 
                           position={[activity.locationData.lat, activity.locationData.lng]}
@@ -3595,9 +7091,14 @@ export default function StudentAttendancePage() {
                     }).filter(Boolean)}
 
                     {/* User Location Marker - Larger and more visible */}
-                    {userLocation && (
+                    {userLocation &&
+                     typeof userLocation.lat === 'number' && 
+                     typeof userLocation.lng === 'number' &&
+                     !isNaN(userLocation.lat) &&
+                     !isNaN(userLocation.lng) && (
                       <>
                         <Marker 
+                          key={`user-marker-${userLocation.lat}-${userLocation.lng}-${locationStatus?.valid ? 'valid' : 'invalid'}`}
                           position={[userLocation.lat, userLocation.lng]}
                           icon={(() => {
                             if (typeof window !== 'undefined') {
@@ -3664,56 +7165,103 @@ export default function StudentAttendancePage() {
                         </Marker>
                         
                         {/* Draw line connecting user location to activity location */}
-                        {activity?.locationData && 
-                         typeof activity.locationData.lat === 'number' && 
-                         typeof activity.locationData.lng === 'number' &&
-                         !isNaN(activity.locationData.lat) &&
-                         !isNaN(activity.locationData.lng) && (
-                          <Polyline
-                            key={`polyline-${userLocation.lat}-${userLocation.lng}-${activity.locationData.lat}-${activity.locationData.lng}`}
-                            positions={[
-                              [userLocation.lat, userLocation.lng],
-                              [activity.locationData.lat, activity.locationData.lng]
-                            ]}
-                            pathOptions={{
-                              color: locationStatus?.valid ? '#10b981' : '#ef4444',
-                              weight: 3,
-                              opacity: 0.6,
-                              dashArray: '10, 5'
-                            }}
-                          />
-                        )}
+                        {(() => {
+                          let activityLocation: { lat: number; lng: number } | null = null;
+                          
+                          // Handle multiple days
+                          if (activity.type === 'multiple_days' && selectedDaySlot) {
+                            const dayData = parsedScheduleData.find(d => d.day === selectedDaySlot.day);
+                            if (dayData) {
+                              const slot = dayData.slots.find(s => s.slotKey === selectedDaySlot.slot);
+                              const location = slot?.mapLocation || dayData.dayMapLocation;
+                              if (location && location.lat && location.lng &&
+                                  typeof location.lat === 'number' && 
+                                  typeof location.lng === 'number' &&
+                                  !isNaN(location.lat) &&
+                                  !isNaN(location.lng)) {
+                                activityLocation = { lat: location.lat, lng: location.lng };
+                              }
+                            }
+                          } else if (activity.locationData &&
+                             typeof activity.locationData.lat === 'number' && 
+                             typeof activity.locationData.lng === 'number' &&
+                             !isNaN(activity.locationData.lat) &&
+                             !isNaN(activity.locationData.lng)) {
+                            activityLocation = { lat: activity.locationData.lat, lng: activity.locationData.lng };
+                          }
+                          
+                          if (activityLocation &&
+                              userLocation &&
+                              typeof userLocation.lat === 'number' && 
+                              typeof userLocation.lng === 'number' &&
+                              !isNaN(userLocation.lat) &&
+                              !isNaN(userLocation.lng)) {
+                            return (
+                              <Polyline
+                                key={`polyline-${userLocation.lat}-${userLocation.lng}-${activityLocation.lat}-${activityLocation.lng}`}
+                                positions={[
+                                  [userLocation.lat, userLocation.lng],
+                                  [activityLocation.lat, activityLocation.lng]
+                                ]}
+                                pathOptions={{
+                                  color: locationStatus?.valid ? '#10b981' : '#ef4444',
+                                  weight: 3,
+                                  opacity: 0.6,
+                                  dashArray: '10, 5'
+                                }}
+                              />
+                            );
+                          }
+                          return null;
+                        })()}
                       </>
                     )}
                   </MapContainer>
+                  ) : (
+                    <div className={`h-full flex items-center justify-center ${isDarkMode ? 'bg-gray-800' : 'bg-gray-100'}`}>
+                      <div className="text-center p-4">
+                        <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                          Không có dữ liệu vị trí bản đồ
+                        </p>
+                        <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                          Vui lòng kiểm tra lại thông tin hoạt động
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 
                 {/* Legend - Compact Design */}
-                <div className={`p-3 sm:p-4 border-t ${
+                <div className={`p-2.5 border-t ${
                   isDarkMode ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50'
                 }`}>
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     {/* User Location Status */}
                     {userLocation && locationStatus && (
                       <div className="flex items-center gap-2">
-                        <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center ${
                           locationStatus.valid 
-                            ? 'bg-gradient-to-br from-green-500 to-green-600' 
-                            : 'bg-gradient-to-br from-red-500 to-red-600'
+                            ? 'bg-green-500' 
+                            : 'bg-red-500'
                         }`}>
-                          👤
+                          <User className={`w-3 h-3 text-white`} />
                         </div>
                         <div>
                           <span className={`text-xs font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                             Vị trí của bạn
                           </span>
                           {locationStatus.distance !== undefined && (
-                            <p className={`text-xs font-medium ${
+                            <p className={`text-xs font-medium flex items-center gap-1 ${
                               locationStatus.valid 
                                 ? isDarkMode ? 'text-green-400' : 'text-green-600'
                                 : isDarkMode ? 'text-red-400' : 'text-red-600'
                             }`}>
-                              {locationStatus.valid ? '✅' : '⚠️'} {locationStatus.distance.toFixed(0)}m
+                              {locationStatus.valid ? (
+                                <CheckCircle2 className="w-3 h-3" />
+                              ) : (
+                                <AlertTriangle className="w-3 h-3" />
+                              )}
+                              {locationStatus.distance.toFixed(0)}m
                             </p>
                           )}
                         </div>
@@ -3828,7 +7376,7 @@ export default function StudentAttendancePage() {
                     />
                   ) : (
                     <div className="text-white text-center">
-                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+                      <Loader className="w-12 h-12 animate-spin text-blue-500 mx-auto mb-4" />
                       <p>Đang khởi động camera...</p>
                     </div>
                   )}
@@ -3883,8 +7431,18 @@ export default function StudentAttendancePage() {
                         const pendingCheckIn = (window as any).pendingCheckIn;
                         const photoCheckInTime = (window as any).photoCheckInTime as Date | undefined;
                         
+                        // Validate pendingCheckIn data before proceeding
+                        if (!pendingCheckIn || !pendingCheckIn.slotName || !pendingCheckIn.checkInType) {
+                          console.error('Missing pendingCheckIn data:', pendingCheckIn);
+                          setError('Dữ liệu điểm danh không hợp lệ. Vui lòng thử lại.');
+                          closeCamera();
+                          delete (window as any).pendingCheckIn;
+                          delete (window as any).photoCheckInTime;
+                          return;
+                        }
+                        
                         // Check if late or early before proceeding (using photo capture time)
-                        if (pendingCheckIn?.slotName && pendingCheckIn?.checkInType && photoCheckInTime) {
+                        if (pendingCheckIn.slotName && pendingCheckIn.checkInType && photoCheckInTime) {
                           const lateCheck = checkIfLateForTime(pendingCheckIn.slotName, pendingCheckIn.checkInType, photoCheckInTime);
                           if (lateCheck.isLate || lateCheck.isEarly) {
                             // Show late/early modal
@@ -3904,7 +7462,7 @@ export default function StudentAttendancePage() {
                             return;
                           }
                         }
-                        proceedWithCheckIn(capturedPhoto, pendingCheckIn?.slotName, pendingCheckIn?.checkInType);
+                        proceedWithCheckIn(capturedPhoto, pendingCheckIn.slotName, pendingCheckIn.checkInType);
                       }
                     }}
                     disabled={isCheckingIn}

@@ -7,21 +7,7 @@ import { getUserFromRequest } from '@/lib/auth';
 // GET /api/memberships - Get all memberships with filtering
 export async function GET(request: NextRequest) {
   try {
-    // Verify authentication
-    const user = getUserFromRequest(request);
-    if (!user || (
-      user.role !== 'SUPER_ADMIN' && 
-      user.role !== 'CLUB_LEADER' && 
-      user.role !== 'CLUB_DEPUTY' && 
-      user.role !== 'CLUB_MEMBER' && 
-      user.role !== 'ADMIN'
-    )) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
+    // Bỏ qua kiểm tra phân quyền - cho phép tất cả mọi người xem
     // Connect to database
     await dbConnect();
 
@@ -450,6 +436,7 @@ export async function PATCH(request: NextRequest) {
       user.role !== 'CLUB_LEADER' && 
       user.role !== 'CLUB_DEPUTY' && 
       user.role !== 'CLUB_MEMBER' && 
+      user.role !== 'CLUB_STUDENT' && 
       user.role !== 'ADMIN'
     )) {
       return NextResponse.json(

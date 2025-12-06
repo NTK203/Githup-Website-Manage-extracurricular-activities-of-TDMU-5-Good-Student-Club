@@ -6,7 +6,20 @@ import mongoose from 'mongoose';
 
 export async function GET(request: NextRequest) {
   try {
-    await dbConnect();
+    // Connect to database
+    try {
+      await dbConnect();
+    } catch (dbError) {
+      console.error('Database connection error:', dbError);
+      return NextResponse.json(
+        { 
+          success: false, 
+          message: 'Database connection failed',
+          error: process.env.NODE_ENV === 'development' ? (dbError instanceof Error ? dbError.message : String(dbError)) : undefined
+        },
+        { status: 500 }
+      );
+    }
     
     // Parse query parameters
     const { searchParams } = new URL(request.url);
@@ -17,16 +30,34 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search');
     const dateFrom = searchParams.get('dateFrom');
     const dateTo = searchParams.get('dateTo');
-    
+    const myActivities = searchParams.get('myActivities') === 'true';
+
+    // Get user from token for filtering my activities
+    let currentUser = null;
+    if (myActivities) {
+      currentUser = await getUserFromRequest(request);
+      if (!currentUser) {
+        return NextResponse.json(
+          { success: false, message: 'Unauthorized' },
+          { status: 401 }
+        );
+      }
+    }
+
     // Build filter object
     const filter: any = {};
-    
+
     if (status && status !== 'all') {
       filter.status = status;
     }
-    
+
     if (type && type !== 'all') {
       filter.type = type;
+    }
+
+    // Filter activities where current user is responsible person
+    if (myActivities && currentUser) {
+      filter.responsiblePerson = currentUser.userId;
     }
     
     if (search) {
@@ -56,13 +87,55 @@ export async function GET(request: NextRequest) {
     const skip = (page - 1) * limit;
     
     // Get activities with pagination
-    const activities = await Activity.find(filter)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate('responsiblePerson', 'name email avatarUrl')
-      .populate('createdBy', 'name email avatarUrl')
-      .lean();
+    let activities;
+    try {
+      activities = await Activity.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('responsiblePerson', 'name email avatarUrl')
+        .populate('createdBy', 'name email avatarUrl')
+        .lean();
+    } catch (populateError) {
+      console.error('Error populating activities:', populateError);
+      // Fallback: try without populate
+      activities = await Activity.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean();
+      
+      // Manually populate if needed
+      if (activities.length > 0) {
+        try {
+          const User = (await import('@/models/User')).default;
+          activities = await Promise.all(activities.map(async (activity: any) => {
+            if (activity.responsiblePerson) {
+              try {
+                const responsiblePerson = await User.findById(activity.responsiblePerson).select('name email avatarUrl').lean();
+                activity.responsiblePerson = responsiblePerson;
+              } catch (err) {
+                console.error('Error populating responsiblePerson:', err);
+                activity.responsiblePerson = null;
+              }
+            }
+            if (activity.createdBy) {
+              try {
+                const createdBy = await User.findById(activity.createdBy).select('name email avatarUrl').lean();
+                activity.createdBy = createdBy;
+              } catch (err) {
+                console.error('Error populating createdBy:', err);
+                activity.createdBy = null;
+              }
+            }
+            return activity;
+          }));
+        } catch (userModelError) {
+          console.error('Error importing User model:', userModelError);
+          // Continue without populate
+        }
+      }
+    }
     
     // Get total count for pagination
     const total = await Activity.countDocuments(filter);
@@ -89,8 +162,13 @@ export async function GET(request: NextRequest) {
     
   } catch (error) {
     console.error('Error fetching activities:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json(
-      { success: false, message: 'Internal server error' },
+      { 
+        success: false, 
+        message: 'Internal server error',
+        error: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+      },
       { status: 500 }
     );
   }
@@ -114,6 +192,9 @@ export async function POST(request: NextRequest) {
     }
     
     const body = await request.json();
+    
+    console.log('🔍 POST API - registrationThreshold in body:', body.registrationThreshold);
+    console.log('🔍 POST API - registrationThreshold type:', typeof body.registrationThreshold);
     
     // Validate required fields based on activity type
     const missingFields: string[] = [];
@@ -146,9 +227,19 @@ export async function POST(request: NextRequest) {
       );
     }
     
+    // Parse and validate registrationThreshold
+    let registrationThreshold = 80; // default
+    if (body.registrationThreshold !== undefined && body.registrationThreshold !== null) {
+      const parsed = Number(body.registrationThreshold);
+      if (!isNaN(parsed)) {
+        registrationThreshold = Math.max(0, Math.min(100, parsed));
+      }
+    }
+    
     // Convert date strings to Date objects if needed
     const activityData: any = {
       ...body,
+      registrationThreshold: registrationThreshold, // Explicitly set
       createdBy: new mongoose.Types.ObjectId(user.userId),
       updatedBy: new mongoose.Types.ObjectId(user.userId),
       createdAt: new Date(),
@@ -180,12 +271,15 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Create new activity with user info
+    console.log('✅ POST API - registrationThreshold will be saved:', activityData.registrationThreshold);
+    
     const activity = new Activity(activityData);
     
     let savedActivity;
     try {
       savedActivity = await activity.save();
+      console.log('✅ POST API - registrationThreshold in savedActivity:', savedActivity.registrationThreshold);
+      console.log('✅ POST API - savedActivity type:', savedActivity?.constructor?.name);
     } catch (saveError: any) {
       // Handle validation errors
       if (saveError.name === 'ValidationError') {
@@ -230,10 +324,20 @@ export async function POST(request: NextRequest) {
       // Don't fail the request if notification fails
     }
     
+    // Convert Mongoose document to plain object and ensure registrationThreshold is included
+    const responseData = savedActivity?.toObject ? savedActivity.toObject() : savedActivity;
+    
+    // Ensure registrationThreshold is in response (use saved value or the value we set)
+    if (responseData) {
+      responseData.registrationThreshold = savedActivity.registrationThreshold ?? registrationThreshold;
+    }
+    
+    console.log('✅ POST API - registrationThreshold in response:', responseData?.registrationThreshold);
+    
     return NextResponse.json({
       success: true,
       message: 'Activity created successfully',
-      data: savedActivity
+      data: responseData
     }, { status: 201 });
     
   } catch (error: any) {

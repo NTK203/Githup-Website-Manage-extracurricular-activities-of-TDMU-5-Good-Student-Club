@@ -4,9 +4,8 @@ import { useState, useEffect } from 'react';
 import { Calendar } from 'lucide-react';
 import AdminNav from '@/components/admin/AdminNav';
 import Footer from '@/components/common/Footer';
-import DashboardStats from '@/components/dashboard/DashboardStats';
-import ActivityList from '@/components/activities/ActivityList';
-import QuickActions from '@/components/dashboard/QuickActions';
+import ActivityDashboardLayout from '@/components/dashboard/ActivityDashboardLayout';
+import DashboardOverview from '@/components/dashboard/DashboardOverview';
 import ProtectedRoute from '@/components/common/ProtectedRoute';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -174,33 +173,14 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Stats Cards and Quick Actions */}
+          {/* Dashboard Overview - Combined Stats and Actions */}
           <div className="mb-4">
-            <div 
-              className={`rounded-xl p-4 ${
-                isDarkMode 
-                  ? 'bg-gray-800/40' 
-                  : 'bg-white/70'
-              } backdrop-blur-md shadow-lg transition-all duration-300`}
-              style={{ border: '1px solid rgba(30, 64, 175, 0.2)' }}
-            >
-              <div className="flex flex-col lg:flex-row gap-4">
-                {/* Quick Actions - Left */}
-                <div className="flex-shrink-0 lg:w-64">
-                  <QuickActions isDarkMode={isDarkMode} noBorder={true} />
-                </div>
-                
-                {/* Stats Cards - Right */}
-                <div className="flex-1 min-w-0">
-                  <DashboardStats isDarkMode={isDarkMode} noBorder={true} />
-                </div>
-              </div>
-            </div>
+            <DashboardOverview isDarkMode={isDarkMode} />
           </div>
 
-          {/* Recent Activities */}
+          {/* Activities Dashboard - 2 Column Layout */}
           <div>
-            <ActivityList 
+            <ActivityDashboardLayout 
               isDarkMode={isDarkMode} 
               showActions={true}
               onEdit={handleEditActivity}

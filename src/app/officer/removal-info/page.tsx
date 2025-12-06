@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import OfficerNav from '@/components/officer/OfficerNav';
 import Footer from '@/components/common/Footer';
 import ProtectedRoute from '@/components/common/ProtectedRoute';
+import { CheckCircle2, Target } from 'lucide-react';
 interface RemovalInfo {
   _id: string;
   userId: {
@@ -221,7 +222,7 @@ export default function OfficerRemovalInfoPage() {
                       onClick={() => router.push('/student/register')}
                       className={`px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2`}
                     >
-                      <span>🔄</span>
+                      <RotateCcw size={18} strokeWidth={2.5} />
                       <span>Đăng ký lại</span>
                     </button>
                   )}
@@ -469,7 +470,7 @@ export default function OfficerRemovalInfoPage() {
                         onClick={() => router.push('/student/register')}
                         className={`w-full py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center space-x-2`}
                       >
-                        <span>🔄</span>
+                        <RotateCcw size={18} strokeWidth={2.5} />
                         <span>Đăng ký lại ngay</span>
                       </button>
                     </div>
@@ -487,7 +488,7 @@ export default function OfficerRemovalInfoPage() {
                     <div className="space-y-4">
                       <div className="flex items-start space-x-4">
                         <div className={`p-2 rounded-full ${isDarkMode ? 'bg-green-500/20' : 'bg-green-100'}`}>
-                          <span className="text-green-600 text-lg">✅</span>
+                          <CheckCircle2 size={18} strokeWidth={2.5} className={isDarkMode ? 'text-green-400' : 'text-green-600'} />
                         </div>
                         <div>
                           <h3 className={`font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
@@ -501,7 +502,7 @@ export default function OfficerRemovalInfoPage() {
 
                       <div className="flex items-start space-x-4">
                         <div className={`p-2 rounded-full ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'}`}>
-                          <span className="text-blue-600 text-lg">🎯</span>
+                          <Target size={18} strokeWidth={2.5} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} />
                         </div>
                         <div>
                           <h3 className={`font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>

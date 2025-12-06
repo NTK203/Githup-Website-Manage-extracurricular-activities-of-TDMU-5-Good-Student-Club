@@ -9,29 +9,89 @@ import { AttendanceStatus } from '@/models/Attendance';
 
 // Helper function to populate verifiedBy for attendance records
 async function populateVerifiedBy(attendances: any[]) {
-  const verifiedByIds = attendances
-    .map(att => att.verifiedBy)
-    .filter(id => id != null);
-  
-  if (verifiedByIds.length === 0) return;
-  
-  const users = await User.find({ _id: { $in: verifiedByIds } }).select('name email');
-  const userMap = new Map(users.map(u => [u._id.toString(), u]));
+  // Extract all unique verifiedBy IDs (handle both ObjectId and string)
+  const verifiedByIds: mongoose.Types.ObjectId[] = [];
+  const idSet = new Set<string>();
   
   attendances.forEach(att => {
     if (att.verifiedBy) {
-      const user = userMap.get(att.verifiedBy.toString());
-      if (user) {
-        att.verifiedBy = {
-          _id: user._id,
-          name: user.name || user.email || 'Người quản trị', // Ensure name is never null/empty
-          email: user.email
-        };
-      } else {
-        // If user not found, keep the ObjectId but log for debugging
-        console.warn(`User with ID ${att.verifiedBy.toString()} not found in database`);
-        // Set to null so frontend can handle gracefully
-        att.verifiedBy = null;
+      let id: mongoose.Types.ObjectId | null = null;
+      if (att.verifiedBy instanceof mongoose.Types.ObjectId) {
+        id = att.verifiedBy;
+      } else if (typeof att.verifiedBy === 'string') {
+        if (mongoose.Types.ObjectId.isValid(att.verifiedBy)) {
+          id = new mongoose.Types.ObjectId(att.verifiedBy);
+        }
+      } else if (att.verifiedBy._id) {
+        if (att.verifiedBy._id instanceof mongoose.Types.ObjectId) {
+          id = att.verifiedBy._id;
+        } else if (mongoose.Types.ObjectId.isValid(att.verifiedBy._id)) {
+          id = new mongoose.Types.ObjectId(att.verifiedBy._id);
+        }
+      }
+      
+      if (id && !idSet.has(id.toString())) {
+        verifiedByIds.push(id);
+        idSet.add(id.toString());
+      }
+    }
+  });
+  
+  if (verifiedByIds.length === 0) return;
+  
+  // Fetch all users at once
+  const users = await User.find({ _id: { $in: verifiedByIds } }).select('name email');
+  const userMap = new Map(users.map(u => [u._id.toString(), u]));
+  
+  // Populate verifiedBy for each attendance record
+  attendances.forEach(att => {
+    // If verifiedByName exists (manual check-in), use it and don't populate
+    if (att.verifiedByName) {
+      // Create object structure for consistency
+      att.verifiedBy = {
+        _id: att.verifiedBy ? (att.verifiedBy instanceof mongoose.Types.ObjectId ? att.verifiedBy.toString() : (typeof att.verifiedBy === 'string' ? att.verifiedBy : att.verifiedBy._id?.toString() || '')) : '',
+        name: att.verifiedByName,
+        email: att.verifiedByEmail || ''
+      };
+      return;
+    }
+    
+    // Otherwise, populate from database
+    if (att.verifiedBy) {
+      let idString: string | null = null;
+      
+      // Extract ID string from various formats
+      if (att.verifiedBy instanceof mongoose.Types.ObjectId) {
+        idString = att.verifiedBy.toString();
+      } else if (typeof att.verifiedBy === 'string') {
+        if (mongoose.Types.ObjectId.isValid(att.verifiedBy)) {
+          idString = att.verifiedBy;
+        }
+      } else if (att.verifiedBy._id) {
+        if (att.verifiedBy._id instanceof mongoose.Types.ObjectId) {
+          idString = att.verifiedBy._id.toString();
+        } else if (typeof att.verifiedBy._id === 'string' && mongoose.Types.ObjectId.isValid(att.verifiedBy._id)) {
+          idString = att.verifiedBy._id;
+        }
+      }
+      
+      if (idString) {
+        const user = userMap.get(idString);
+        if (user) {
+          att.verifiedBy = {
+            _id: user._id.toString(),
+            name: user.name || user.email || 'Người quản trị', // Ensure name is never null/empty
+            email: user.email || ''
+          };
+        } else {
+          // If user not found, log for debugging
+          console.warn(`User with ID ${idString} not found in database`);
+          att.verifiedBy = {
+            _id: idString,
+            name: 'Người quản trị',
+            email: ''
+          };
+        }
       }
     }
   });
@@ -40,7 +100,7 @@ async function populateVerifiedBy(attendances: any[]) {
 // GET - Get attendance list for an activity
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await dbConnect();
@@ -62,7 +122,7 @@ export async function GET(
       );
     }
 
-    const { id: activityId } = params;
+    const { id: activityId } = await params;
 
     // Validate ObjectId format
     if (!mongoose.Types.ObjectId.isValid(activityId)) {
@@ -93,12 +153,20 @@ export async function GET(
       .populate('userId', 'name email studentId');
 
     // Collect all attendance records to populate verifiedBy efficiently
+    // Create a map to track which records belong to which user (by attendance _id)
+    const attendanceRecordMap = new Map<string, any>(); // Map attendance _id to record
     const allAttendanceRecords: any[] = [];
+    
     attendanceDocs.forEach(doc => {
-      allAttendanceRecords.push(...doc.attendances);
+      const records = doc.attendances || [];
+      records.forEach((att: any) => {
+        const attId = att._id.toString();
+        attendanceRecordMap.set(attId, att);
+        allAttendanceRecords.push(att);
+      });
     });
     
-    // Populate verifiedBy for all records at once
+    // Populate verifiedBy for all records at once (this modifies the objects in place)
     await populateVerifiedBy(allAttendanceRecords);
 
     // Build participants list with attendance info
@@ -109,24 +177,36 @@ export async function GET(
         doc.userId._id.toString() === userId
       );
       
-      // Get all attendance records from the document (verifiedBy already populated)
-      // Ensure attendances is always an array
-      const attendances = (attendanceDoc && attendanceDoc.attendances && Array.isArray(attendanceDoc.attendances))
-        ? attendanceDoc.attendances.map((att: any) => ({
-          _id: att._id,
-          timeSlot: att.timeSlot,
-          checkInType: att.checkInType,
-          checkInTime: att.checkInTime,
-          location: att.location,
-          photoUrl: att.photoUrl,
-          status: att.status,
-          verifiedBy: att.verifiedBy,
-          verifiedAt: att.verifiedAt,
-          verificationNote: att.verificationNote,
-          cancelReason: att.cancelReason || null,
-          lateReason: att.lateReason || null
-        }))
+      // Get all attendance records from the document
+      // Use the records from attendanceRecordMap which have been populated
+      const rawAttendances = (attendanceDoc && attendanceDoc.attendances && Array.isArray(attendanceDoc.attendances))
+        ? attendanceDoc.attendances
         : [];
+      
+      const attendances = rawAttendances.map((att: any) => {
+        // Get the populated record from the map (if exists)
+        const attId = att._id.toString();
+        const populatedAtt = attendanceRecordMap.get(attId) || att;
+        
+        return {
+          _id: populatedAtt._id,
+          timeSlot: populatedAtt.timeSlot,
+          checkInType: populatedAtt.checkInType,
+          checkInTime: populatedAtt.checkInTime,
+          location: populatedAtt.location,
+          photoUrl: populatedAtt.photoUrl,
+          status: populatedAtt.status,
+          verifiedBy: populatedAtt.verifiedBy, // This should now be populated with name and email
+          verifiedByName: populatedAtt.verifiedByName || null, // Include verifiedByName for manual check-ins
+          verifiedByEmail: populatedAtt.verifiedByEmail || null, // Include verifiedByEmail for manual check-ins
+          verifiedAt: populatedAtt.verifiedAt,
+          verificationNote: populatedAtt.verificationNote,
+          cancelReason: populatedAtt.cancelReason || null,
+          lateReason: populatedAtt.lateReason || null,
+          dayNumber: populatedAtt.dayNumber,
+          slotDate: populatedAtt.slotDate
+        };
+      });
       
       // Check if has any approved attendance
       const hasApprovedAttendance = attendances.some((a: any) => a.status === 'approved');
@@ -138,7 +218,8 @@ export async function GET(
         role: p.role,
         checkedIn: hasApprovedAttendance,
         checkedInAt: attendances.length > 0 ? attendances[0].checkInTime : null,
-        attendances: attendances
+        attendances: attendances,
+        registeredDaySlots: p.registeredDaySlots || []
       };
     });
 
@@ -205,15 +286,114 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 function validateLocation(
   userLat: number,
   userLng: number,
-  activity: any
+  activity: any,
+  dayNumber?: number,
+  slotDate?: string,
+  timeSlot?: string
 ): { valid: boolean; distance?: number; message?: string } {
   // If no location data is required, allow check-in
-  if (!activity.locationData && (!activity.multiTimeLocations || activity.multiTimeLocations.length === 0)) {
+  if (!activity.locationData && (!activity.multiTimeLocations || activity.multiTimeLocations.length === 0) &&
+      (!activity.dailyLocations || Object.keys(activity.dailyLocations).length === 0) &&
+      (!activity.weeklySlotLocations || Object.keys(activity.weeklySlotLocations).length === 0)) {
     return { valid: true, message: 'Hoạt động không yêu cầu vị trí cụ thể' };
   }
 
-  // Check single location
-  if (activity.locationData) {
+  // For multiple days activities, check dailyLocations or weeklySlotLocations
+  if (activity.type === 'multiple_days' && dayNumber !== undefined) {
+    console.log('Validating location for multiple days:', {
+      dayNumber,
+      timeSlot,
+      hasWeeklySlotLocations: !!activity.weeklySlotLocations,
+      hasDailyLocations: !!activity.dailyLocations,
+      weeklySlotLocations: activity.weeklySlotLocations,
+      dailyLocations: activity.dailyLocations
+    });
+    
+    // Check weeklySlotLocations first (most specific: day + slot)
+    if (activity.weeklySlotLocations && activity.weeklySlotLocations[dayNumber]) {
+      const dayLocations = activity.weeklySlotLocations[dayNumber];
+      // Convert timeSlot from "Buổi Tối" to "evening", etc.
+      const slotKeyMap: { [key: string]: string } = {
+        'Buổi Sáng': 'morning',
+        'Buổi Chiều': 'afternoon',
+        'Buổi Tối': 'evening'
+      };
+      const slotKey = timeSlot ? slotKeyMap[timeSlot] : null;
+      
+      console.log('Checking weeklySlotLocations:', {
+        dayNumber,
+        slotKey,
+        dayLocations,
+        hasSlotLocation: slotKey ? !!dayLocations[slotKey] : false
+      });
+      
+      if (slotKey && dayLocations[slotKey]) {
+        const slotLocation = dayLocations[slotKey];
+        if (slotLocation.lat && slotLocation.lng && slotLocation.radius) {
+          const distance = calculateDistance(
+            userLat,
+            userLng,
+            slotLocation.lat,
+            slotLocation.lng
+          );
+          
+          if (distance <= slotLocation.radius) {
+            return { valid: true, distance };
+          } else {
+            return {
+              valid: false,
+              distance,
+              message: `Bạn đang cách vị trí hoạt động ${distance.toFixed(0)}m. Vui lòng đến đúng vị trí (trong bán kính ${slotLocation.radius}m) để điểm danh.`
+            };
+          }
+        }
+      }
+    }
+    
+    // Check dailyLocations (location for the entire day)
+    if (activity.dailyLocations && activity.dailyLocations[dayNumber]) {
+      const dayLocation = activity.dailyLocations[dayNumber];
+      console.log('Checking dailyLocations:', {
+        dayNumber,
+        dayLocation,
+        hasLatLng: !!(dayLocation.lat && dayLocation.lng)
+      });
+      
+      if (dayLocation.lat && dayLocation.lng && dayLocation.radius) {
+        const distance = calculateDistance(
+          userLat,
+          userLng,
+          dayLocation.lat,
+          dayLocation.lng
+        );
+        
+        if (distance <= dayLocation.radius) {
+          return { valid: true, distance };
+        } else {
+          return {
+            valid: false,
+            distance,
+            message: `Bạn đang cách vị trí hoạt động ${distance.toFixed(0)}m. Vui lòng đến đúng vị trí (trong bán kính ${dayLocation.radius}m) để điểm danh.`
+          };
+        }
+      }
+    }
+    
+    // If no location found for multiple days, check if there's a default location
+    // This handles cases where location might be in a different format
+    console.log('No specific location found for multiple days, checking fallback locations');
+    
+    // For multiple days, if no specific location found, we should still validate
+    // But we need to check if there's any location data at all
+    // If no location requirement, allow check-in
+    if (!activity.locationData && (!activity.multiTimeLocations || activity.multiTimeLocations.length === 0)) {
+      console.log('No location data found for multiple days, allowing check-in');
+      return { valid: true, message: 'Hoạt động không yêu cầu vị trí cụ thể cho ngày này' };
+    }
+  }
+
+  // Check single location (for single day or fallback for multiple days)
+  if (activity.locationData && activity.locationData.lat && activity.locationData.lng && activity.locationData.radius) {
     const distance = calculateDistance(
       userLat,
       userLng,
@@ -232,19 +412,21 @@ function validateLocation(
     }
   }
 
-  // Check multi-time locations
+  // Check multi-time locations (for single day or fallback for multiple days)
   if (activity.multiTimeLocations && activity.multiTimeLocations.length > 0) {
     // Check against all locations and find if any is within radius
     for (const mtl of activity.multiTimeLocations) {
-      const distance = calculateDistance(
-        userLat,
-        userLng,
-        mtl.location.lat,
-        mtl.location.lng
-      );
-      
-      if (distance <= mtl.radius) {
-        return { valid: true, distance };
+      if (mtl.location && mtl.location.lat && mtl.location.lng && mtl.radius) {
+        const distance = calculateDistance(
+          userLat,
+          userLng,
+          mtl.location.lat,
+          mtl.location.lng
+        );
+        
+        if (distance <= mtl.radius) {
+          return { valid: true, distance };
+        }
       }
     }
 
@@ -253,20 +435,22 @@ function validateLocation(
     let closestLocation = null;
 
     for (const mtl of activity.multiTimeLocations) {
-      const distance = calculateDistance(
-        userLat,
-        userLng,
-        mtl.location.lat,
-        mtl.location.lng
-      );
-      
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestLocation = mtl;
+      if (mtl.location && mtl.location.lat && mtl.location.lng && mtl.radius) {
+        const distance = calculateDistance(
+          userLat,
+          userLng,
+          mtl.location.lat,
+          mtl.location.lng
+        );
+        
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestLocation = mtl;
+        }
       }
     }
 
-    if (closestLocation) {
+    if (closestLocation && closestLocation.location && closestLocation.radius) {
       const timeSlotNames: { [key: string]: string } = {
         'morning': 'Buổi Sáng',
         'afternoon': 'Buổi Chiều',
@@ -275,7 +459,7 @@ function validateLocation(
       return {
         valid: false,
         distance: minDistance,
-        message: `Bạn đang cách vị trí ${timeSlotNames[closestLocation.timeSlot]} ${minDistance.toFixed(0)}m. Vui lòng đến đúng vị trí (trong bán kính ${closestLocation.radius}m) để điểm danh.`
+        message: `Bạn đang cách vị trí ${timeSlotNames[closestLocation.timeSlot] || 'hoạt động'} ${minDistance.toFixed(0)}m. Vui lòng đến đúng vị trí (trong bán kính ${closestLocation.radius}m) để điểm danh.`
       };
     }
   }
@@ -289,11 +473,29 @@ function validateTime(
   checkInTime: Date,
   activity: any,
   timeSlot: string,
-  checkInType: string
+  checkInType: string,
+  slotDate?: string,
+  dayNumber?: number
 ): { valid: boolean; isOnTime: boolean; isLate: boolean; isEarly: boolean; message?: string } {
   try {
-    // Parse activity date
-    const activityDate = new Date(activity.date);
+    // For multiple days activities, use slotDate if provided
+    let activityDate: Date;
+    if (activity.type === 'multiple_days' && slotDate) {
+      activityDate = new Date(slotDate);
+    } else if (activity.type === 'multiple_days' && dayNumber !== undefined && activity.schedule) {
+      // Find the date from schedule
+      const daySchedule = activity.schedule.find((s: any) => s.day === dayNumber);
+      if (daySchedule && daySchedule.date) {
+        activityDate = new Date(daySchedule.date);
+      } else {
+        // Fallback to startDate
+        activityDate = new Date(activity.startDate || activity.date);
+      }
+    } else {
+      // For single day activities, use activity.date
+      activityDate = new Date(activity.date);
+    }
+    
     const activityDateOnly = new Date(
       activityDate.getFullYear(),
       activityDate.getMonth(),
@@ -318,8 +520,61 @@ function validateTime(
     }
 
     // Find the time slot
-    const slot = activity.timeSlots?.find((ts: any) => ts.name === timeSlot && ts.isActive);
+    let slot: any = null;
+    
+    // For multiple days, try to parse slot from schedule or use timeSlots
+    if (activity.type === 'multiple_days') {
+      // First, try to find slot from timeSlots (they might be shared across days)
+      if (activity.timeSlots) {
+        slot = activity.timeSlots.find((ts: any) => ts.name === timeSlot && ts.isActive);
+      }
+      
+      // If not found, try to parse from schedule activities text
+      if (!slot && dayNumber !== undefined && activity.schedule) {
+        const daySchedule = activity.schedule.find((s: any) => s.day === dayNumber);
+        if (daySchedule && daySchedule.activities) {
+          // Parse activities text to find slot
+          // Format: "Buổi Sáng (07:00-11:30) - ..." or "Buổi Chiều (13:00-17:30) - ..." or "Buổi Tối (19:00-22:00) - ..."
+          const activitiesText = daySchedule.activities;
+          const lines = activitiesText.split('\n').filter((line: string) => line.trim());
+          
+          for (const line of lines) {
+            // Match: "Buổi Sáng/Chiều/Tối (HH:MM-HH:MM)"
+            const slotMatch = line.match(/^Buổi (Sáng|Chiều|Tối)\s*\((\d{2}:\d{2})-(\d{2}:\d{2})\)/);
+            if (slotMatch) {
+              const slotName = slotMatch[1];
+              const slotNameFull = `Buổi ${slotName}`;
+              
+              if (slotNameFull === timeSlot) {
+                slot = {
+                  name: slotNameFull,
+                  startTime: slotMatch[2],
+                  endTime: slotMatch[3],
+                  isActive: true
+                };
+                break;
+              }
+            }
+          }
+        }
+      }
+    } else {
+      // For single day, check timeSlots
+      if (activity.timeSlots) {
+        slot = activity.timeSlots.find((ts: any) => ts.name === timeSlot && ts.isActive);
+      }
+    }
+    
     if (!slot) {
+      console.log('Slot not found:', {
+        activityType: activity.type,
+        timeSlot,
+        dayNumber,
+        hasTimeSlots: !!activity.timeSlots,
+        timeSlotsCount: activity.timeSlots?.length || 0,
+        hasSchedule: !!activity.schedule,
+        scheduleCount: activity.schedule?.length || 0
+      });
       return {
         valid: false,
         isOnTime: false,
@@ -424,7 +679,7 @@ function validateTime(
 // PATCH - Mark attendance (check-in/check-out)
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await dbConnect();
@@ -448,17 +703,31 @@ export async function PATCH(
       );
     }
 
-    const { id: activityId } = params;
+    const { id: activityId } = await params;
     const body = await request.json();
-    const { userId, checkedIn, location, photoUrl, timeSlot, checkInType, checkInTime, lateReason } = body;
+    let { userId, checkedIn, location, photoUrl, timeSlot, checkInType, checkInTime, lateReason, dayNumber, slotDate, isManualCheckIn, verificationNote } = body;
     
-    // Log request data for debugging
+    // For multiple days activities, convert timeSlot to "Ngày X - Buổi Y" format
+    if (dayNumber !== undefined && timeSlot && !timeSlot.includes('Ngày')) {
+      // timeSlot is "Buổi Sáng", "Buổi Chiều", or "Buổi Tối"
+      // Convert to "Ngày X - Buổi Y" format
+      timeSlot = `Ngày ${dayNumber} - ${timeSlot}`;
+      console.log('Converted timeSlot for multiple days:', {
+        original: body.timeSlot,
+        dayNumber,
+        converted: timeSlot
+      });
+    }
+    
+    // Log request data for debugging (before loading activity)
     console.log('Check-in request:', {
       activityId,
       userId,
       checkedIn,
       timeSlot,
       checkInType,
+      dayNumber,
+      slotDate,
       hasLocation: !!location,
       hasPhotoUrl: !!photoUrl,
       hasLateReason: !!lateReason,
@@ -496,6 +765,16 @@ export async function PATCH(
         { status: 404 }
       );
     }
+    
+    // Log activity info after loading
+    console.log('Activity loaded:', {
+      activityId: activity._id,
+      activityType: activity.type,
+      hasWeeklySlotLocations: !!activity.weeklySlotLocations,
+      hasDailyLocations: !!activity.dailyLocations,
+      hasLocationData: !!activity.locationData,
+      hasMultiTimeLocations: !!(activity.multiTimeLocations && activity.multiTimeLocations.length > 0)
+    });
 
     // Convert userId to ObjectId for comparison
     const userObjectId = new mongoose.Types.ObjectId(userId);
@@ -575,7 +854,13 @@ export async function PATCH(
       }
 
       // IMPORTANT: Validate location - if invalid, reject immediately
-      const locationValidation = validateLocation(location.lat, location.lng, activity);
+      // BUT: Skip location validation for manual check-in by officer (location is from activity settings)
+      let locationValidation = { valid: true, distance: 0 };
+      if (!(isManualCheckIn && isOfficer)) {
+        // Only validate location for student self check-in
+        locationValidation = validateLocation(location.lat, location.lng, activity, dayNumber, slotDate, timeSlot);
+      }
+      
       if (!locationValidation.valid) {
         // Location is invalid - reject the check-in
         // Still create the record but with status = 'rejected'
@@ -678,8 +963,16 @@ export async function PATCH(
         }
       }
 
-      // Validate time
-      const timeValidation = validateTime(checkInTimeDate, activity, timeSlot, checkInType);
+      // Validate time - use original timeSlot format (without "Ngày X -") for validation
+      // Extract just the slot name for validation (e.g., "Ngày 1 - Buổi Sáng" -> "Buổi Sáng")
+      let timeSlotForValidation = timeSlot;
+      if (timeSlot.includes('Ngày') && timeSlot.includes(' - ')) {
+        const slotMatch = timeSlot.match(/Buổi (Sáng|Chiều|Tối)/);
+        if (slotMatch) {
+          timeSlotForValidation = `Buổi ${slotMatch[1]}`;
+        }
+      }
+      const timeValidation = validateTime(checkInTimeDate, activity, timeSlotForValidation, checkInType, slotDate, dayNumber);
 
       // If time is invalid (too early or too late > 30 min), reject immediately
       // Still save the record for officer review
@@ -782,9 +1075,13 @@ export async function PATCH(
       // Auto-approve if: valid location, valid time (on time - within 15 min window), and has photo
       // Pending if: valid location, valid time but late (within late window 15-30 min), and has photo (needs officer approval)
       // Reject if: valid location but no photo (should not happen, but handle it)
+      // Manual check-in by officer: automatically approve
       let attendanceStatus: 'approved' | 'pending' | 'rejected' = 'pending';
       
-      if (timeValidation.valid && timeValidation.isOnTime && photoUrl) {
+      // If manual check-in by officer, automatically approve
+      if (isManualCheckIn && isOfficer) {
+        attendanceStatus = 'approved';
+      } else if (timeValidation.valid && timeValidation.isOnTime && photoUrl) {
         // Perfect check-in: valid location, on time (within 15 min window), has photo
         attendanceStatus = 'approved';
       } else if (timeValidation.valid && timeValidation.isLate && photoUrl) {
@@ -882,11 +1179,22 @@ export async function PATCH(
         // Set lateReason: use null instead of undefined for Mongoose
         existingRecord.lateReason = processedLateReason;
         
-        // If auto-approved, set verification fields
+        // If auto-approved or manual check-in, set verification fields
         if (attendanceStatus === 'approved') {
-          existingRecord.verifiedBy = user.userId; // Auto-approved by system
           existingRecord.verifiedAt = new Date();
-          existingRecord.verificationNote = 'Tự động duyệt: Đúng vị trí, đúng thời gian, có ảnh';
+          existingRecord.verifiedBy = user.userId; // Always store ObjectId
+          if (isManualCheckIn && isOfficer) {
+            // Manual check-in by officer - store name and email in dedicated fields
+            existingRecord.verifiedByName = user.name || user.email || 'Officer';
+            existingRecord.verifiedByEmail = user.email || '';
+            existingRecord.verificationNote = verificationNote || 'Điểm danh thủ công bởi officer';
+          } else {
+            // Auto-approved by system
+            existingRecord.verificationNote = 'Tự động duyệt: Đúng vị trí, đúng thời gian, có ảnh';
+            // Clear manual check-in fields if they exist
+            delete existingRecord.verifiedByName;
+            delete existingRecord.verifiedByEmail;
+          }
           delete existingRecord.cancelReason;
         } else {
           // Reset verification fields when updating (pending or rejected)
@@ -941,11 +1249,19 @@ export async function PATCH(
           newRecord.lateReason = processedLateReason;
         }
         
-        // If auto-approved, set verification fields
+        // If auto-approved or manual check-in, set verification fields
         if (attendanceStatus === 'approved') {
-          newRecord.verifiedBy = user.userId; // Auto-approved by system
           newRecord.verifiedAt = new Date();
-          newRecord.verificationNote = 'Tự động duyệt: Đúng vị trí, đúng thời gian, có ảnh';
+          newRecord.verifiedBy = user.userId; // Always store ObjectId
+          if (isManualCheckIn && isOfficer) {
+            // Manual check-in by officer - store name and email in dedicated fields
+            newRecord.verifiedByName = user.name || user.email || 'Officer';
+            newRecord.verifiedByEmail = user.email || '';
+            newRecord.verificationNote = verificationNote || 'Điểm danh thủ công bởi officer';
+          } else {
+            // Auto-approved by system
+            newRecord.verificationNote = 'Tự động duyệt: Đúng vị trí, đúng thời gian, có ảnh';
+          }
         } else if (attendanceStatus === 'rejected') {
           newRecord.cancelReason = 'Thiếu ảnh hoặc thông tin không hợp lệ';
         }
@@ -1073,10 +1389,36 @@ export async function PATCH(
         }
 
         // Remove the record from array
+        // Support flexible matching: exact match or match after "Ngày X - "
         const initialLength = attendanceDoc.attendances.length;
-        attendanceDoc.attendances = attendanceDoc.attendances.filter(
-          (att: any) => !(att.timeSlot === timeSlot && att.checkInType === checkInType)
-        );
+        
+        // Helper function to normalize timeSlot for comparison
+        const normalizeTimeSlot = (ts: string): string => {
+          if (!ts) return ts;
+          // If contains "Ngày X - ", extract the slot name part
+          if (ts.includes('Ngày') && ts.includes(' - ')) {
+            const parts = ts.split(' - ');
+            if (parts.length > 1) {
+              return parts.slice(1).join(' - ').trim();
+            }
+          }
+          return ts.trim();
+        };
+        
+        const normalizedTimeSlot = normalizeTimeSlot(timeSlot);
+        
+        attendanceDoc.attendances = attendanceDoc.attendances.filter((att: any) => {
+          // Try exact match first
+          if (att.timeSlot === timeSlot && att.checkInType === checkInType) {
+            return false; // Remove this record
+          }
+          // Try normalized match
+          const attNormalized = normalizeTimeSlot(att.timeSlot);
+          if (attNormalized === normalizedTimeSlot && att.checkInType === checkInType) {
+            return false; // Remove this record
+          }
+          return true; // Keep this record
+        });
 
         if (attendanceDoc.attendances.length < initialLength) {
           // If no more records, delete the document

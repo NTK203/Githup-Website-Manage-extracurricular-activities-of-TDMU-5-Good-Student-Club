@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcrypt';
 import User from '@/models/User';
 import { dbConnect } from '@/lib/db';
+import { validatePassword } from '@/lib/passwordValidation';
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,10 +27,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate email format
-    if (email !== 'admin@tdmu.edu.vn' && email !== 'admin.clb@tdmu.edu.vn' && !/^[0-9]{13}@student\.tdmu\.edu\.vn$/.test(email)) {
+    // Email must be student email format or admin email
+    const studentEmailPattern = /^[0-9]{13}@student\.tdmu\.edu\.vn$/;
+    const isAdminEmail = email.toLowerCase() === 'admin@tdmu.edu.vn' || 
+                        email.toLowerCase() === 'admin.clb@tdmu.edu.vn';
+    
+    if (!isAdminEmail && !studentEmailPattern.test(email)) {
       return NextResponse.json(
-        { success: false, message: 'Email phải có định dạng: mã số sinh viên@student.tdmu.edu.vn hoặc admin@tdmu.edu.vn hoặc admin.clb@tdmu.edu.vn' },
+        { success: false, message: 'Email không đúng định dạng' },
         { status: 400 }
       );
     }
@@ -45,10 +50,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Validate password length
-    if (password.length < 6) {
+    // Validate password
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.valid) {
       return NextResponse.json(
-        { success: false, message: 'Mật khẩu phải có ít nhất 6 ký tự' },
+        { success: false, message: passwordValidation.error },
         { status: 400 }
       );
     }
@@ -63,8 +69,7 @@ export async function POST(request: NextRequest) {
 
     // Check if user already exists
     const existingUser = await User.findOne({
-      $or: [{ email }, { studentId }],
-      isDeleted: { $ne: true }
+      $or: [{ email: email.toLowerCase() }, { studentId }]
     });
 
     if (existingUser) {
@@ -79,17 +84,29 @@ export async function POST(request: NextRequest) {
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
     // Create new user
-    const newUser = new User({
+    const userData: any = {
       studentId,
       name,
-      email,
+      email: email.toLowerCase(),
       passwordHash,
       role: 'STUDENT', // Default role for registration (all students are STUDENT)
-      phone: phone || undefined,
-      class: className || undefined,
-      faculty: faculty || undefined,
       isClubMember: false
-    });
+    };
+    
+    // Only set optional fields if they have values
+    if (phone && phone.trim()) {
+      userData.phone = phone.trim();
+    }
+    if (className && className.trim()) {
+      userData.class = className.trim();
+    }
+    // Handle faculty - if "Khác" is selected, the actual faculty name should be in the request body
+    // The frontend sends otherFaculty when "Khác" is selected
+    if (faculty && faculty.trim()) {
+      userData.faculty = faculty.trim();
+    }
+    
+    const newUser = new User(userData);
 
     await newUser.save();
 
@@ -115,28 +132,62 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Registration error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      errors: error.errors
+    });
 
     // Handle validation errors
     if (error.name === 'ValidationError') {
-      const validationErrors = Object.values(error.errors).map((err: any) => err.message);
+      const validationErrors = Object.values(error.errors || {});
+      console.error('Validation errors:', validationErrors);
+      
+      // Get the first error message (most important)
+      const firstError = validationErrors[0] as any;
+      if (firstError) {
+        // Map field names to user-friendly messages
+        const fieldMessages: { [key: string]: string } = {
+          'studentId': 'Mã số sinh viên không hợp lệ',
+          'email': 'Email không đúng định dạng',
+          'passwordHash': 'Mật khẩu phải có ít nhất 6 ký tự, 1 chữ cái viết hoa và 1 ký tự đặc biệt',
+          'name': 'Họ và tên không hợp lệ',
+          'faculty': 'Khoa/Viện không hợp lệ',
+          'phone': 'Số điện thoại không hợp lệ'
+        };
+        
+        const fieldName = firstError.path || '';
+        const friendlyMessage = fieldMessages[fieldName] || firstError.message || 'Dữ liệu không hợp lệ';
+        
+        return NextResponse.json(
+          { success: false, message: friendlyMessage },
+          { status: 400 }
+        );
+      }
+      
       return NextResponse.json(
-        { success: false, message: validationErrors.join(', ') },
+        { success: false, message: 'Dữ liệu không hợp lệ' },
         { status: 400 }
       );
     }
 
-    // Handle duplicate key errors
+    // Handle duplicate key errors (MongoDB unique constraint violation)
     if (error.code === 11000) {
-      const field = Object.keys(error.keyPattern)[0];
-      const fieldName = field === 'email' ? 'Email' : 'Mã số sinh viên';
+      const field = Object.keys(error.keyPattern || {})[0];
+      const fieldName = field === 'email' ? 'Email' : field === 'googleId' ? 'Google ID' : 'Mã số sinh viên';
+      console.error('Duplicate key error:', field, error.keyValue);
+      
+      // If user was deleted and trying to register again, this should not happen with hard delete
+      // But if it does, provide a helpful message
       return NextResponse.json(
-        { success: false, message: `${fieldName} đã tồn tại` },
+        { success: false, message: `${fieldName} đã tồn tại trong hệ thống` },
         { status: 400 }
       );
     }
 
     return NextResponse.json(
-      { success: false, message: 'Lỗi server. Vui lòng thử lại sau.' },
+      { success: false, message: error.message || 'Lỗi server. Vui lòng thử lại sau.' },
       { status: 500 }
     );
   }
