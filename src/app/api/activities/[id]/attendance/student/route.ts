@@ -9,7 +9,7 @@ import mongoose from 'mongoose';
 // GET - Get student's own attendance for an activity
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await dbConnect();
@@ -22,7 +22,7 @@ export async function GET(
       );
     }
 
-    const { id: activityId } = params;
+    const { id: activityId } = await params;
 
     // Validate ObjectId format
     if (!mongoose.Types.ObjectId.isValid(activityId)) {
@@ -100,7 +100,7 @@ export async function GET(
         
         const users = await User.find({ 
           _id: { $in: uniqueIds } 
-        }).select('name email _id').lean();
+        }).select('name email _id').lean() as Array<{ _id: mongoose.Types.ObjectId; name?: string; email?: string }>;
         
         const userMap = new Map(users.map(u => [u._id.toString(), u]));
         
