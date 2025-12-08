@@ -92,6 +92,18 @@ interface AttendanceRecord {
   };
   verificationNote?: string;
   cancelReason?: string;
+  verifiedBy?: {
+    _id: string;
+    name: string;
+    email: string;
+  } | string;
+  verifiedByName?: string | null;
+  verifiedByEmail?: string | null;
+  verifiedAt?: string;
+  dayNumber?: number; // For multiple_days activities
+  slotDate?: string; // For multiple_days activities
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface ParticipantWithAttendance {
@@ -102,6 +114,10 @@ interface ParticipantWithAttendance {
   joinedAt: string;
   avatarUrl?: string;
   attendances?: AttendanceRecord[];
+  registeredDaySlots?: Array<{
+    day: number;
+    slot: 'morning' | 'afternoon' | 'evening';
+  }>;
 }
 
 export default function ActivityViewPage() {
@@ -117,6 +133,7 @@ export default function ActivityViewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
+  const [selectedDay, setSelectedDay] = useState<number | null>(null); // For multiple_days: selected day number
   const [selectedAttendance, setSelectedAttendance] = useState<{
     participant: ParticipantWithAttendance;
     attendance: AttendanceRecord;
@@ -232,6 +249,7 @@ export default function ActivityViewPage() {
             joinedAt: p.joinedAt || activityObj.createdAt,
             avatarUrl: typeof p.userId === 'object' ? p.userId.avatarUrl : p.avatarUrl,
             attendances: attendances,
+            registeredDaySlots: p.registeredDaySlots || undefined,
           };
         });
 
@@ -403,22 +421,49 @@ export default function ActivityViewPage() {
         // If dayNumber is provided, check for exact day match
         if (dayNumber !== undefined) {
           const dayMatch = timeSlot.match(/Ngày\s*(\d+)/i);
-          if (dayMatch && parseInt(dayMatch[1]) === dayNumber) {
-            // Check if timeSlot ends with " - Buổi X" format
-            if (timeSlot.toLowerCase().endsWith(` - ${slotName.toLowerCase()}`)) {
-              return true;
-            }
-            // Also check if timeSlot contains the slot name
-            const slotPattern = /buổi\s+(sáng|chiều|tối)/i;
-            const slotNameMatch = slotName.toLowerCase().match(slotPattern);
-            const timeSlotMatch = timeSlot.toLowerCase().match(slotPattern);
-            if (slotNameMatch && timeSlotMatch && slotNameMatch[1] === timeSlotMatch[1]) {
+          const attendanceDay = dayMatch ? parseInt(dayMatch[1]) : null;
+          
+          // Must match the day number exactly
+          if (attendanceDay !== dayNumber) {
+            return false;
+          }
+          
+          // Extract slot type from timeSlot (e.g., "Ngày 2 - Buổi Sáng" → "sáng")
+          // Extract slot type from slot.name (e.g., "Buổi Sáng" → "sáng")
+          const slotPattern = /buổi\s+(sáng|chiều|tối)/i;
+          const slotNameMatch = slotName.toLowerCase().match(slotPattern);
+          const timeSlotMatch = timeSlot.toLowerCase().match(slotPattern);
+          
+          // Match slot types (sáng, chiều, tối) - this is the primary matching method
+          if (slotNameMatch && timeSlotMatch) {
+            if (slotNameMatch[1] === timeSlotMatch[1]) {
               return true;
             }
           }
+          
+          // Fallback: Check if timeSlot ends with " - Buổi X" format
+          if (timeSlot.toLowerCase().endsWith(` - ${slotName.toLowerCase()}`)) {
+            return true;
+          }
+          
+          // Fallback: Remove "Ngày X - " prefix and compare
+          const timeSlotWithoutDay = timeSlot.replace(/Ngày\s*\d+\s*-\s*/i, '').trim();
+          if (timeSlotWithoutDay.toLowerCase() === slotName.toLowerCase()) {
+            return true;
+          }
         } else {
+          // For single day or when dayNumber is not provided
           // Check if timeSlot ends with " - Buổi X" format (for backward compatibility)
           if (timeSlot.toLowerCase().endsWith(` - ${slotName.toLowerCase()}`)) {
+            return true;
+          }
+          
+          // Extract slot type for comparison
+          const slotPattern = /buổi\s+(sáng|chiều|tối)/i;
+          const slotNameMatch = slotName.toLowerCase().match(slotPattern);
+          const timeSlotMatch = timeSlot.toLowerCase().match(slotPattern);
+          
+          if (slotNameMatch && timeSlotMatch && slotNameMatch[1] === timeSlotMatch[1]) {
             return true;
           }
         }
@@ -579,6 +624,93 @@ export default function ActivityViewPage() {
     return { percentage, approved: approvedCheckIns, total: totalCheckIns };
   }, [activity, getAttendanceStatusWithTime]);
 
+  // Check if participant has registered for a specific day and slot (sync with officer logic)
+  const isParticipantRegisteredForSlot = useCallback((
+    participant: ParticipantWithAttendance, 
+    day: number | undefined, 
+    slotName: string
+  ): boolean => {
+    // For single_day activities
+    if (!activity || activity.type === 'single_day') {
+      if (!participant.registeredDaySlots || participant.registeredDaySlots.length === 0) {
+        return true; // Backward compatibility: assume registered for all slots
+      }
+      // For single_day, check if participant has registered for this specific slot
+      // Map slot name to slot key
+      const slotKeyMap: { [key: string]: 'morning' | 'afternoon' | 'evening' } = {
+        'Buổi Sáng': 'morning',
+        'Buổi Chiều': 'afternoon',
+        'Buổi Tối': 'evening'
+      };
+      
+      const normalizedSlotName = slotName.trim();
+      let slotKey = slotKeyMap[normalizedSlotName];
+      
+      // Fallback pattern matching
+      if (!slotKey) {
+        const lowerSlotName = normalizedSlotName.toLowerCase();
+        if (lowerSlotName.includes('sáng') || lowerSlotName.includes('morning')) {
+          slotKey = 'morning';
+        } else if (lowerSlotName.includes('chiều') || lowerSlotName.includes('afternoon')) {
+          slotKey = 'afternoon';
+        } else if (lowerSlotName.includes('tối') || lowerSlotName.includes('evening')) {
+          slotKey = 'evening';
+        }
+      }
+      
+      if (!slotKey) return false;
+      
+      // Check if participant has registered for this slot (any day, since it's single_day)
+      return participant.registeredDaySlots.some(
+        (ds) => ds.slot === slotKey
+      );
+    }
+    
+    // For multiple_days activities, check if participant has registered for this specific day and slot
+    if (!participant.registeredDaySlots || participant.registeredDaySlots.length === 0) {
+      return false; // No registration means not registered
+    }
+    
+    // Map slot name to slot key (exact match only, as per schema: 'Buổi Sáng', 'Buổi Chiều', 'Buổi Tối')
+    const timeSlotMap: { [key: string]: 'morning' | 'afternoon' | 'evening' } = {
+      'Buổi Sáng': 'morning',
+      'Buổi Chiều': 'afternoon',
+      'Buổi Tối': 'evening'
+    };
+    
+    // Normalize slot name (trim whitespace)
+    const normalizedSlotName = slotName.trim();
+    const slotKey = timeSlotMap[normalizedSlotName];
+    
+    if (!slotKey) {
+      // If exact match fails, try case-insensitive and pattern matching as fallback
+      const lowerSlotName = normalizedSlotName.toLowerCase();
+      let fallbackSlotKey: 'morning' | 'afternoon' | 'evening' | null = null;
+      
+      if (lowerSlotName.includes('sáng') || lowerSlotName === 'buổi sáng' || lowerSlotName.includes('morning')) {
+        fallbackSlotKey = 'morning';
+      } else if (lowerSlotName.includes('chiều') || lowerSlotName === 'buổi chiều' || lowerSlotName.includes('afternoon')) {
+        fallbackSlotKey = 'afternoon';
+      } else if (lowerSlotName.includes('tối') || lowerSlotName === 'buổi tối' || lowerSlotName.includes('evening')) {
+        fallbackSlotKey = 'evening';
+      }
+      
+      if (!fallbackSlotKey) {
+        return false;
+      }
+      
+      // Check if participant has registered for this day and slot using fallback key
+      return participant.registeredDaySlots.some(
+        (ds) => ds.day === day && ds.slot === fallbackSlotKey
+      );
+    }
+    
+    // Check if participant has registered for this day and slot
+    return participant.registeredDaySlots.some(
+      (ds) => ds.day === day && ds.slot === slotKey
+    );
+  }, [activity]);
+
   // Calculate overall attendance percentage for a participant (based on sessions, not check-ins)
   // A session is considered completed only if both start and end check-ins are approved
   const calculateOverallAttendancePercentage = useCallback((participant: ParticipantWithAttendance): { percentage: number; completed: number; total: number } => {
@@ -595,8 +727,8 @@ export default function ActivityViewPage() {
         const startStatus = getAttendanceStatusWithTime(participant, slot, 'start', activity.date);
         const endStatus = getAttendanceStatusWithTime(participant, slot, 'end', activity.date);
         
-        // A session is completed only if both start and end are approved
-        if (startStatus.attendance?.status === 'approved' && endStatus.attendance?.status === 'approved') {
+        // A slot is considered attended if at least one check-in (start or end) is approved
+        if (startStatus.attendance?.status === 'approved' || endStatus.attendance?.status === 'approved') {
           completedSessions++;
         }
       });
@@ -614,70 +746,52 @@ export default function ActivityViewPage() {
         const dayDateString = scheduleDay.date;
         const dayNumber = scheduleDay.day;
         
-        // Each slot in each day is one session
+        // Each slot in each day is one session - Only count registered slots
         slotsToUse.forEach((slot: any) => {
-          totalSessions++; // Each slot is one session
+          // Check if participant has registered for this slot
+          const isRegisteredForSlot = isParticipantRegisteredForSlot(participant, dayNumber, slot.name);
           
-          // Find attendance for this day and slot
-          const dayAttendances = participant.attendances?.filter(a => {
-            const timeSlot = a.timeSlot || '';
-            const dayMatch = timeSlot.match(/Ngày\s*(\d+)/);
-            return dayMatch && parseInt(dayMatch[1]) === dayNumber;
-          }) || [];
-          
-          // Find matching slot attendance for start
-          const startAttendance = dayAttendances.find((att: any) => {
-            const timeSlot = att.timeSlot || '';
-            const slotMatch = timeSlot.match(/Buổi\s*(Sáng|Chiều|Tối)/i);
-            if (!slotMatch) return false;
-            const slotNameInRecord = slotMatch[1];
-            const slotName = slot.name;
-            if (slotNameInRecord === 'Sáng') {
-              return slotName.includes('Sáng') || slotName.toLowerCase().includes('morning');
-            } else if (slotNameInRecord === 'Chiều') {
-              return slotName.includes('Chiều') || slotName.toLowerCase().includes('afternoon');
-            } else if (slotNameInRecord === 'Tối') {
-              return slotName.includes('Tối') || slotName.toLowerCase().includes('evening');
+          // Only count registered slots
+          if (isRegisteredForSlot) {
+            totalSessions++; // Each registered slot is one session
+            
+            // Use getAttendanceStatusWithTime to properly match attendance
+            const startStatus = getAttendanceStatusWithTime(participant, slot, 'start', dayDateString, dayNumber);
+            const endStatus = getAttendanceStatusWithTime(participant, slot, 'end', dayDateString, dayNumber);
+            
+            // A slot is considered attended if at least one check-in (start or end) is approved
+            const hasStartApproved = startStatus.attendance?.status === 'approved';
+            const hasEndApproved = endStatus.attendance?.status === 'approved';
+            
+            if (hasStartApproved || hasEndApproved) {
+              completedSessions++;
+              // Debug log
+              console.log(`[DEBUG] Slot attended: Day ${dayNumber}, Slot: ${slot.name}, Start: ${hasStartApproved}, End: ${hasEndApproved}`);
             }
-            return false;
-          });
-          
-          // Find matching slot attendance for end
-          const endAttendance = dayAttendances.find((att: any) => {
-            const timeSlot = att.timeSlot || '';
-            const slotMatch = timeSlot.match(/Buổi\s*(Sáng|Chiều|Tối)/i);
-            if (!slotMatch) return false;
-            const slotNameInRecord = slotMatch[1];
-            const slotName = slot.name;
-            if (slotNameInRecord === 'Sáng') {
-              return slotName.includes('Sáng') || slotName.toLowerCase().includes('morning');
-            } else if (slotNameInRecord === 'Chiều') {
-              return slotName.includes('Chiều') || slotName.toLowerCase().includes('afternoon');
-            } else if (slotNameInRecord === 'Tối') {
-              return slotName.includes('Tối') || slotName.toLowerCase().includes('evening');
-            }
-            return false;
-          });
-          
-          // A session is completed only if both start and end are approved
-          if (startAttendance && startAttendance.checkInType === 'start' && startAttendance.status === 'approved' &&
-              endAttendance && endAttendance.checkInType === 'end' && endAttendance.status === 'approved') {
-            completedSessions++;
           }
         });
       });
     }
     
-    // Calculate percentage (can be > 100% if there's data inconsistency, but we'll cap it at 100%)
+    // Calculate percentage
     const percentage = totalSessions > 0 
-      ? Math.min(100, Math.round((completedSessions / totalSessions) * 100))
+      ? Math.round((completedSessions / totalSessions) * 100)
       : 0;
     
     // Ensure completedSessions never exceeds totalSessions (for display purposes)
     const finalCompleted = Math.min(completedSessions, totalSessions);
     
+    // Debug log
+    console.log(`[DEBUG] calculateOverallAttendancePercentage for ${participant.name}:`, {
+      totalSessions,
+      completedSessions,
+      percentage,
+      activityType: activity?.type,
+      scheduleDays: activity?.schedule?.length
+    });
+    
     return { percentage, completed: finalCompleted, total: totalSessions };
-  }, [activity]);
+  }, [activity, getAttendanceStatusWithTime, isParticipantRegisteredForSlot]);
 
   // Export selected participants to Excel
   const handleExportExcel = useCallback(() => {
@@ -862,6 +976,66 @@ export default function ActivityViewPage() {
     return dayNames[dayOfWeek] || '';
   };
 
+  // Helper function to check if attendance is manual check-in
+  const isManualCheckInRecord = (attendance: AttendanceRecord | null | undefined): boolean => {
+    if (!attendance) return false;
+    // Check if verificationNote indicates manual check-in
+    if (attendance.verificationNote && 
+        (attendance.verificationNote.includes('Điểm danh thủ công') || 
+         attendance.verificationNote.includes('manual') ||
+         attendance.verificationNote.includes('officer'))) {
+      return true;
+    }
+    // Check if verifiedBy exists and attendance is approved/pending (officer manually checked in)
+    if (attendance.verifiedBy && (attendance.status === 'approved' || attendance.status === 'pending')) {
+      // If has invalid location or no photo but still approved/pending, it's manual
+      // Note: In admin view, we might not have validateLocation, so we'll rely on verificationNote
+      if (!attendance.photoUrl && attendance.verificationNote) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // Helper function to get verifier name
+  const getVerifierName = (verifiedBy: any, verifiedByName?: string | null): string => {
+    // Priority 1: Use verifiedByName if available (manual check-in)
+    if (verifiedByName && typeof verifiedByName === 'string' && verifiedByName.trim().length > 0) {
+      return verifiedByName.trim();
+    }
+    
+    if (!verifiedBy) {
+      return 'Hệ thống tự động';
+    }
+    
+    if (typeof verifiedBy === 'string') {
+      // If it's a string, it might be an ID - don't show it
+      // Check if it looks like an ObjectId (24 hex characters)
+      if (/^[0-9a-fA-F]{24}$/.test(verifiedBy)) {
+        return 'Hệ thống tự động';
+      }
+      return verifiedBy;
+    }
+    
+    if (typeof verifiedBy === 'object') {
+      // Check name field first (most common) - this should be set for manual check-ins
+      if (verifiedBy.name && typeof verifiedBy.name === 'string' && verifiedBy.name.trim().length > 0) {
+        return verifiedBy.name.trim();
+      }
+      
+      // Fallback to other possible fields
+      if (verifiedBy.fullName && typeof verifiedBy.fullName === 'string' && verifiedBy.fullName.trim().length > 0) {
+        return verifiedBy.fullName.trim();
+      }
+      
+      if (verifiedBy.email && typeof verifiedBy.email === 'string' && verifiedBy.email.trim().length > 0) {
+        return verifiedBy.email.trim();
+      }
+    }
+    
+    return 'Hệ thống tự động';
+  };
+
   // Group schedule days by week (Monday to Sunday) - Always 7 days per week
   const groupDaysByWeek = useMemo(() => {
     if (!activity || activity.type !== 'multiple_days' || !activity.schedule || activity.schedule.length === 0) return [];
@@ -961,16 +1135,26 @@ export default function ActivityViewPage() {
     return weeks;
   }, [activity]);
 
-  // Get current week's days - Always 7 days (Monday to Sunday), but only show days with schedule
+  // Get current week's days - Always 7 days (Monday to Sunday), include all days for display
   const currentWeekDays = useMemo(() => {
     if (groupDaysByWeek.length === 0) return [];
     if (currentWeekIndex >= groupDaysByWeek.length) return [];
     const week = groupDaysByWeek[currentWeekIndex] || [];
-    // Only return days that have schedule (hasSchedule === true)
-    return week.filter((day: any) => day.hasSchedule);
+    // Return all 7 days (including days without schedule)
+    return week;
   }, [groupDaysByWeek, currentWeekIndex]);
 
-  // Get week date range
+  // Get filtered week days (only days with schedule) for table display
+  const currentWeekDaysWithSchedule = useMemo(() => {
+    if (selectedDay !== null) {
+      // If a day is selected, filter to show only that day
+      return currentWeekDays.filter((day: any) => day.hasSchedule && day.day === selectedDay);
+    }
+    // Otherwise, show all days with schedule
+    return currentWeekDays.filter((day: any) => day.hasSchedule);
+  }, [currentWeekDays, selectedDay]);
+
+  // Get week date range - Use all 7 days for range display
   const weekDateRange = useMemo(() => {
     if (currentWeekDays.length === 0) return '';
     const firstDay = currentWeekDays[0]?.dateObj;
@@ -978,6 +1162,11 @@ export default function ActivityViewPage() {
     if (!firstDay || !lastDay) return '';
     return `${firstDay.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })} - ${lastDay.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
   }, [currentWeekDays]);
+
+  // Reset selectedDay when week changes
+  useEffect(() => {
+    setSelectedDay(null);
+  }, [currentWeekIndex]);
 
   // Check access permission
   if (!canAccess) {
@@ -1337,58 +1526,217 @@ export default function ActivityViewPage() {
                     )}
                   </div>
                 </div>
-                {/* Week Navigation - Centered, always show if more than 1 week */}
-                {activity.type === 'multiple_days' && groupDaysByWeek.length > 1 && currentWeekDays.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setCurrentWeekIndex(Math.max(0, currentWeekIndex - 1))}
-                      disabled={currentWeekIndex === 0}
-                      className={`p-1 rounded transition-colors ${
-                        currentWeekIndex === 0
-                          ? 'opacity-30 cursor-not-allowed'
-                          : isDarkMode
-                            ? 'hover:bg-gray-600 text-gray-300'
-                            : 'hover:bg-gray-200 text-gray-600'
-                      }`}
-                    >
-                      <ChevronLeft size={16} strokeWidth={2} />
-                    </button>
-                    
-                    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded border ${
-                      isDarkMode 
-                        ? 'border-gray-600' 
-                        : 'border-gray-300'
-                    }`}>
-                      <Calendar size={14} className={isDarkMode ? 'text-gray-300' : 'text-gray-600'} strokeWidth={2} />
-                      <div className="flex flex-col items-center">
-                        <span className={`text-xs font-semibold ${
-                          isDarkMode ? 'text-gray-200' : 'text-gray-700'
+                {/* Week Navigation with Day Selector - Show all 7 days */}
+                {activity.type === 'multiple_days' && currentWeekDays.length > 0 && (
+                  <div className="flex flex-col gap-3">
+                    {/* Week Navigation Header */}
+                    {groupDaysByWeek.length > 1 && (
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => {
+                            setCurrentWeekIndex(Math.max(0, currentWeekIndex - 1));
+                            setSelectedDay(null); // Reset selected day when changing week
+                          }}
+                          disabled={currentWeekIndex === 0}
+                          className={`p-1 rounded-lg transition-all ${
+                            currentWeekIndex === 0
+                              ? 'opacity-40 cursor-not-allowed'
+                              : isDarkMode
+                                ? 'hover:bg-gray-600 text-gray-300'
+                                : 'hover:bg-gray-200 text-gray-600'
+                          }`}
+                        >
+                          <ChevronLeft size={16} strokeWidth={2.5} />
+                        </button>
+                        
+                        <div className={`flex items-center gap-1.5 px-3 rounded-lg ${
+                          isDarkMode 
+                            ? 'bg-gray-800/50 border border-gray-700' 
+                            : 'bg-gray-100 border border-gray-300'
                         }`}>
-                          Tuần {currentWeekIndex + 1} / {groupDaysByWeek.length}
-                        </span>
-                        {weekDateRange && (
-                          <span className={`text-[9px] ${
-                            isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                          <Calendar size={16} strokeWidth={2} className={isDarkMode ? 'text-purple-400' : 'text-purple-600'} />
+                          <span className={`text-xs font-bold ${
+                            isDarkMode ? 'text-gray-100' : 'text-gray-900'
                           }`}>
-                            {weekDateRange}
+                            Tuần {currentWeekIndex + 1} / {groupDaysByWeek.length}
                           </span>
-                        )}
+                          {weekDateRange && (
+                            <span className={`text-[9px] ml-1 ${
+                              isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                            }`}>
+                              ({weekDateRange.split(' - ')[0]} - {weekDateRange.split(' - ')[1]})
+                            </span>
+                          )}
+                        </div>
+                        
+                        <button
+                          onClick={() => {
+                            setCurrentWeekIndex(Math.min(groupDaysByWeek.length - 1, currentWeekIndex + 1));
+                            setSelectedDay(null); // Reset selected day when changing week
+                          }}
+                          disabled={currentWeekIndex >= groupDaysByWeek.length - 1}
+                          className={`p-1 rounded-lg transition-all ${
+                            currentWeekIndex >= groupDaysByWeek.length - 1
+                              ? 'opacity-40 cursor-not-allowed'
+                              : isDarkMode
+                                ? 'hover:bg-gray-600 text-gray-300'
+                                : 'hover:bg-gray-200 text-gray-600'
+                          }`}
+                        >
+                          <ChevronRight size={16} strokeWidth={2.5} />
+                        </button>
                       </div>
-                    </div>
+                    )}
                     
-                    <button
-                      onClick={() => setCurrentWeekIndex(Math.min(groupDaysByWeek.length - 1, currentWeekIndex + 1))}
-                      disabled={currentWeekIndex >= groupDaysByWeek.length - 1}
-                      className={`p-1 rounded transition-colors ${
-                        currentWeekIndex >= groupDaysByWeek.length - 1
-                          ? 'opacity-30 cursor-not-allowed'
-                          : isDarkMode
-                            ? 'hover:bg-gray-600 text-gray-300'
-                            : 'hover:bg-gray-200 text-gray-600'
-                      }`}
-                    >
-                      <ChevronRight size={16} strokeWidth={2} />
-                    </button>
+                    {/* Week Days Row - Show all 7 days */}
+                    <div className="flex items-center justify-center gap-1.5 overflow-x-auto pb-2">
+                      {currentWeekDays.map((dayInfo: any, index: number) => {
+                        const dayDate = dayInfo.dateObj || new Date(dayInfo.date);
+                        const dayDateStr = dayDate.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+                        const dayNames = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ nhật'];
+                        const shortDayName = dayNames[index] || getDayName(dayInfo.dayOfWeek || 0);
+                        
+                        const isSelected = selectedDay === dayInfo.day;
+                        const hasActivity = dayInfo.hasSchedule === true;
+                        
+                        // Calculate attendance stats for this day (only count registered slots)
+                        let totalCheckIns = 0;
+                        let totalPossibleCheckIns = 0; // Only count registered slots
+                        let attendancePercentage = 0;
+                        
+                        if (hasActivity && dayInfo.day !== null && activity.timeSlots) {
+                          const activeSlots = activity.timeSlots.filter((s: any) => s.isActive);
+                          
+                          // Count total check-ins (approved only) for all participants for this day
+                          // Only count slots that participants have registered for
+                          participants.forEach((p) => {
+                            activeSlots.forEach((slot: any) => {
+                              // Only count if participant has registered for this slot
+                              if (isParticipantRegisteredForSlot(p, dayInfo.day, slot.name)) {
+                                // This slot counts as 2 check-ins (start + end)
+                                totalPossibleCheckIns += 2;
+                                
+                                // Count actual check-ins for this slot
+                                const startStatus = getAttendanceStatusWithTime(p, slot, 'start', dayInfo.date, dayInfo.day);
+                                const endStatus = getAttendanceStatusWithTime(p, slot, 'end', dayInfo.date, dayInfo.day);
+                                
+                                if (startStatus.hasCheckedIn && startStatus.attendance?.status === 'approved') {
+                                  totalCheckIns++;
+                                }
+                                if (endStatus.hasCheckedIn && endStatus.attendance?.status === 'approved') {
+                                  totalCheckIns++;
+                                }
+                              }
+                            });
+                          });
+                          
+                          // Calculate percentage
+                          if (totalPossibleCheckIns > 0) {
+                            attendancePercentage = Math.round((totalCheckIns / totalPossibleCheckIns) * 100);
+                          }
+                        }
+                        
+                        return (
+                          <button
+                            key={index}
+                            onClick={() => {
+                              if (hasActivity && dayInfo.day !== null) {
+                                // Toggle: if already selected, deselect; otherwise select
+                                setSelectedDay(selectedDay === dayInfo.day ? null : dayInfo.day);
+                              }
+                            }}
+                            disabled={!hasActivity}
+                            className={`flex flex-col items-center gap-1 px-2 py-1.5 rounded-lg transition-all min-w-[75px] flex-shrink-0 ${
+                              !hasActivity
+                                ? 'opacity-50 cursor-not-allowed'
+                                : 'cursor-pointer hover:scale-105'
+                            } ${
+                              isSelected
+                                ? isDarkMode
+                                  ? 'bg-gradient-to-br from-blue-600 to-purple-600 text-white shadow-lg border-2 border-blue-300'
+                                  : 'bg-gradient-to-br from-blue-500 to-purple-500 text-white shadow-lg border-2 border-blue-500'
+                                : hasActivity
+                                  ? isDarkMode
+                                    ? 'bg-gray-800 text-gray-200 hover:bg-gray-700 border-2 border-gray-400'
+                                    : 'bg-white text-gray-800 hover:bg-gray-50 border-2 border-gray-500'
+                                  : isDarkMode
+                                    ? 'bg-gray-900/50 text-gray-500 border-2 border-gray-700'
+                                    : 'bg-gray-200 text-gray-500 border-2 border-gray-400'
+                            }`}
+                          >
+                            <span className={`text-[10px] font-semibold ${
+                              isSelected ? 'text-white' : hasActivity ? '' : 'opacity-60'
+                            }`}>
+                              {shortDayName}
+                            </span>
+                            
+                            {hasActivity && dayInfo.day !== null ? (
+                              <>
+                                <div className="flex items-center gap-1">
+                                  <span className={`px-1 py-0.5 rounded-full text-[8px] font-bold ${
+                                    isSelected
+                                      ? 'bg-white/20 text-white'
+                                      : isDarkMode
+                                        ? 'bg-blue-500/30 text-blue-300'
+                                        : 'bg-blue-100 text-blue-700'
+                                  }`}>
+                                    {totalCheckIns}/{totalPossibleCheckIns}
+                                  </span>
+                                    <span className={`px-1 py-0.5 rounded-full text-[8px] font-bold ${
+                                      isSelected
+                                        ? 'bg-white/20 text-white'
+                                        : attendancePercentage === 100
+                                          ? 'bg-green-500 text-white'
+                                          : attendancePercentage >= 80
+                                            ? 'bg-blue-500 text-white'
+                                            : attendancePercentage >= 60
+                                              ? 'bg-orange-500 text-white'
+                                              : attendancePercentage > 0
+                                                ? 'bg-red-500 text-white'
+                                                : 'bg-gray-400 text-white'
+                                    }`}>
+                                      {attendancePercentage}%
+                                    </span>
+                                </div>
+                                <span className={`text-[9px] font-medium ${
+                                  isSelected ? 'text-white/90' : 'opacity-70'
+                                }`}>
+                                  {dayDateStr}
+                                </span>
+                                {dayInfo.day && (
+                                  <span className={`text-[8px] font-medium ${
+                                    isSelected ? 'text-white/80' : 'opacity-60'
+                                  }`}>
+                                    Ngày {dayInfo.day}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span className={`text-[8px] italic ${
+                                isSelected ? 'text-white/70' : 'opacity-50'
+                              }`}>
+                                Ngoài phạm vi
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* Show "Show All" button when a day is selected */}
+                    {selectedDay !== null && (
+                      <div className="flex justify-center mt-2">
+                        <button
+                          onClick={() => setSelectedDay(null)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            isDarkMode
+                              ? 'bg-gray-700 hover:bg-gray-600 text-gray-200'
+                              : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                          }`}
+                        >
+                          Hiển thị tất cả các ngày
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1409,6 +1757,7 @@ export default function ActivityViewPage() {
                   let totalCompletedSessions = 0;
                   let totalSessions = 0;
                   let participantsWithAttendance = 0; // Số người đã có ít nhất 1 buổi điểm danh
+                  let participantsCompleted = 0; // Số người đã hoàn thành 100% (tất cả slots đã đăng ký)
                   let totalParticipantsPercentage = 0; // Tổng phần trăm của tất cả người tham gia
                   
                   participants.forEach(participant => {
@@ -1419,6 +1768,11 @@ export default function ActivityViewPage() {
                     // Đếm số người đã có ít nhất 1 buổi điểm danh
                     if (stats.completed > 0) {
                       participantsWithAttendance++;
+                    }
+                    
+                    // Đếm số người đã hoàn thành 100% (tất cả slots đã đăng ký đều đã điểm danh)
+                    if (stats.percentage === 100 && stats.total > 0) {
+                      participantsCompleted++;
                     }
                     
                     // Tổng phần trăm của tất cả người tham gia (để tính trung bình)
@@ -1435,9 +1789,9 @@ export default function ActivityViewPage() {
                     ? Math.round((totalCompletedSessions / totalSessions) * 100)
                     : 0;
                   
-                  // Phần trăm số người đã điểm danh / tổng số người tham gia
+                  // Phần trăm số người đã hoàn thành 100% / tổng số người tham gia
                   const participantsAttendanceRate = participants.length > 0
-                    ? Math.round((participantsWithAttendance / participants.length) * 100)
+                    ? Math.round((participantsCompleted / participants.length) * 100)
                     : 0;
                   
                   // Tính tổng số lần điểm danh trễ và vắng
@@ -1596,7 +1950,7 @@ export default function ActivityViewPage() {
                                   {participantsAttendanceRate}%
                                 </p>
                                 <span className={`text-[9px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                  ({participantsWithAttendance}/{participants.length})
+                                  ({participantsCompleted}/{participants.length})
                                 </span>
                               </div>
                             </div>
@@ -1830,10 +2184,10 @@ export default function ActivityViewPage() {
                           ))}
                         </>
                       )}
-                      {activity.type === 'multiple_days' && currentWeekDays.length > 0 && (
+                      {activity.type === 'multiple_days' && currentWeekDaysWithSchedule.length > 0 && (
                         <>
                           {/* Day Headers - Enhanced with colors */}
-                          {currentWeekDays.map((scheduleDay: any, dayIdx: number) => {
+                          {currentWeekDaysWithSchedule.map((scheduleDay: any, dayIdx: number) => {
                             const dayDate = scheduleDay.dateObj || new Date(scheduleDay.date);
                             const dayName = getDayName(scheduleDay.dayOfWeek);
                             
@@ -2134,6 +2488,23 @@ export default function ActivityViewPage() {
                               {(() => {
                                 const statusInfo = getAttendanceStatusWithTime(participant, slot, 'start', activity.date);
                                 
+                                // Check if participant has registered for this slot (for single_day)
+                                const isRegisteredForSlot = isParticipantRegisteredForSlot(participant, undefined, slot.name);
+                                
+                                if (!isRegisteredForSlot) {
+                                  // Not registered - show "Không đăng ký"
+                                  return (
+                                    <div className={`flex flex-col items-center gap-0.5 p-1 rounded ${
+                                      isDarkMode ? 'bg-gray-700/30 border border-gray-600/50' : 'bg-gray-100 border border-gray-300'
+                                    }`} title="Chưa đăng ký buổi này">
+                                      <XCircle size={14} className="text-gray-400" strokeWidth={2} />
+                                      <span className="text-[9px] font-semibold text-gray-400">
+                                        Không đăng ký
+                                      </span>
+                                    </div>
+                                  );
+                                }
+                                
                                 if (statusInfo.hasCheckedIn) {
                                   // Has checked in
                                   const bgColor = statusInfo.attendance?.status === 'approved'
@@ -2152,11 +2523,26 @@ export default function ActivityViewPage() {
                                       ? 'text-red-500'
                                       : 'text-yellow-500';
                                   
-                                  const displayText = statusInfo.attendance?.status === 'approved' 
-                                    ? (statusInfo.timeStatus === 'on_time' ? '✓ Đúng' : '✓ Trễ')
-                                    : statusInfo.attendance?.status === 'rejected' 
-                                      ? '✗'
-                                      : '⏳';
+                                  // Check if it's manual check-in (sync with officer)
+                                  let displayText = '';
+                                  if (statusInfo.attendance?.status === 'approved') {
+                                    const isManual = isManualCheckInRecord(statusInfo.attendance);
+                                    const officerName = isManual && statusInfo.attendance?.verifiedBy 
+                                      ? getVerifierName(statusInfo.attendance.verifiedBy, statusInfo.attendance.verifiedByName) 
+                                      : null;
+                                    
+                                    if (isManual && officerName && officerName !== 'Hệ thống tự động') {
+                                      displayText = `Thủ Công (${officerName})`;
+                                    } else if (isManual) {
+                                      displayText = 'Thủ Công';
+                                    } else {
+                                      displayText = statusInfo.timeStatus === 'on_time' ? 'Đúng' : 'Trễ';
+                                    }
+                                  } else if (statusInfo.attendance?.status === 'rejected') {
+                                    displayText = 'Từ chối';
+                                  } else {
+                                    displayText = 'Chờ duyệt';
+                                  }
                                   
                                   return (
                                     <div 
@@ -2179,7 +2565,7 @@ export default function ActivityViewPage() {
                                     </div>
                                   );
                                 } else {
-                                  // Not checked in yet
+                                  // Not checked in yet (sync with officer)
                                   let bgColor, iconColor, text, title, IconComponent;
                                   
                                   if (statusInfo.timeStatus === 'not_started') {
@@ -2189,8 +2575,8 @@ export default function ActivityViewPage() {
                                     title = 'Chưa đến thời điểm điểm danh';
                                     IconComponent = Clock;
                                   } else if (statusInfo.timeStatus === 'in_progress') {
-                                    bgColor = isDarkMode ? 'bg-purple-500/20' : 'bg-purple-100';
-                                    iconColor = 'text-purple-500';
+                                    bgColor = isDarkMode ? 'bg-cyan-500/20' : 'bg-cyan-100';
+                                    iconColor = 'text-cyan-500';
                                     text = 'Đang mở';
                                     title = 'Đang trong thời gian điểm danh';
                                     IconComponent = Clock;
@@ -2221,6 +2607,23 @@ export default function ActivityViewPage() {
                                     {(() => {
                                       const statusInfo = getAttendanceStatusWithTime(participant, slot, 'end', activity.date);
                                       
+                                      // Check if participant has registered for this slot (for single_day)
+                                      const isRegisteredForSlot = isParticipantRegisteredForSlot(participant, undefined, slot.name);
+                                      
+                                      if (!isRegisteredForSlot) {
+                                        // Not registered - show "Không đăng ký"
+                                        return (
+                                          <div className={`flex flex-col items-center gap-0.5 p-1 rounded ${
+                                            isDarkMode ? 'bg-gray-700/30 border border-gray-600/50' : 'bg-gray-100 border border-gray-300'
+                                          }`} title="Chưa đăng ký buổi này">
+                                            <XCircle size={14} className="text-gray-400" strokeWidth={2} />
+                                            <span className="text-[9px] font-semibold text-gray-400">
+                                              Không đăng ký
+                                            </span>
+                                          </div>
+                                        );
+                                      }
+                                      
                                       if (statusInfo.hasCheckedIn) {
                                         // Has checked in
                                         const bgColor = statusInfo.attendance?.status === 'approved'
@@ -2239,11 +2642,26 @@ export default function ActivityViewPage() {
                                             ? 'text-red-500'
                                             : 'text-yellow-500';
                                         
-                                        const displayText = statusInfo.attendance?.status === 'approved' 
-                                          ? (statusInfo.timeStatus === 'on_time' ? '✓ Đúng' : '✓ Trễ')
-                                          : statusInfo.attendance?.status === 'rejected' 
-                                            ? '✗'
-                                            : '⏳';
+                                        // Check if it's manual check-in (sync with officer)
+                                        let displayText = '';
+                                        if (statusInfo.attendance?.status === 'approved') {
+                                          const isManual = isManualCheckInRecord(statusInfo.attendance);
+                                          const officerName = isManual && statusInfo.attendance?.verifiedBy 
+                                            ? getVerifierName(statusInfo.attendance.verifiedBy, statusInfo.attendance.verifiedByName) 
+                                            : null;
+                                          
+                                          if (isManual && officerName && officerName !== 'Hệ thống tự động') {
+                                            displayText = `Thủ Công (${officerName})`;
+                                          } else if (isManual) {
+                                            displayText = 'Thủ Công';
+                                          } else {
+                                            displayText = statusInfo.timeStatus === 'on_time' ? 'Đúng' : 'Trễ';
+                                          }
+                                        } else if (statusInfo.attendance?.status === 'rejected') {
+                                          displayText = 'Từ chối';
+                                        } else {
+                                          displayText = 'Chờ duyệt';
+                                        }
                                         
                                         return (
                                           <div 
@@ -2266,7 +2684,7 @@ export default function ActivityViewPage() {
                                           </div>
                                         );
                                       } else {
-                                        // Not checked in yet
+                                        // Not checked in yet (sync with officer)
                                         let bgColor, iconColor, text, title, IconComponent;
                                         
                                         if (statusInfo.timeStatus === 'not_started') {
@@ -2276,8 +2694,8 @@ export default function ActivityViewPage() {
                                           title = 'Chưa đến thời điểm điểm danh';
                                           IconComponent = Clock;
                                         } else if (statusInfo.timeStatus === 'in_progress') {
-                                          bgColor = isDarkMode ? 'bg-purple-500/20' : 'bg-purple-100';
-                                          iconColor = 'text-purple-500';
+                                          bgColor = isDarkMode ? 'bg-cyan-500/20' : 'bg-cyan-100';
+                                          iconColor = 'text-cyan-500';
                                           text = 'Đang mở';
                                           title = 'Đang trong thời gian điểm danh';
                                           IconComponent = Clock;
@@ -2307,7 +2725,7 @@ export default function ActivityViewPage() {
                         })()}
 
                         {/* Attendance for Multiple Days */}
-                        {activity.type === 'multiple_days' && currentWeekDays.map((scheduleDay: any) => {
+                        {activity.type === 'multiple_days' && currentWeekDaysWithSchedule.map((scheduleDay: any) => {
                           const dayTimeSlots = activity.timeSlots?.filter((s: any) => s.isActive) || [];
                           const slotsToShow = dayTimeSlots.length > 0 ? dayTimeSlots : [
                             { name: 'Buổi Sáng', id: 'morning', startTime: '08:00', endTime: '11:30' },
@@ -2422,30 +2840,39 @@ export default function ActivityViewPage() {
                           };
                           
                           const slotAttendances = getDayAttendances();
-                          const totalSlots = slotsToShow.length * 2;
-                          const checkedInCount = Object.values(slotAttendances).reduce((sum, slot) => {
-                            return sum + (slot.start ? 1 : 0) + (slot.end ? 1 : 0);
+                          
+                          // Only count registered slots
+                          const registeredSlots = slotsToShow.filter((slot: any) => 
+                            isParticipantRegisteredForSlot(participant, dayNumber, slot.name)
+                          );
+                          
+                          const totalSlots = registeredSlots.length * 2; // Only count registered slots
+                          const checkedInCount = registeredSlots.reduce((sum, slot: any) => {
+                            const slotAtt = slotAttendances[slot.name] || {};
+                            return sum + (slotAtt.start ? 1 : 0) + (slotAtt.end ? 1 : 0);
                           }, 0);
                           
-                          // Calculate approved check-ins count
-                          const approvedCheckInCount = Object.values(slotAttendances).reduce((sum, slot: any) => {
-                            if (!slot) return sum;
-                            const hasStartApproved = slot.start && slot.start.status === 'approved';
-                            const hasEndApproved = slot.end && slot.end.status === 'approved';
+                          // Calculate approved check-ins count (only for registered slots)
+                          const approvedCheckInCount = registeredSlots.reduce((sum, slot: any) => {
+                            const slotAtt = slotAttendances[slot.name] || {};
+                            if (!slotAtt) return sum;
+                            const hasStartApproved = slotAtt.start && slotAtt.start.status === 'approved';
+                            const hasEndApproved = slotAtt.end && slotAtt.end.status === 'approved';
                             return sum + (hasStartApproved ? 1 : 0) + (hasEndApproved ? 1 : 0);
                           }, 0);
                           
-                          // Calculate completed sessions (both start and end approved)
-                          const completedSessions = Object.values(slotAttendances).reduce((sum, slot: any) => {
-                            if (!slot) return sum;
-                            const hasStartApproved = slot.start && slot.start.status === 'approved';
-                            const hasEndApproved = slot.end && slot.end.status === 'approved';
+                          // Calculate completed sessions (both start and end approved) - only for registered slots
+                          const completedSessions = registeredSlots.reduce((sum, slot: any) => {
+                            const slotAtt = slotAttendances[slot.name] || {};
+                            if (!slotAtt) return sum;
+                            const hasStartApproved = slotAtt.start && slotAtt.start.status === 'approved';
+                            const hasEndApproved = slotAtt.end && slotAtt.end.status === 'approved';
                             // Both start and end are approved = completed session
                             return sum + (hasStartApproved && hasEndApproved ? 1 : 0);
                           }, 0);
                           
-                          // Total number of sessions (not check-ins)
-                          const totalSessions = slotsToShow.length;
+                          // Total number of registered sessions (not check-ins)
+                          const totalSessions = registeredSlots.length;
                           
                           // Calculate percentage: (approved check-ins / total check-ins) * 100
                           // This shows the percentage of check-ins that are approved
@@ -2453,19 +2880,21 @@ export default function ActivityViewPage() {
                             ? Math.round((approvedCheckInCount / totalSlots) * 100) 
                             : 0;
                           
-                          // Calculate status summary
-                          const onTimeCount = Object.values(slotAttendances).reduce((sum, slot: any) => {
-                            if (!slot) return sum;
+                          // Calculate status summary (only for registered slots)
+                          const onTimeCount = registeredSlots.reduce((sum, slot: any) => {
+                            const slotAtt = slotAttendances[slot.name] || {};
+                            if (!slotAtt) return sum;
                             return sum + 
-                              (slot.start && slot.start.status === 'approved' && slot.startTimeStatus === 'on_time' ? 1 : 0) +
-                              (slot.end && slot.end.status === 'approved' && slot.endTimeStatus === 'on_time' ? 1 : 0);
+                              (slotAtt.start && slotAtt.start.status === 'approved' && slotAtt.startTimeStatus === 'on_time' ? 1 : 0) +
+                              (slotAtt.end && slotAtt.end.status === 'approved' && slotAtt.endTimeStatus === 'on_time' ? 1 : 0);
                           }, 0);
                           
-                          const lateCount = Object.values(slotAttendances).reduce((sum, slot: any) => {
-                            if (!slot) return sum;
+                          const lateCount = registeredSlots.reduce((sum, slot: any) => {
+                            const slotAtt = slotAttendances[slot.name] || {};
+                            if (!slotAtt) return sum;
                             return sum + 
-                              (slot.start && slot.start.status === 'approved' && slot.startTimeStatus === 'late' ? 1 : 0) +
-                              (slot.end && slot.end.status === 'approved' && slot.endTimeStatus === 'late' ? 1 : 0);
+                              (slotAtt.start && slotAtt.start.status === 'approved' && slotAtt.startTimeStatus === 'late' ? 1 : 0) +
+                              (slotAtt.end && slotAtt.end.status === 'approved' && slotAtt.endTimeStatus === 'late' ? 1 : 0);
                           }, 0);
                           
                           const absentCount = totalSlots - checkedInCount;
@@ -2555,12 +2984,42 @@ export default function ActivityViewPage() {
                                         const startTimeStatus = slotAtt.startTimeStatus;
                                         const endTimeStatus = slotAtt.endTimeStatus;
                                         
-                                        // Get status text and color for start - Enhanced with better colors
+                                        // Check if participant has registered for this slot
+                                        const isRegisteredForSlot = isParticipantRegisteredForSlot(participant, dayNumber, slot.name);
+                                        
+                                        // Get status text and color for start - Enhanced with better colors (sync with officer)
                                         const getStartStatus = () => {
+                                          // If not registered, show "không đăng ký"
+                                          if (!isRegisteredForSlot) {
+                                            return {
+                                              text: 'Không đăng ký',
+                                              color: isDarkMode 
+                                                ? 'text-gray-400 bg-gray-700/30 border border-gray-600/50' 
+                                                : 'text-gray-500 bg-gray-100 border border-gray-300',
+                                              icon: '○'
+                                            };
+                                          }
+                                          
+                                          // If registered, check attendance status
                                           if (hasStart) {
                                             if (startStatus === 'approved') {
+                                              // Check if it's manual check-in
+                                              const isManual = isManualCheckInRecord(slotAtt.start);
+                                              const officerName = isManual && slotAtt.start?.verifiedBy 
+                                                ? getVerifierName(slotAtt.start.verifiedBy, slotAtt.start.verifiedByName) 
+                                                : null;
+                                              
+                                              let statusText = '';
+                                              if (isManual && officerName && officerName !== 'Hệ thống tự động') {
+                                                statusText = `Thủ Công (${officerName})`;
+                                              } else if (isManual) {
+                                                statusText = 'Thủ Công';
+                                              } else {
+                                                statusText = startTimeStatus === 'on_time' ? 'Đúng' : 'Trễ';
+                                              }
+                                              
                                               return {
-                                                text: startTimeStatus === 'on_time' ? '✓ Đúng' : '✓ Trễ',
+                                                text: statusText,
                                                 color: startTimeStatus === 'on_time' 
                                                   ? isDarkMode 
                                                     ? 'text-green-300 bg-green-600/30 border border-green-500/50' 
@@ -2572,7 +3031,7 @@ export default function ActivityViewPage() {
                                               };
                                             } else if (startStatus === 'rejected') {
                                               return {
-                                                text: '✗ Từ chối',
+                                                text: 'Từ chối',
                                                 color: isDarkMode 
                                                   ? 'text-red-300 bg-red-600/30 border border-red-500/50' 
                                                   : 'text-red-700 bg-red-100 border border-red-400',
@@ -2580,7 +3039,7 @@ export default function ActivityViewPage() {
                                               };
                                             } else {
                                               return {
-                                                text: '⏳ Chờ',
+                                                text: 'Chờ duyệt',
                                                 color: isDarkMode 
                                                   ? 'text-yellow-300 bg-yellow-600/30 border border-yellow-500/50' 
                                                   : 'text-yellow-700 bg-yellow-100 border border-yellow-400',
@@ -2598,10 +3057,10 @@ export default function ActivityViewPage() {
                                               };
                                             } else if (startTimeStatus === 'in_progress') {
                                               return {
-                                                text: 'Đang mở điểm danh',
+                                                text: 'Đang mở',
                                                 color: isDarkMode 
-                                                  ? 'text-purple-300 bg-purple-600/30 border border-purple-500/50' 
-                                                  : 'text-purple-700 bg-purple-100 border border-purple-400',
+                                                  ? 'text-cyan-300 bg-cyan-600/30 border border-cyan-500/50' 
+                                                  : 'text-cyan-700 bg-cyan-100 border border-cyan-400',
                                                 icon: '○'
                                               };
                                             } else {
@@ -2616,12 +3075,39 @@ export default function ActivityViewPage() {
                                           }
                                         };
                                         
-                                        // Get status text and color for end - Enhanced with better colors
+                                        // Get status text and color for end - Enhanced with better colors (sync with officer)
                                         const getEndStatus = () => {
+                                          // If not registered, show "không đăng ký"
+                                          if (!isRegisteredForSlot) {
+                                            return {
+                                              text: 'Không đăng ký',
+                                              color: isDarkMode 
+                                                ? 'text-gray-400 bg-gray-700/30 border border-gray-600/50' 
+                                                : 'text-gray-500 bg-gray-100 border border-gray-300',
+                                              icon: '○'
+                                            };
+                                          }
+                                          
+                                          // If registered, check attendance status
                                           if (hasEnd) {
                                             if (endStatus === 'approved') {
+                                              // Check if it's manual check-in
+                                              const isManual = isManualCheckInRecord(slotAtt.end);
+                                              const officerName = isManual && slotAtt.end?.verifiedBy 
+                                                ? getVerifierName(slotAtt.end.verifiedBy, slotAtt.end.verifiedByName) 
+                                                : null;
+                                              
+                                              let statusText = '';
+                                              if (isManual && officerName && officerName !== 'Hệ thống tự động') {
+                                                statusText = `Thủ Công (${officerName})`;
+                                              } else if (isManual) {
+                                                statusText = 'Thủ Công';
+                                              } else {
+                                                statusText = endTimeStatus === 'on_time' ? 'Đúng' : 'Trễ';
+                                              }
+                                              
                                               return {
-                                                text: endTimeStatus === 'on_time' ? '✓ Đúng' : '✓ Trễ',
+                                                text: statusText,
                                                 color: endTimeStatus === 'on_time' 
                                                   ? isDarkMode 
                                                     ? 'text-green-300 bg-green-600/30 border border-green-500/50' 
@@ -2633,7 +3119,7 @@ export default function ActivityViewPage() {
                                               };
                                             } else if (endStatus === 'rejected') {
                                               return {
-                                                text: '✗ Từ chối',
+                                                text: 'Từ chối',
                                                 color: isDarkMode 
                                                   ? 'text-red-300 bg-red-600/30 border border-red-500/50' 
                                                   : 'text-red-700 bg-red-100 border border-red-400',
@@ -2641,7 +3127,7 @@ export default function ActivityViewPage() {
                                               };
                                             } else {
                                               return {
-                                                text: '⏳ Chờ',
+                                                text: 'Chờ duyệt',
                                                 color: isDarkMode 
                                                   ? 'text-yellow-300 bg-yellow-600/30 border border-yellow-500/50' 
                                                   : 'text-yellow-700 bg-yellow-100 border border-yellow-400',
@@ -2659,10 +3145,10 @@ export default function ActivityViewPage() {
                                               };
                                             } else if (endTimeStatus === 'in_progress') {
                                               return {
-                                                text: 'Đang mở điểm danh',
+                                                text: 'Đang mở',
                                                 color: isDarkMode 
-                                                  ? 'text-purple-300 bg-purple-600/30 border border-purple-500/50' 
-                                                  : 'text-purple-700 bg-purple-100 border border-purple-400',
+                                                  ? 'text-cyan-300 bg-cyan-600/30 border border-cyan-500/50' 
+                                                  : 'text-cyan-700 bg-cyan-100 border border-cyan-400',
                                                 icon: '○'
                                               };
                                             } else {
@@ -2747,42 +3233,56 @@ export default function ActivityViewPage() {
                                 <div className="space-y-1.5">
                                   {slotsToShow.map((slot: any) => {
                                     const slotAtt = slotAttendances[slot.name] || {};
+                                    const isRegisteredForSlot = isParticipantRegisteredForSlot(participant, dayNumber, slot.name);
+                                    
                                     return (
                                       <div key={slot.name} className="text-[10px]">
                                         <div className={`font-medium mb-0.5 ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{slot.name}:</div>
                                         <div className="flex flex-col gap-1 pl-2">
-                                          <span className={slotAtt.start ? 
-                                            slotAtt.start.status === 'approved' 
-                                              ? slotAtt.startTimeStatus === 'on_time' ? 'text-green-500' : 'text-orange-500'
-                                              : slotAtt.start.status === 'rejected' ? 'text-red-500' : 'text-yellow-500'
-                                            : slotAtt.startTimeStatus === 'not_started' ? 'text-blue-500'
-                                              : slotAtt.startTimeStatus === 'in_progress' ? 'text-purple-500'
-                                              : 'text-red-500'
+                                          {/* Start Check-in Status */}
+                                          <span className={
+                                            !isRegisteredForSlot
+                                              ? 'text-gray-500'
+                                              : slotAtt.start ? 
+                                                slotAtt.start.status === 'approved' 
+                                                  ? slotAtt.startTimeStatus === 'on_time' ? 'text-green-500' : 'text-orange-500'
+                                                  : slotAtt.start.status === 'rejected' ? 'text-red-500' : 'text-yellow-500'
+                                                : slotAtt.startTimeStatus === 'not_started' ? 'text-blue-500'
+                                                  : slotAtt.startTimeStatus === 'in_progress' ? 'text-purple-500'
+                                                  : 'text-red-500'
                                           }>
-                                            Đầu: {slotAtt.start ? 
-                                              slotAtt.start.status === 'approved' 
-                                                ? slotAtt.startTimeStatus === 'on_time' ? '✓ Đúng giờ' : '✓ Trễ'
-                                                : slotAtt.start.status === 'rejected' ? '✗ Từ chối' : '⏳ Chờ duyệt'
-                                              : slotAtt.startTimeStatus === 'not_started' ? '○ Chưa đến'
-                                                : slotAtt.startTimeStatus === 'in_progress' ? '○ Đang mở điểm danh'
-                                                : '✗ Vắng'
+                                            Đầu: {!isRegisteredForSlot
+                                              ? '○ Không đăng ký'
+                                              : slotAtt.start ? 
+                                                slotAtt.start.status === 'approved' 
+                                                  ? slotAtt.startTimeStatus === 'on_time' ? '✓ Đúng giờ' : '✓ Trễ'
+                                                  : slotAtt.start.status === 'rejected' ? '✗ Từ chối' : '⏳ Chờ duyệt'
+                                                : slotAtt.startTimeStatus === 'not_started' ? '○ Chưa đến'
+                                                  : slotAtt.startTimeStatus === 'in_progress' ? '○ Đang mở điểm danh'
+                                                  : '✗ Vắng'
                                             }
                                           </span>
-                                          <span className={slotAtt.end ? 
-                                            slotAtt.end.status === 'approved' 
-                                              ? slotAtt.endTimeStatus === 'on_time' ? 'text-green-500' : 'text-orange-500'
-                                              : slotAtt.end.status === 'rejected' ? 'text-red-500' : 'text-yellow-500'
-                                            : slotAtt.endTimeStatus === 'not_started' ? 'text-blue-500'
-                                              : slotAtt.endTimeStatus === 'in_progress' ? 'text-purple-500'
-                                              : 'text-red-500'
+                                          {/* End Check-in Status */}
+                                          <span className={
+                                            !isRegisteredForSlot
+                                              ? 'text-gray-500'
+                                              : slotAtt.end ? 
+                                                slotAtt.end.status === 'approved' 
+                                                  ? slotAtt.endTimeStatus === 'on_time' ? 'text-green-500' : 'text-orange-500'
+                                                  : slotAtt.end.status === 'rejected' ? 'text-red-500' : 'text-yellow-500'
+                                                : slotAtt.endTimeStatus === 'not_started' ? 'text-blue-500'
+                                                  : slotAtt.endTimeStatus === 'in_progress' ? 'text-purple-500'
+                                                  : 'text-red-500'
                                           }>
-                                            Cuối: {slotAtt.end ? 
-                                              slotAtt.end.status === 'approved' 
-                                                ? slotAtt.endTimeStatus === 'on_time' ? '✓ Đúng giờ' : '✓ Trễ'
-                                                : slotAtt.end.status === 'rejected' ? '✗ Từ chối' : '⏳ Chờ duyệt'
-                                              : slotAtt.endTimeStatus === 'not_started' ? '○ Chưa đến'
-                                                : slotAtt.endTimeStatus === 'in_progress' ? '○ Đang mở điểm danh'
-                                                : '✗ Vắng'
+                                            Cuối: {!isRegisteredForSlot
+                                              ? '○ Không đăng ký'
+                                              : slotAtt.end ? 
+                                                slotAtt.end.status === 'approved' 
+                                                  ? slotAtt.endTimeStatus === 'on_time' ? '✓ Đúng giờ' : '✓ Trễ'
+                                                  : slotAtt.end.status === 'rejected' ? '✗ Từ chối' : '⏳ Chờ duyệt'
+                                                : slotAtt.endTimeStatus === 'not_started' ? '○ Chưa đến'
+                                                  : slotAtt.endTimeStatus === 'in_progress' ? '○ Đang mở điểm danh'
+                                                  : '✗ Vắng'
                                             }
                                           </span>
                                         </div>

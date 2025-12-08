@@ -66,6 +66,15 @@ interface Activity {
   overview?: string;
   startDate?: string;
   endDate?: string;
+  schedule?: Array<{
+    day: number;
+    activities?: string;
+    timeSlots?: Array<{
+      startTime: string;
+      endTime: string;
+      isActive: boolean;
+    }>;
+  }>;
   participants: Array<{
     userId: string;
     name: string;
@@ -103,6 +112,7 @@ export default function OfficerDashboard() {
   const [activeAttendanceRates, setActiveAttendanceRates] = useState<{ [key: string]: number }>({});
   const [loadingActiveAttendanceRates, setLoadingActiveAttendanceRates] = useState(false);
   const [pendingParticipantsCount, setPendingParticipantsCount] = useState<{ [key: string]: number }>({});
+  const [expandedLocations, setExpandedLocations] = useState<Set<string>>(new Set());
   const leftColumnRef = useRef<HTMLDivElement>(null);
   const leftHeaderRef = useRef<HTMLDivElement>(null);
   const leftContentRef = useRef<HTMLDivElement>(null);
@@ -110,6 +120,17 @@ export default function OfficerDashboard() {
   const [leftColumnHeight, setLeftColumnHeight] = useState<number | null>(null);
   const [leftHeaderHeight, setLeftHeaderHeight] = useState<number | null>(null);
   const [searchBarHeight, setSearchBarHeight] = useState<number | null>(null);
+  
+  // Banner/Slider states
+  const [currentBannerIndex, setCurrentBannerIndex] = useState(0);
+  const bannerSliderRef = useRef<HTMLDivElement>(null);
+  const [banners, setBanners] = useState<Array<{
+    id: string;
+    title: string;
+    imageUrl: string;
+    link?: string | null;
+    imageFit?: string;
+  }>>([]);
 
   // Fetch all activities that officer is responsible for
   const fetchActivities = useCallback(async () => {
@@ -645,6 +666,44 @@ export default function OfficerDashboard() {
     };
   }, [fetchActivities]);
 
+  // Load banners
+  useEffect(() => {
+    const loadBanners = async () => {
+      try {
+        const response = await fetch('/api/banners?activeOnly=true');
+        const result = await response.json();
+        if (result.success && result.data) {
+          // Filter and sort active banners
+          const activeBanners = result.data
+            .filter((b: any) => b.isActive)
+            .sort((a: any, b: any) => a.order - b.order);
+          setBanners(activeBanners);
+        }
+      } catch (error) {
+        console.error('Error loading banners:', error);
+        // Fallback to default banner if API fails
+        setBanners([{
+          id: 'default',
+          title: 'CLB Sinh viên 5 Tốt TDMU',
+          imageUrl: 'https://via.placeholder.com/1200x400/6366f1/ffffff?text=CLB+Sinh+viên+5+Tốt+TDMU',
+          imageFit: 'cover'
+        }]);
+      }
+    };
+    loadBanners();
+  }, []);
+
+  // Banner auto-play effect
+  useEffect(() => {
+    if (banners.length <= 1) return;
+
+    const interval = setInterval(() => {
+      setCurrentBannerIndex((prev: number) => (prev + 1) % banners.length);
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [banners]);
+
 
   return (
     <ProtectedRoute>
@@ -661,6 +720,100 @@ export default function OfficerDashboard() {
               Quản lý hoạt động và điểm danh sinh viên
             </p>
           </div>
+
+          {/* Banner/Slider Section */}
+          {banners.length > 0 && (
+            <div className="mb-3 sm:mb-4 relative flex justify-center">
+              <div 
+                ref={bannerSliderRef}
+                className="relative w-[92%] max-w-6xl h-[220px] sm:h-[240px] md:h-[260px] rounded-lg overflow-hidden shadow-md mx-auto"
+              >
+                {/* Banner Images */}
+                <div className="relative w-full h-full">
+                  {banners.map((banner, index) => (
+                    <div
+                      key={banner.id}
+                      className={`absolute inset-0 transition-opacity duration-500 ${
+                        index === currentBannerIndex ? 'opacity-100 z-10' : 'opacity-0 z-0'
+                      }`}
+                    >
+                      {banner.link ? (
+                        <a href={banner.link} className="block w-full h-full" target="_blank" rel="noopener noreferrer">
+                          <img
+                            src={banner.imageUrl}
+                            alt={banner.title}
+                            className="w-full h-full"
+                            style={{ objectFit: (banner.imageFit || 'cover') as React.CSSProperties['objectFit'] }}
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = 'https://via.placeholder.com/1200x400/6366f1/ffffff?text=Banner+Image';
+                            }}
+                          />
+                        </a>
+                      ) : (
+                        <img
+                          src={banner.imageUrl}
+                          alt={banner.title}
+                          className="w-full h-full"
+                          style={{ objectFit: (banner.imageFit || 'cover') as React.CSSProperties['objectFit'] }}
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = 'https://via.placeholder.com/1200x400/6366f1/ffffff?text=Banner+Image';
+                          }}
+                        />
+                      )}
+                      
+                      {/* Overlay Gradient */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
+                      
+                      {/* Banner Title */}
+                      <div className="absolute bottom-0 left-0 right-0 p-2 sm:p-3 z-20">
+                        <h3 className={`text-sm sm:text-base font-bold text-white drop-shadow-lg`}>
+                          {banner.title}
+                        </h3>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Navigation Dots */}
+                {banners.length > 1 && (
+                  <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 z-30 flex gap-1.5">
+                    {banners.map((_, index) => (
+                      <button
+                        key={index}
+                        onClick={() => setCurrentBannerIndex(index)}
+                        className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
+                          index === currentBannerIndex
+                            ? 'bg-white w-6'
+                            : 'bg-white/50 hover:bg-white/75'
+                        }`}
+                        aria-label={`Go to slide ${index + 1}`}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* Navigation Arrows */}
+                {banners.length > 1 && (
+                  <>
+                    <button
+                      onClick={() => setCurrentBannerIndex((prev: number) => (prev - 1 + banners.length) % banners.length)}
+                      className="absolute left-2 top-1/2 transform -translate-y-1/2 z-30 p-1.5 rounded-full bg-black/30 hover:bg-black/50 text-white transition-all duration-200 backdrop-blur-sm"
+                      aria-label="Previous slide"
+                    >
+                      <ChevronDown size={16} className="rotate-90" strokeWidth={2} />
+                    </button>
+                    <button
+                      onClick={() => setCurrentBannerIndex((prev: number) => (prev + 1) % banners.length)}
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 z-30 p-1.5 rounded-full bg-black/30 hover:bg-black/50 text-white transition-all duration-200 backdrop-blur-sm"
+                      aria-label="Next slide"
+                    >
+                      <ChevronDown size={16} className="-rotate-90" strokeWidth={2} />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Activities Overview - 2 Column Layout */}
           <div className="w-full mb-4">
@@ -822,6 +975,9 @@ export default function OfficerDashboard() {
                               ? Math.round((activity.participants.length / activity.maxParticipants) * 100)
                               : 0;
                             const attendanceRate = activeAttendanceRates[String(activity._id)] ?? null;
+                            const activeTimeSlots = activity.timeSlots?.filter((slot: any) => slot.isActive) || [];
+                            const allTimeSlots = activity.timeSlots || [];
+                            const firstTimeSlot = activeTimeSlots[0] || allTimeSlots[0];
 
                     return (
                       <div
@@ -898,6 +1054,28 @@ export default function OfficerDashboard() {
                               <Target size={32} strokeWidth={2} className="text-gray-400 dark:text-gray-500" />
                             </div>
                           )}
+                          {/* Activity Type Badge Overlay */}
+                          {activity.type === 'multiple_days' ? (
+                            <div className="absolute top-2 right-2">
+                              <span className={`px-2 py-1 rounded-md text-[10px] font-bold shadow-lg backdrop-blur-sm border ${
+                                isDarkMode 
+                                  ? 'bg-purple-600/90 text-white border-purple-400/50' 
+                                  : 'bg-purple-600 text-white border-purple-700'
+                              }`}>
+                                📅 Nhiều ngày
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="absolute top-2 right-2">
+                              <span className={`px-2 py-1 rounded-md text-[10px] font-bold shadow-lg backdrop-blur-sm border ${
+                                isDarkMode 
+                                  ? 'bg-blue-600/90 text-white border-blue-400/50' 
+                                  : 'bg-blue-600 text-white border-blue-700'
+                              }`}>
+                                📆 Một ngày
+                              </span>
+                            </div>
+                          )}
                         </div>
 
                         {/* Title Section */}
@@ -918,6 +1096,11 @@ export default function OfficerDashboard() {
                             } />
                             <div className={`text-xs font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                               {(() => {
+                                if (activity.type === 'multiple_days' && activity.startDate && activity.endDate) {
+                                  const startDate = new Date(activity.startDate);
+                                  const endDate = new Date(activity.endDate);
+                                  return `${startDate.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })} - ${endDate.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
+                                }
                                 const date = new Date(activity.date);
                                 return isNaN(date.getTime())
                                   ? 'Chưa cập nhật'
@@ -926,6 +1109,46 @@ export default function OfficerDashboard() {
                                       month: 'short',
                                       year: 'numeric'
                                     });
+                              })()}
+                            </div>
+                          </div>
+
+                          {/* Thời gian */}
+                          <div className="flex items-center gap-2">
+                            <Clock size={14} strokeWidth={2} className="text-blue-500 flex-shrink-0" />
+                            <div className={`text-xs font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                              {(() => {
+                                // For both single_day and multiple_days, try to get time from timeSlots first
+                                if (firstTimeSlot && firstTimeSlot.startTime && firstTimeSlot.endTime) {
+                                  return `${firstTimeSlot.startTime} - ${firstTimeSlot.endTime}`;
+                                }
+                                
+                                // For multiple days, try to get from schedule if timeSlots not available
+                                if (activity.type === 'multiple_days' && activity.schedule && activity.schedule.length > 0) {
+                                  const firstSchedule = activity.schedule[0];
+                                  
+                                  // Check if schedule has timeSlots
+                                  if (firstSchedule.timeSlots && firstSchedule.timeSlots.length > 0) {
+                                    const firstScheduleSlot = firstSchedule.timeSlots.find((s: any) => s.isActive) || firstSchedule.timeSlots[0];
+                                    if (firstScheduleSlot && firstScheduleSlot.startTime && firstScheduleSlot.endTime) {
+                                      return `${firstScheduleSlot.startTime} - ${firstScheduleSlot.endTime}`;
+                                    }
+                                  }
+                                  
+                                  // Fallback: try to parse from activities text
+                                  if (firstSchedule.activities) {
+                                    const lines = firstSchedule.activities.split('\n').filter((line: string) => line.trim());
+                                    const timeLine = lines.find((line: string) => line.includes(':') && line.match(/\d{2}:\d{2}/));
+                                    if (timeLine) {
+                                      const timeMatch = timeLine.match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
+                                      if (timeMatch) {
+                                        return `${timeMatch[1]} - ${timeMatch[2]}`;
+                                      }
+                                    }
+                                  }
+                                }
+                                
+                                return 'Chưa cập nhật';
                               })()}
                             </div>
                           </div>
@@ -1205,91 +1428,216 @@ export default function OfficerDashboard() {
                           ? Math.round((activity.participants.length / activity.maxParticipants) * 100)
                           : 0;
                         const attendanceRate = attendanceRates[String(activity._id)] ?? null;
+                        const activeTimeSlots = activity.timeSlots?.filter((slot: any) => slot.isActive) || [];
+                        const allTimeSlots = activity.timeSlots || [];
+                        const firstTimeSlot = activeTimeSlots[0] || allTimeSlots[0];
 
                         return (
                           <div
                             key={String(activity._id)}
-                            className={`p-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer ${
-                              isDarkMode ? 'bg-gray-800/30' : 'bg-white'
+                            className={`group flex flex-row rounded-lg border overflow-hidden shadow-sm transition-all duration-300 hover:shadow-md hover:scale-[1.01] cursor-pointer h-[120px] ${
+                              activity.type === 'multiple_days'
+                                ? isDarkMode 
+                                  ? 'bg-gray-800 border-purple-500/50 hover:border-purple-500' 
+                                  : 'bg-white border-purple-400 hover:border-purple-500'
+                                : isDarkMode 
+                                  ? 'bg-gray-800 border-blue-500/50 hover:border-blue-500' 
+                                  : 'bg-white border-blue-400 hover:border-blue-500'
                             }`}
                             onClick={() => window.location.href = `/officer/activities/${activity._id}`}
                           >
-                            <div className="flex items-start gap-2">
-                              {/* Image - Smaller */}
-                              <div className="w-12 h-12 flex-shrink-0 rounded overflow-hidden bg-gray-200 dark:bg-gray-700">
+                              {/* Image - Left Side */}
+                              <div className={`relative w-16 h-20 flex-shrink-0 overflow-hidden ml-2 my-auto rounded ${
+                                isDarkMode 
+                                  ? 'bg-gradient-to-br from-gray-700 to-gray-800' 
+                                  : 'bg-gradient-to-br from-gray-100 to-gray-200'
+                              }`}>
                                 {activity.imageUrl ? (
                                   <img
                                     src={activity.imageUrl}
                                     alt={activity.name}
-                                    className="w-full h-full object-cover"
+                                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300 rounded"
                                   />
                                 ) : (
-                                  <div className="w-full h-full flex items-center justify-center">
-                                    <Target size={16} className={isDarkMode ? 'text-gray-500' : 'text-gray-400'} />
+                                  <div className={`w-full h-full flex items-center justify-center ${isDarkMode ? 'bg-gray-700/50' : 'bg-gray-100'} rounded`}>
+                                    <Target size={16} className={isDarkMode ? 'text-gray-500' : 'text-gray-400'} strokeWidth={1.5} />
                                   </div>
                                 )}
                               </div>
 
-                              {/* Content - Compact */}
-                              <div className="flex-1 min-w-0">
-                                <h4 className={`text-xs font-semibold line-clamp-2 mb-1 ${
+                              {/* Content - Right Side */}
+                              <div className="flex-1 flex flex-col p-2.5 min-w-0 justify-between h-full overflow-hidden">
+                                {/* Top Section */}
+                                <div className="flex-1 min-w-0 flex flex-col">
+                                {/* Status Badge and Activity Type Badge */}
+                                <div className="flex items-center justify-end gap-1.5 mb-1 flex-wrap">
+                                  {/* Đã kết thúc Badge */}
+                                  <div className={`px-1.5 py-0.5 rounded inline-flex items-center gap-1 w-fit flex-shrink-0 ${
+                                    isDarkMode 
+                                      ? 'bg-gray-600/90 border border-gray-500/50 text-gray-100' 
+                                      : 'bg-gray-500 border border-gray-600 text-white'
+                                  }`}>
+                                    <CheckCircle2 size={9} strokeWidth={2} />
+                                    <span className="text-[9px] font-bold uppercase tracking-wide leading-tight">
+                                      Đã kết thúc
+                                    </span>
+                                  </div>
+                                  {/* Activity Type Badge */}
+                                  {activity.type === 'multiple_days' ? (
+                                    <span className={`px-1.5 py-0.5 rounded-md text-[8px] font-bold shadow-lg backdrop-blur-sm border flex-shrink-0 ${
+                                      isDarkMode 
+                                        ? 'bg-purple-600/90 text-white border-purple-400/50' 
+                                        : 'bg-purple-600 text-white border-purple-700'
+                                    }`}>
+                                      📅 Nhiều ngày
+                                    </span>
+                                  ) : (
+                                    <span className={`px-1.5 py-0.5 rounded-md text-[8px] font-bold shadow-lg backdrop-blur-sm border flex-shrink-0 ${
+                                      isDarkMode 
+                                        ? 'bg-blue-600/90 text-white border-blue-400/50' 
+                                        : 'bg-blue-600 text-white border-blue-700'
+                                    }`}>
+                                      📆 Một ngày
+                                    </span>
+                                  )}
+                                </div>
+                                
+                                {/* Title */}
+                                <h4 className={`text-xs font-bold mb-2 line-clamp-2 leading-tight overflow-hidden ${
                                   isDarkMode ? 'text-white' : 'text-gray-900'
                                 }`}>
                                   {activity.name}
                                 </h4>
-                                
-                                <div className="space-y-0.5">
-                                  <div className="flex items-center gap-1.5">
-                                    <Calendar size={10} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} />
-                                    <span className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                      {formatDate(activity.date)}
+
+                                {/* Info - Compact */}
+                                <div className="space-y-1.5">
+                                  {/* Ngày và Số lượng - Cùng một hàng */}
+                                  <div className="flex items-center gap-3 flex-wrap">
+                                    {/* Ngày */}
+                                    <div className={`flex items-center gap-1.5 text-[10px] flex-shrink-0 ${
+                                      isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                                    }`}>
+                                      <Calendar size={10} className={`flex-shrink-0 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
+                                      <span className="truncate min-w-0">
+                                        {activity.type === 'multiple_days' && activity.startDate && activity.endDate
+                                          ? `${new Date(activity.startDate).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })} - ${new Date(activity.endDate).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}`
+                                          : formatDate(activity.date)}
+                                      </span>
+                                    </div>
+
+                                    {/* Số lượng */}
+                                    <div className={`flex items-center gap-1.5 text-[10px] flex-shrink-0 ${
+                                      isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                                    }`}>
+                                      <Users size={10} className={`flex-shrink-0 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
+                                      <span className="truncate min-w-0">
+                                        {activity.participants.length}
+                                        {activity.maxParticipants && activity.maxParticipants > 0 ? `/${activity.maxParticipants}` : ''}
+                                      </span>
+                                      {attendanceRate !== null && attendanceRate !== undefined && (
+                                        <>
+                                          <span className="text-[10px] text-gray-400">•</span>
+                                          <TrendingUp size={10} className={`flex-shrink-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
+                                          <span className={`text-[10px] font-semibold ${
+                                            attendanceRate >= 80
+                                              ? isDarkMode ? 'text-green-400' : 'text-green-600'
+                                              : attendanceRate >= 60
+                                                ? isDarkMode ? 'text-yellow-400' : 'text-yellow-600'
+                                                : isDarkMode ? 'text-red-400' : 'text-red-600'
+                                          }`}>
+                                            {attendanceRate}%
+                                          </span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Thời gian */}
+                                  <div className={`flex items-center gap-1.5 text-[10px] ${
+                                    isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                                  }`}>
+                                    <Clock size={10} className={`flex-shrink-0 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
+                                    <span className="truncate min-w-0">
+                                      {(() => {
+                                        // For both single_day and multiple_days, try to get time from timeSlots first
+                                        if (firstTimeSlot && firstTimeSlot.startTime && firstTimeSlot.endTime) {
+                                          return `${firstTimeSlot.startTime} - ${firstTimeSlot.endTime}`;
+                                        }
+                                        
+                                        // For multiple days, try to get from schedule if timeSlots not available
+                                        if (activity.type === 'multiple_days' && activity.schedule && activity.schedule.length > 0) {
+                                          const firstSchedule = activity.schedule[0];
+                                          
+                                          // Check if schedule has timeSlots
+                                          if (firstSchedule.timeSlots && firstSchedule.timeSlots.length > 0) {
+                                            const firstScheduleSlot = firstSchedule.timeSlots.find((s: any) => s.isActive) || firstSchedule.timeSlots[0];
+                                            if (firstScheduleSlot && firstScheduleSlot.startTime && firstScheduleSlot.endTime) {
+                                              return `${firstScheduleSlot.startTime} - ${firstScheduleSlot.endTime}`;
+                                            }
+                                          }
+                                          
+                                          // Fallback: try to parse from activities text
+                                          if (firstSchedule.activities) {
+                                            const lines = firstSchedule.activities.split('\n').filter((line: string) => line.trim());
+                                            const timeLine = lines.find((line: string) => line.includes(':') && line.match(/\d{2}:\d{2}/));
+                                            if (timeLine) {
+                                              const timeMatch = timeLine.match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
+                                              if (timeMatch) {
+                                                return `${timeMatch[1]} - ${timeMatch[2]}`;
+                                              }
+                                            }
+                                          }
+                                        }
+                                        
+                                        return 'Chưa cập nhật';
+                                      })()}
                                     </span>
                                   </div>
 
+                                  {/* Phụ trách */}
                                   {activity.responsiblePerson && (
-                                    <div className="flex items-center gap-1.5">
-                                      <Briefcase size={10} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} />
-                                      <span className={`text-[10px] truncate ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                    <div className={`flex items-center gap-1.5 text-[10px] ${
+                                      isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                                    }`}>
+                                      <Briefcase size={10} className={`flex-shrink-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
+                                      <span className={`font-medium opacity-70 flex-shrink-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                        Phụ trách:
+                                      </span>
+                                      <span className="truncate min-w-0">
                                         {activity.responsiblePerson.name}
                                       </span>
                                     </div>
                                   )}
 
-                                  <div className="flex items-center gap-1.5">
-                                    <Users size={10} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} />
-                                    <span className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                      {activity.participants.length}
-                                      {activity.maxParticipants && `/${activity.maxParticipants}`}
-                                    </span>
-                                    {attendanceRate !== null && attendanceRate !== undefined && (
-                                      <>
-                                        <span className="text-[10px] text-gray-400">•</span>
-                                        <TrendingUp size={10} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} />
-                                        <span className={`text-[10px] font-semibold ${
-                                          attendanceRate >= 80
-                                            ? isDarkMode ? 'text-green-400' : 'text-green-600'
-                                            : attendanceRate >= 60
-                                              ? isDarkMode ? 'text-yellow-400' : 'text-yellow-600'
-                                              : isDarkMode ? 'text-red-400' : 'text-red-600'
-                                        }`}>
-                                          {attendanceRate}%
-                                        </span>
-                                      </>
-                                    )}
-                                  </div>
-
-                                  <div>
-                                    <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium border ${
-                                      activity.status === 'completed'
-                                        ? isDarkMode ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-emerald-100 text-emerald-700 border-emerald-300'
-                                        : activity.status === 'cancelled'
-                                          ? isDarkMode ? 'bg-red-500/20 text-red-300 border-red-500/30' : 'bg-red-100 text-red-700 border-red-300'
-                                          : isDarkMode ? 'bg-gray-500/20 text-gray-300 border-gray-500/30' : 'bg-gray-100 text-gray-700 border-gray-300'
+                                  {/* Địa điểm - Luôn hiển thị */}
+                                  {activity.location && (
+                                    <div className={`flex items-center gap-1.5 text-[10px] ${
+                                      isDarkMode ? 'text-gray-300' : 'text-gray-700'
                                     }`}>
-                                      <StatusIcon size={8} />
-                                      {statusConfig[activity.status].label}
-                                    </span>
-                                  </div>
+                                      <MapPin size={10} className={`flex-shrink-0 ${isDarkMode ? 'text-purple-400' : 'text-purple-600'}`} />
+                                      <span className={`font-medium opacity-70 flex-shrink-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                        Vị trí:
+                                      </span>
+                                      <div 
+                                        className={`flex-1 min-w-0 ${expandedLocations.has(activity._id) ? '' : 'line-clamp-1'} cursor-pointer hover:underline transition-all text-[10px] leading-relaxed`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setExpandedLocations(prev => {
+                                            const newSet = new Set(prev);
+                                            if (newSet.has(activity._id)) {
+                                              newSet.delete(activity._id);
+                                            } else {
+                                              newSet.add(activity._id);
+                                            }
+                                            return newSet;
+                                          });
+                                        }}
+                                      >
+                                        {activity.location}
+                                      </div>
+                                    </div>
+                                  )}
+
                                 </div>
                               </div>
                             </div>

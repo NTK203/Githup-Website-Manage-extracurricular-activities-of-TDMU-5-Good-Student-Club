@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { usePathname } from 'next/navigation';
-import { Shield, UserCog, Users, GraduationCap, RefreshCw, Loader, MapPin, Mail, Phone } from 'lucide-react';
+import { Shield, UserCog, Users, GraduationCap, MapPin, Mail, Phone } from 'lucide-react';
 
 interface FooterProps {
   isDarkMode?: boolean;
@@ -29,16 +29,20 @@ export default function Footer({ isDarkMode: propIsDarkMode }: FooterProps) {
     clubStudent: 0,
     student: 0
   });
-  const [refreshingStats, setRefreshingStats] = useState(false);
+  const [displayedStats, setDisplayedStats] = useState<AccessStatistics>({
+    admin: 0,
+    officer: 0,
+    clubStudent: 0,
+    student: 0
+  });
+  const [isVisible, setIsVisible] = useState(false);
   const currentYear = new Date().getFullYear();
   const isAuthPage = pathname?.startsWith('/auth/') || false;
-  // Check if this is an admin page (has sidebar on the left)
   const isAdminPage = pathname?.startsWith('/admin/') || false;
 
-  // Listen for theme changes
   useEffect(() => {
     if (propIsDarkMode !== undefined) {
-      return; // Don't listen if prop is provided
+      return;
     }
 
     const handleThemeChange = () => {
@@ -46,7 +50,6 @@ export default function Footer({ isDarkMode: propIsDarkMode }: FooterProps) {
       setLocalDarkMode(currentTheme === 'dark');
     };
 
-    // Set initial value
     const savedTheme = localStorage.getItem('theme');
     setLocalDarkMode(savedTheme === 'dark');
 
@@ -59,7 +62,6 @@ export default function Footer({ isDarkMode: propIsDarkMode }: FooterProps) {
     };
   }, [propIsDarkMode]);
 
-  // Ping session and fetch access statistics
   useEffect(() => {
     if (isAuthPage) {
       return;
@@ -114,12 +116,8 @@ export default function Footer({ isDarkMode: propIsDarkMode }: FooterProps) {
       }
     };
 
-    const fetchAccessStats = async (isManualRefresh = false) => {
+    const fetchAccessStats = async () => {
       try {
-        if (isManualRefresh) {
-          setRefreshingStats(true);
-        }
-        
         const response = await fetch('/api/statistics/access');
         const data = await response.json();
         
@@ -133,10 +131,6 @@ export default function Footer({ isDarkMode: propIsDarkMode }: FooterProps) {
         }
       } catch (error) {
         // Silent fail
-      } finally {
-        if (isManualRefresh) {
-          setRefreshingStats(false);
-        }
       }
     };
 
@@ -146,7 +140,7 @@ export default function Footer({ isDarkMode: propIsDarkMode }: FooterProps) {
         if (document.visibilityState === 'visible') {
           pingSession();
           setTimeout(() => {
-            fetchAccessStats(false);
+            fetchAccessStats();
           }, 1500);
         }
       };
@@ -164,7 +158,7 @@ export default function Footer({ isDarkMode: propIsDarkMode }: FooterProps) {
       }, 45 * 1000);
     }
     
-    statsInterval = setInterval(() => fetchAccessStats(false), 15000);
+    statsInterval = setInterval(() => fetchAccessStats(), 15000);
       
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
@@ -238,10 +232,52 @@ export default function Footer({ isDarkMode: propIsDarkMode }: FooterProps) {
     return () => window.removeEventListener('resize', checkDesktop);
   }, []);
 
-  // Only listen to sidebar state if this is an admin page
+  // Animate stats counter
+  useEffect(() => {
+    const duration = 1000;
+    const steps = 60;
+    const stepDuration = duration / steps;
+
+    const animateStat = (key: keyof AccessStatistics, target: number, start: number) => {
+      let current = start;
+      const increment = (target - start) / steps;
+      let step = 0;
+
+      const timer = setInterval(() => {
+        step++;
+        current += increment;
+        
+        if (step >= steps) {
+          setDisplayedStats(prev => ({ ...prev, [key]: target }));
+          clearInterval(timer);
+        } else {
+          setDisplayedStats(prev => ({ ...prev, [key]: Math.round(current) }));
+        }
+      }, stepDuration);
+
+      return timer;
+    };
+
+    const timers: NodeJS.Timeout[] = [];
+    
+    timers.push(animateStat('admin', accessStats.admin, displayedStats.admin));
+    timers.push(animateStat('officer', accessStats.officer, displayedStats.officer));
+    timers.push(animateStat('clubStudent', accessStats.clubStudent, displayedStats.clubStudent));
+    timers.push(animateStat('student', accessStats.student, displayedStats.student));
+
+    return () => {
+      timers.forEach(timer => clearInterval(timer));
+    };
+  }, [accessStats]);
+
+  // Fade in animation
+  useEffect(() => {
+    setIsVisible(true);
+  }, []);
+
   useEffect(() => {
     if (!isAdminPage) {
-      return; // Don't listen to sidebar changes if not admin page
+      return;
     }
 
     const savedSidebarState = localStorage.getItem('sidebarOpen');
@@ -280,7 +316,52 @@ export default function Footer({ isDarkMode: propIsDarkMode }: FooterProps) {
     };
   }, [isAdminPage]);
 
-  // Statistics data configuration
+  // Animate stats counter
+  useEffect(() => {
+    const duration = 1000;
+    const steps = 60;
+    const stepDuration = duration / steps;
+
+    const animateStat = (key: keyof AccessStatistics, target: number, start: number) => {
+      let current = start;
+      const increment = (target - start) / steps;
+      let step = 0;
+
+      const timer = setInterval(() => {
+        step++;
+        current += increment;
+        
+        if (step >= steps) {
+          setDisplayedStats(prev => ({ ...prev, [key]: target }));
+          clearInterval(timer);
+        } else {
+          setDisplayedStats(prev => ({ ...prev, [key]: Math.round(current) }));
+        }
+      }, stepDuration);
+
+      return timer;
+    };
+
+    const timers: NodeJS.Timeout[] = [];
+    
+    timers.push(animateStat('admin', accessStats.admin, displayedStats.admin));
+    timers.push(animateStat('officer', accessStats.officer, displayedStats.officer));
+    timers.push(animateStat('clubStudent', accessStats.clubStudent, displayedStats.clubStudent));
+    timers.push(animateStat('student', accessStats.student, displayedStats.student));
+
+    return () => {
+      timers.forEach(timer => clearInterval(timer));
+    };
+  }, [accessStats]);
+
+  // Fade in animation on mount
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsVisible(true);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
+
   const statsConfig = [
     { 
       key: 'admin' as const, 
@@ -308,181 +389,140 @@ export default function Footer({ isDarkMode: propIsDarkMode }: FooterProps) {
     }
   ];
 
-  const handleRefresh = async () => {
-    try {
-      setRefreshingStats(true);
-      const response = await fetch('/api/statistics/access');
-      const data = await response.json();
-      
-      if (data.success && data.data) {
-        setAccessStats({
-          admin: data.data.admin || 0,
-          officer: data.data.officer || 0,
-          clubStudent: data.data.clubStudent || 0,
-          student: data.data.student || 0
-        });
-      }
-    } catch (error) {
-      // Silent fail
-    } finally {
-      setRefreshingStats(false);
-    }
-  };
-
   return (
     <footer 
-      className={`relative transition-all duration-300 ${isDarkMode ? 'bg-slate-900 text-slate-300' : 'bg-white text-slate-600'} border-t ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}
+      className={`relative transition-all duration-500 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'} ${isDarkMode ? 'bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 text-slate-300' : 'bg-gradient-to-b from-white via-slate-50 to-white text-slate-600'} border-t ${isDarkMode ? 'border-slate-700/50' : 'border-slate-200'}`}
       style={{
-        // Only apply sidebar margin for admin pages, otherwise full width
         marginLeft: isAdminPage && isDesktop ? (isSidebarOpen ? '288px' : '80px') : '0',
         width: isAdminPage && isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%'
       }}
     >
-      <div className="relative z-10 max-w-6xl mx-auto px-6 py-4">
-        {/* Main content - Simplified */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-4">
-          
-          {/* Brand Section - Simplified */}
-          <div>
-            <div className="flex items-center mb-3">
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8 mb-6">
+          <div className="group animate-fade-in">
+            <div className="flex items-center mb-4 transition-transform duration-300 group-hover:scale-105">
               <div className="relative">
                 <img 
                   src="/logo_clb_sv_5T.jpg" 
                   alt="CLB Sinh viên 5 Tốt TDMU" 
-                  className={`w-9 h-9 rounded-lg mr-2 ring-2 ${isDarkMode ? 'ring-indigo-800' : 'ring-indigo-200'}`}
+                  className={`w-12 h-12 rounded-xl mr-3 ring-2 shadow-lg transition-all duration-300 animate-pulse-slow ${isDarkMode ? 'ring-indigo-700/50 group-hover:ring-indigo-500' : 'ring-indigo-200 group-hover:ring-indigo-400'} group-hover:shadow-xl group-hover:rotate-3`}
                 />
               </div>
               <div>
-                <h3 className={`text-sm font-bold bg-gradient-to-r ${isDarkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent`}>
+                <h3 className={`text-sm font-bold bg-gradient-to-r ${isDarkMode ? 'from-blue-400 via-purple-400 to-pink-400' : 'from-blue-600 via-purple-600 to-pink-600'} bg-clip-text text-transparent transition-all duration-300 animate-gradient bg-[length:200%_200%]`}>
                   CLB Sinh viên 5 Tốt TDMU
                 </h3>
-                <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'} transition-colors duration-300`}>
                   Hệ thống Quản lý Hoạt động
                 </p>
               </div>
             </div>
-            <p className={`text-xs leading-relaxed ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+            <p className={`text-xs leading-relaxed ${isDarkMode ? 'text-slate-400' : 'text-slate-600'} transition-colors duration-300`}>
               Nền tảng quản lý hiện đại cho câu lạc bộ sinh viên tại Đại học Thủ Dầu Một.
             </p>
           </div>
 
-          {/* Contact - Simplified */}
           <div>
-            <h4 className={`text-xs font-semibold mb-3 flex items-center gap-1.5 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-              <div className="w-1 h-1 bg-indigo-500 rounded-full"></div>
+            <h4 className={`text-xs font-semibold mb-4 flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'} transition-colors duration-300`}>
+              <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${isDarkMode ? 'bg-indigo-500' : 'bg-indigo-600'}`}></div>
               Liên hệ
             </h4>
-            <div className={`space-y-1.5 text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
-              <div className="flex items-center gap-2">
-                <MapPin size={14} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} strokeWidth={1.5} />
-                <p>Đại học Thủ Dầu Một, Bình Dương</p>
+            <div className={`space-y-3 text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+              <div className="flex items-center gap-2 group/contact transition-all duration-300 hover:translate-x-1">
+                <MapPin size={14} className={`${isDarkMode ? 'text-blue-400' : 'text-blue-600'} transition-all duration-300 group-hover/contact:scale-110 animate-bounce-slow`} strokeWidth={2} />
+                <span className="transition-colors duration-300 group-hover/contact:text-blue-500">Đại học Thủ Dầu Một, Bình Dương</span>
               </div>
-              <div className="flex items-center gap-2">
-                <Mail size={14} className={isDarkMode ? 'text-purple-400' : 'text-purple-600'} strokeWidth={1.5} />
-                <p>clb5tot@tdmu.edu.vn</p>
+              <div className="flex items-center gap-2 group/contact transition-all duration-300 hover:translate-x-1">
+                <Mail size={14} className={`${isDarkMode ? 'text-purple-400' : 'text-purple-600'} transition-all duration-300 group-hover/contact:scale-110 animate-bounce-slow`} strokeWidth={2} style={{ animationDelay: '0.5s' }} />
+                <span className="transition-colors duration-300 group-hover/contact:text-purple-500">clb5tot@tdmu.edu.vn</span>
               </div>
-              <div className="flex items-center gap-2">
-                <Phone size={14} className={isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} strokeWidth={1.5} />
-                <p>0369025756</p>
+              <div className="flex items-center gap-2 group/contact transition-all duration-300 hover:translate-x-1">
+                <Phone size={14} className={`${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} transition-all duration-300 group-hover/contact:scale-110 animate-bounce-slow`} strokeWidth={2} style={{ animationDelay: '1s' }} />
+                <span className="transition-colors duration-300 group-hover/contact:text-emerald-500">0369025756</span>
               </div>
             </div>
           </div>
 
-          {/* Info - Simplified */}
-          <div>
-            <h4 className={`text-xs font-semibold mb-3 flex items-center gap-1.5 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-              <div className="w-1 h-1 bg-purple-500 rounded-full"></div>
+          <div className="animate-slide-up" style={{ animationDelay: '200ms' }}>
+            <h4 className={`text-xs font-semibold mb-4 flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'} transition-colors duration-300`}>
+              <div className={`w-1.5 h-1.5 rounded-full animate-pulse-slow ${isDarkMode ? 'bg-purple-500' : 'bg-purple-600'}`}></div>
               Thông tin
             </h4>
-            <p className={`text-xs mb-3 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+            <p className={`text-xs mb-4 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'} transition-colors duration-300`}>
               Nhận thông tin mới nhất về các hoạt động của CLB.
             </p>
-            <div className="flex">
+            <div className={`flex rounded-lg overflow-hidden border transition-all duration-300 hover:shadow-lg ${isDarkMode ? 'border-slate-600' : 'border-slate-300'}`}>
               <input 
                 type="email" 
                 placeholder="Email của bạn" 
-                className={`flex-1 px-2 py-1.5 text-xs border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                className={`flex-1 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-300 ${
                   isDarkMode 
-                    ? 'border-slate-600 bg-slate-800 text-slate-300' 
-                    : 'border-slate-300 bg-white text-gray-900'
+                    ? 'bg-slate-800 text-slate-300 placeholder-slate-500' 
+                    : 'bg-white text-gray-900 placeholder-slate-400'
                 }`}
               />
-              <button className="px-2.5 py-1.5 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white text-xs font-medium transition-all duration-200 shadow-sm hover:shadow-md">
+              <button className={`px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white text-xs font-medium transition-all duration-300 ${isDarkMode ? 'shadow-lg' : 'shadow-md'} hover:shadow-xl hover:scale-105 active:scale-95`}>
                 →
               </button>
             </div>
           </div>
 
-          {/* Access Statistics - Separate Item */}
-          <div>
-            <h4 className={`text-xs font-semibold mb-3 flex items-center gap-1.5 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-              <div className="w-1 h-1 bg-emerald-500 rounded-full"></div>
+          <div className="animate-slide-up" style={{ animationDelay: '300ms' }}>
+            <h4 className={`text-xs font-semibold mb-4 flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'} transition-colors duration-300`}>
+              <div className={`w-1.5 h-1.5 rounded-full animate-pulse-slow ${isDarkMode ? 'bg-emerald-500' : 'bg-emerald-600'}`}></div>
               Thống kê truy cập
             </h4>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={handleRefresh}
-                className={`flex items-center justify-center w-full px-2 py-1.5 transition-all duration-200 rounded ${
-                  isDarkMode 
-                    ? 'text-gray-400 hover:text-gray-200 hover:bg-slate-800' 
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-slate-50'
-                }`}
-                title="Làm mới số lượng truy cập"
-                disabled={refreshingStats}
-              >
-                <RefreshCw 
-                  size={12} 
-                  strokeWidth={1.5} 
-                  className={`mr-1 ${refreshingStats ? 'animate-spin' : ''}`}
-                />
-                <span className="text-xs">Làm mới</span>
-              </button>
-
-              <div className="grid grid-cols-2 gap-2">
-                {statsConfig.map((stat) => {
-                  const IconComponent = stat.icon;
-                  return (
-                    <div key={stat.key} className={`flex items-center gap-2 px-2 py-1.5 rounded ${isDarkMode ? 'bg-slate-800/50' : 'bg-slate-50'}`}>
-                      <IconComponent size={14} className={stat.color.icon} strokeWidth={1.5} />
-                      <div className="flex-1 min-w-0">
-                        <div className={`text-[10px] font-semibold leading-tight ${stat.color.label} mb-0.5`}>
-                          {stat.label}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          {refreshingStats ? (
-                            <Loader 
-                              size={12} 
-                              className={`animate-spin ${stat.color.icon}`} 
-                              strokeWidth={1.5} 
-                            />
-                          ) : (
-                            <span className={`text-sm font-bold leading-tight ${stat.color.value}`}>
-                              {accessStats[stat.key]}
-                            </span>
-                          )}
-                        </div>
+            <div className="grid grid-cols-2 gap-2.5">
+              {statsConfig.map((stat, index) => {
+                const IconComponent = stat.icon;
+                return (
+                  <div 
+                    key={stat.key} 
+                    className={`flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all duration-300 hover:scale-105 hover:shadow-lg ${isDarkMode ? 'bg-slate-800/60 border border-slate-700/50 hover:border-slate-600' : 'bg-slate-50 border border-slate-200 hover:border-slate-300'}`}
+                    style={{ 
+                      animation: `slide-up 0.5s ease-out ${index * 100}ms both`
+                    }}
+                  >
+                    <IconComponent 
+                      size={13} 
+                      className={`${stat.color.icon} transition-all duration-300 group-hover:scale-110 animate-bounce-slow`} 
+                      strokeWidth={2}
+                      style={{ animationDelay: `${index * 300}ms` }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-[10px] font-medium leading-tight ${stat.color.label} mb-1 transition-colors duration-300`}>
+                        {stat.label}
                       </div>
+                      <span className={`text-base font-bold leading-tight ${stat.color.value} transition-all duration-300 tabular-nums`}>
+                        {displayedStats[stat.key]}
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
 
-        {/* Bottom section - Simplified */}
-        <div className={`pt-3 border-t ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+        <div className={`pt-5 mt-5 border-t ${isDarkMode ? 'border-slate-700/50' : 'border-slate-200'}`}>
           <div className="flex flex-col md:flex-row justify-between items-center gap-3">
-            <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-              © {currentYear} nguyenkimthinh.it@gmail.com. Tất cả quyền được bảo lưu.
+            <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'} transition-colors duration-300`}>
+              © {currentYear} CLB Sinh viên 5 Tốt TDMU. Tất cả quyền được bảo lưu.
             </p>
-
-            <div className="flex items-center gap-4 text-xs">
-              <a href="#" className={`${isDarkMode ? 'text-slate-400' : 'text-slate-500'} hover:text-indigo-500 transition-colors duration-200`}>
+            <div className="flex items-center gap-5 text-xs">
+              <a 
+                href="#" 
+                className={`${isDarkMode ? 'text-slate-400 hover:text-indigo-400' : 'text-slate-500 hover:text-indigo-600'} transition-all duration-300 hover:scale-110 relative group`}
+              >
                 Chính sách
+                <span className={`absolute bottom-0 left-0 w-0 h-0.5 ${isDarkMode ? 'bg-indigo-400' : 'bg-indigo-600'} transition-all duration-300 group-hover:w-full`}></span>
               </a>
-              <a href="#" className={`${isDarkMode ? 'text-slate-400' : 'text-slate-500'} hover:text-purple-500 transition-colors duration-200`}>
+              <a 
+                href="#" 
+                className={`${isDarkMode ? 'text-slate-400 hover:text-purple-400' : 'text-slate-500 hover:text-purple-600'} transition-all duration-300 hover:scale-110 relative group`}
+              >
                 Hỗ trợ
+                <span className={`absolute bottom-0 left-0 w-0 h-0.5 ${isDarkMode ? 'bg-purple-400' : 'bg-purple-600'} transition-all duration-300 group-hover:w-full`}></span>
               </a>
             </div>
           </div>

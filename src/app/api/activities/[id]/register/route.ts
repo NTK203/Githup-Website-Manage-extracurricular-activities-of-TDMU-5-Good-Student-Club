@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbConnect } from '@/lib/db';
 import Activity from '@/models/Activity';
-import Notification from '@/models/Notification';
 import { getUserFromRequest } from '@/lib/auth';
 import mongoose from 'mongoose';
 
@@ -23,7 +22,7 @@ export async function POST(
 
     const { id: activityId } = params;
     const body = await request.json();
-    const { userId, name, email, role = 'Người Tham Gia', daySlots = [] } = body;
+    const { userId, name, email, role = 'Người Tham Gia', daySlots = [], isAdminAdd = false } = body;
 
     // Validate ObjectId format
     if (!mongoose.Types.ObjectId.isValid(activityId)) {
@@ -40,6 +39,37 @@ export async function POST(
       );
     }
 
+    // Check if admin is adding participant for another user
+    const isAdminAddingForOther = isAdminAdd && (user.role === 'CLUB_LEADER' || user.role === 'SUPER_ADMIN' || user.role === 'CLUB_DEPUTY');
+    const isSelfRegistration = !isAdminAddingForOther && userId === user.userId;
+
+    // If not admin adding for other, ensure user can only register themselves
+    if (!isAdminAddingForOther && !isSelfRegistration) {
+      return NextResponse.json(
+        { success: false, message: 'Bạn chỉ có thể đăng ký cho chính mình' },
+        { status: 403 }
+      );
+    }
+
+    // If admin is adding, verify the target user exists and has valid role
+    if (isAdminAddingForOther) {
+      const User = (await import('@/models/User')).default;
+      const targetUser = await User.findById(userId);
+      if (!targetUser) {
+        return NextResponse.json(
+          { success: false, message: 'Không tìm thấy người dùng' },
+          { status: 404 }
+        );
+      }
+      // Only allow adding CLUB_STUDENT or STUDENT
+      if (targetUser.role !== 'CLUB_STUDENT' && targetUser.role !== 'STUDENT') {
+        return NextResponse.json(
+          { success: false, message: 'Chỉ có thể thêm CLUB_STUDENT hoặc STUDENT vào hoạt động' },
+          { status: 403 }
+        );
+      }
+    }
+
     // Find the activity
     const activity = await Activity.findById(activityId);
     if (!activity) {
@@ -52,24 +82,35 @@ export async function POST(
     // Check if activity is open for registration
     // Allow registration for 'published' and 'ongoing' activities
     // Block registration for 'completed', 'cancelled', 'postponed', and 'draft'
-    if (activity.status === 'completed' || activity.status === 'cancelled' || 
-        activity.status === 'postponed' || activity.status === 'draft') {
-      return NextResponse.json(
-        { success: false, message: 'Hoạt động này không còn mở đăng ký' },
-        { status: 400 }
-      );
-    }
-
-    // Check if activity date has passed (only for published activities)
-    if (activity.status === 'published') {
-      const activityDate = new Date(activity.date);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      // If activity date is in the past, don't allow registration
-      if (activityDate < today) {
+    // Exception: Admin can add participants to draft activities
+    if (!isAdminAddingForOther) {
+      if (activity.status === 'completed' || activity.status === 'cancelled' || 
+          activity.status === 'postponed' || activity.status === 'draft') {
         return NextResponse.json(
-          { success: false, message: 'Hoạt động này đã kết thúc' },
+          { success: false, message: 'Hoạt động này không còn mở đăng ký' },
+          { status: 400 }
+        );
+      }
+
+      // Check if activity date has passed (only for published activities)
+      if (activity.status === 'published') {
+        const activityDate = new Date(activity.date);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        // If activity date is in the past, don't allow registration
+        if (activityDate < today) {
+          return NextResponse.json(
+            { success: false, message: 'Hoạt động này đã kết thúc' },
+            { status: 400 }
+          );
+        }
+      }
+    } else {
+      // Admin can add participants to any activity except completed/cancelled
+      if (activity.status === 'completed' || activity.status === 'cancelled') {
+        return NextResponse.json(
+          { success: false, message: 'Không thể thêm thành viên vào hoạt động đã hoàn thành hoặc đã hủy' },
           { status: 400 }
         );
       }
@@ -353,11 +394,17 @@ export async function POST(
       email: email,
       role: role,
       joinedAt: new Date(),
-      approvalStatus: 'pending'
+      approvalStatus: isAdminAddingForOther ? 'approved' : 'pending' // Auto-approve if admin adds
     };
 
-    // Store daySlots for multiple_days activities
-    if (activity.type === 'multiple_days' && daySlots && Array.isArray(daySlots) && daySlots.length > 0) {
+    // If admin is adding, mark as approved by admin
+    if (isAdminAddingForOther) {
+      newParticipant.approvedBy = new mongoose.Types.ObjectId(user.userId);
+      newParticipant.approvedAt = new Date();
+    }
+
+    // Store daySlots for multiple_days and single_day activities
+    if (daySlots && Array.isArray(daySlots) && daySlots.length > 0) {
       // Validate daySlots structure
       const validDaySlots = daySlots.filter((ds: any) => 
         ds && typeof ds.day === 'number' && ds.slot && ['morning', 'afternoon', 'evening'].includes(ds.slot)
@@ -473,14 +520,16 @@ export async function POST(
 
     // Send notification to responsible officer
     try {
-      if (activity.responsiblePerson) {
+      if (activity.responsiblePerson && !isAdminAddingForOther) {
+        // Only send notification for normal user registrations, not admin additions
+        const NotificationModel = (await import('@/models/Notification')).default;
         const officerId = activity.responsiblePerson instanceof mongoose.Types.ObjectId
           ? activity.responsiblePerson
           : new mongoose.Types.ObjectId(activity.responsiblePerson);
 
         // Only send notification if officer is different from the registering user
         if (!officerId.equals(userObjectId)) {
-          await Notification.createForUsers(
+          await (NotificationModel as any).createForUsers(
             [officerId],
             {
               title: 'Có thành viên mới đăng ký tham gia',
@@ -652,10 +701,10 @@ export async function PATCH(
       );
     }
 
-    // Only allow for multiple_days activities
-    if (activity.type !== 'multiple_days') {
+    // Allow for both multiple_days and single_day activities
+    if (activity.type !== 'multiple_days' && activity.type !== 'single_day') {
       return NextResponse.json(
-        { success: false, message: 'Chỉ có thể cập nhật buổi đăng ký cho hoạt động nhiều ngày' },
+        { success: false, message: 'Chỉ có thể cập nhật buổi đăng ký cho hoạt động nhiều ngày hoặc một ngày' },
         { status: 400 }
       );
     }
@@ -762,66 +811,82 @@ export async function PATCH(
           const otherActivityDate = new Date(otherActivity.date);
           otherActivityDate.setHours(0, 0, 0, 0);
 
+          // For single_day, check which slots the user has registered
+          const otherRegisteredSlots = otherParticipant.registeredDaySlots && Array.isArray(otherParticipant.registeredDaySlots)
+            ? otherParticipant.registeredDaySlots.map((ds: any) => ds.slot)
+            : [];
+
           // Check each daySlot in current registration
           for (const currentDaySlot of validDaySlots) {
+            // Only check if user has registered this slot in the single_day activity
+            if (!otherRegisteredSlots.includes(currentDaySlot.slot)) continue;
+
             // Find the corresponding day in current activity's schedule
-            if (activity.schedule) {
+            let currentDayDate: Date | null = null;
+            if (activity.type === 'multiple_days' && activity.schedule) {
               const scheduleDay = activity.schedule.find((s: any) => {
                 const scheduleDayNum = s.day || (activity.schedule.indexOf(s) + 1);
                 return scheduleDayNum === currentDaySlot.day;
               });
+              if (scheduleDay && scheduleDay.date) {
+                currentDayDate = new Date(scheduleDay.date);
+                currentDayDate.setHours(0, 0, 0, 0);
+              }
+            } else if (activity.type === 'single_day' && activity.date) {
+              currentDayDate = new Date(activity.date);
+              currentDayDate.setHours(0, 0, 0, 0);
+            }
 
-              if (scheduleDay) {
-                const scheduleDate = new Date(scheduleDay.date);
-                scheduleDate.setHours(0, 0, 0, 0);
+            // If dates match, check if time slots overlap
+            if (currentDayDate && currentDayDate.getTime() === otherActivityDate.getTime()) {
+              // Check the actual time slots to be more precise
+              if (activity.timeSlots && otherActivity.timeSlots) {
+                const slotName = currentDaySlot.slot === 'morning' ? 'Buổi Sáng' : 
+                                currentDaySlot.slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+                const currentSlot = activity.timeSlots.find((ts: any) => {
+                  return ts.name === slotName && ts.isActive;
+                });
+                const otherSlot = otherActivity.timeSlots.find((ts: any) => {
+                  return ts.name === slotName && ts.isActive;
+                });
 
-                // If dates match, check if time slots overlap
-                if (scheduleDate.getTime() === otherActivityDate.getTime()) {
-                  // Check the actual time slots to be more precise
-                  if (activity.timeSlots && otherActivity.timeSlots) {
-                    const currentSlot = activity.timeSlots.find((ts: any) => {
-                      const slotName = currentDaySlot.slot === 'morning' ? 'Buổi Sáng' : 
-                                      currentDaySlot.slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
-                      return ts.name === slotName && ts.isActive;
-                    });
+                if (currentSlot && otherSlot) {
+                  // Parse times
+                  const currentStart = currentSlot.startTime.split(':').map(Number);
+                  const currentEnd = currentSlot.endTime.split(':').map(Number);
+                  const otherStart = otherSlot.startTime.split(':').map(Number);
+                  const otherEnd = otherSlot.endTime.split(':').map(Number);
 
-                    if (currentSlot) {
-                      // Check if any time slot in other activity overlaps with current slot
-                      const hasTimeOverlap = otherActivity.timeSlots.some((otherSlot: any) => {
-                        if (!otherSlot.isActive) return false;
-                        
-                        // Parse times
-                        const currentStart = currentSlot.startTime.split(':').map(Number);
-                        const currentEnd = currentSlot.endTime.split(':').map(Number);
-                        const otherStart = otherSlot.startTime.split(':').map(Number);
-                        const otherEnd = otherSlot.endTime.split(':').map(Number);
+                  const currentStartMinutes = currentStart[0] * 60 + currentStart[1];
+                  const currentEndMinutes = currentEnd[0] * 60 + currentEnd[1];
+                  const otherStartMinutes = otherStart[0] * 60 + otherStart[1];
+                  const otherEndMinutes = otherEnd[0] * 60 + otherEnd[1];
 
-                        const currentStartMinutes = currentStart[0] * 60 + currentStart[1];
-                        const currentEndMinutes = currentEnd[0] * 60 + currentEnd[1];
-                        const otherStartMinutes = otherStart[0] * 60 + otherStart[1];
-                        const otherEndMinutes = otherEnd[0] * 60 + otherEnd[1];
+                  // Check if time ranges overlap
+                  const hasTimeOverlap = !(currentEndMinutes <= otherStartMinutes || currentStartMinutes >= otherEndMinutes);
 
-                        // Check if time ranges overlap
-                        return !(currentEndMinutes <= otherStartMinutes || currentStartMinutes >= otherEndMinutes);
-                      });
-
-                      if (hasTimeOverlap) {
-                        overlappingActivities.push({
-                          activityName: otherActivity.name,
-                          day: currentDaySlot.day,
-                          slot: currentDaySlot.slot
-                        });
-                      }
-                    }
-                  } else {
-                    // If we can't check time slots, consider it overlapping if date matches
+                  if (hasTimeOverlap) {
                     overlappingActivities.push({
                       activityName: otherActivity.name,
                       day: currentDaySlot.day,
                       slot: currentDaySlot.slot
                     });
                   }
+                } else {
+                  // If we can't find specific slots, consider it overlapping if date and slot match
+                  overlappingActivities.push({
+                    activityName: otherActivity.name,
+                    day: currentDaySlot.day,
+                    slot: currentDaySlot.slot
+                  });
                 }
+              } else {
+                // If we can't check time slots, consider it overlapping if date and slot match
+                overlappingActivities.push({
+                  activityName: otherActivity.name,
+                  day: currentDaySlot.day,
+                  slot: currentDaySlot.slot
+                });
               }
             }
           }

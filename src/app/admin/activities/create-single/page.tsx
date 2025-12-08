@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
@@ -52,7 +52,8 @@ import {
   EyeOff,
   Target,
   Timer,
-  UserCircle
+  UserCircle,
+  Search
 } from 'lucide-react';
 
 // Dynamically import OpenStreetMapPicker with SSR disabled
@@ -127,7 +128,7 @@ export default function CreateSingleActivityPage() {
 
   // Check if this is edit mode
   const activityId = params.id as string;
-  const isEditMode = activityId && activityId !== 'new';
+  const isEditMode = Boolean(activityId && activityId !== 'new' && activityId.trim() !== '');
   
   console.log('CreateSingleActivityPage - activityId:', activityId);
   console.log('CreateSingleActivityPage - isEditMode:', isEditMode);
@@ -264,12 +265,32 @@ export default function CreateSingleActivityPage() {
   // Additional notes toggle - show by default if in edit mode or if there's existing overview
   const [showAdditionalNotes, setShowAdditionalNotes] = useState(isEditMode);
   
+  // Check if activity has already started (to disable date editing)
+  const [isActivityStarted, setIsActivityStarted] = useState(false);
+  
   // Clear all locations modal
   const [showClearLocationsModal, setShowClearLocationsModal] = useState(false);
   
   // Success notification modal
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Add participant modal states
+  const [showAddParticipantModal, setShowAddParticipantModal] = useState(false);
+  const [availableStudents, setAvailableStudents] = useState<Array<{
+    _id: string;
+    name: string;
+    email: string;
+    studentId: string;
+    faculty?: string;
+    role: string;
+    isClubMember?: boolean;
+  }>>([]);
+  const [searchStudentTerm, setSearchStudentTerm] = useState('');
+  const [loadingStudents, setLoadingStudents] = useState(false);
+  const [studentsCurrentPage, setStudentsCurrentPage] = useState(1);
+  const [studentsTotalPages, setStudentsTotalPages] = useState(1);
+  const [addingParticipant, setAddingParticipant] = useState(false);
   
   // Handle clear all locations
   const handleClearAllLocations = () => {
@@ -495,8 +516,48 @@ export default function CreateSingleActivityPage() {
     }
   };
 
-  const handleRemoveParticipant = (id: string) => {
-    setParticipants(prev => prev.filter(p => p.id !== id));
+  const handleRemoveParticipant = async (id: string) => {
+    // Find the participant to check if it was added via API (has userId and activityId)
+    const participant = participants.find(p => p.id === id);
+    
+    // If in edit mode and participant was added via API, call API to remove
+    if (isEditMode && activityId && activityId !== 'new' && participant?.userId) {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          alert('Chưa đăng nhập');
+          return;
+        }
+
+        const response = await fetch(`/api/activities/${activityId}/participants`, {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            userId: participant.userId,
+            permanent: true // Permanently remove from activity
+          }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          // Remove from local state
+          setParticipants(prev => prev.filter(p => p.id !== id));
+          alert(`Đã xóa ${participant.name} khỏi hoạt động`);
+        } else {
+          alert(data.message || 'Có lỗi xảy ra khi xóa thành viên');
+        }
+      } catch (error: any) {
+        console.error('Error removing participant:', error);
+        alert('Có lỗi xảy ra: ' + (error.message || 'Unknown error'));
+      }
+    } else {
+      // Create mode or participant not added via API: just remove from local state
+      setParticipants(prev => prev.filter(p => p.id !== id));
+    }
   };
 
   // Function to change participant role
@@ -863,10 +924,23 @@ export default function CreateSingleActivityPage() {
         }
         
         // Fill form data - handle MongoDB data structure
+        const activityDate = activity.date ? new Date(activity.date).toISOString().split('T')[0] : '';
+        
+        // Check if activity has already started
+        if (activityDate) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const activityDateObj = new Date(activityDate);
+          activityDateObj.setHours(0, 0, 0, 0);
+          setIsActivityStarted(activityDateObj <= today);
+        } else {
+          setIsActivityStarted(false);
+        }
+        
         setForm({
           name: activity.name || '',
           description: activity.description || '',
-          date: activity.date ? new Date(activity.date).toISOString().split('T')[0] : '',
+          date: activityDate,
           location: activity.location || '',
           detailedLocation: activity.detailedLocation || '',
           maxParticipants: activity.maxParticipants?.toString() || '50',
@@ -1227,7 +1301,7 @@ export default function CreateSingleActivityPage() {
     fetchClubStudents(page);
   };
 
-  // Function to add club student to participants
+  // Function to add club student to participants (local only, for form state)
   const handleAddClubStudent = (student: any) => {
     // Check if student is already in participants
     const isAlreadyAdded = participants.some(p => p.userId === student._id);
@@ -1247,6 +1321,144 @@ export default function CreateSingleActivityPage() {
     setParticipants(prev => [...prev, newParticipant]);
     alert(`Đã thêm ${student.name} vào danh sách tham gia`);
   };
+
+  // Function to fetch available students (CLUB_STUDENT and STUDENT)
+  const fetchAvailableStudents = useCallback(async (search: string = '', page: number = 1) => {
+    setLoadingStudents(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setLoadingStudents(false);
+        return;
+      }
+
+      // Get CLUB_STUDENT
+      const clubStudentParams = new URLSearchParams({
+        page: page.toString(),
+        limit: '10'
+      });
+      if (search) {
+        clubStudentParams.append('search', search);
+      }
+      clubStudentParams.append('role', 'CLUB_STUDENT');
+      
+      // Get STUDENT
+      const studentParams = new URLSearchParams({
+        page: page.toString(),
+        limit: '10'
+      });
+      if (search) {
+        studentParams.append('search', search);
+      }
+      studentParams.append('role', 'STUDENT');
+      
+      const [clubStudentRes, studentRes] = await Promise.all([
+        fetch(`/api/users?${clubStudentParams}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }),
+        fetch(`/api/users?${studentParams}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+      ]);
+
+      const [clubStudentData, studentData] = await Promise.all([
+        clubStudentRes.json(),
+        studentRes.json()
+      ]);
+
+      const allStudents = [
+        ...(clubStudentData.success ? clubStudentData.data.users : []),
+        ...(studentData.success ? studentData.data.users : [])
+      ];
+
+      // Remove duplicates
+      const uniqueStudents = Array.from(
+        new Map(allStudents.map((s: any) => [s._id, s])).values()
+      );
+
+      setAvailableStudents(uniqueStudents);
+      const totalFromClub = clubStudentData.success ? clubStudentData.data.pagination.totalCount : 0;
+      const totalFromStudent = studentData.success ? studentData.data.pagination.totalCount : 0;
+      setStudentsTotalPages(Math.ceil((totalFromClub + totalFromStudent) / 10));
+    } catch (error) {
+      console.error('Error fetching students:', error);
+    } finally {
+      setLoadingStudents(false);
+    }
+  }, []);
+
+  // Function to add participant to activity (for edit mode)
+  const handleAddParticipantToActivity = async (student: any) => {
+    if (!activityId || activityId === 'new') {
+      // Create mode: just add locally
+      handleAddClubStudent(student);
+      return;
+    }
+
+    // Edit mode: add via API
+    setAddingParticipant(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        alert('Chưa đăng nhập');
+        return;
+      }
+
+      // Check if already registered
+      const isAlreadyAdded = participants.some(p => p.userId === student._id);
+      if (isAlreadyAdded) {
+        alert('Thành viên này đã có trong danh sách tham gia');
+        setAddingParticipant(false);
+        return;
+      }
+
+      const response = await fetch(`/api/activities/${activityId}/register`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          userId: student._id,
+          name: student.name,
+          email: student.email,
+          role: 'Người Tham Gia',
+          isAdminAdd: true // Flag to indicate admin is adding
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        // Add to local state
+        const newParticipant: Participant = {
+          id: Date.now().toString(),
+          userId: student._id,
+          name: student.name,
+          email: student.email,
+          role: 'Người Tham Gia' as ParticipantRole
+        };
+        setParticipants(prev => [...prev, newParticipant]);
+        alert(`Đã thêm ${student.name} vào hoạt động`);
+        setShowAddParticipantModal(false);
+        setSearchStudentTerm('');
+      } else {
+        alert(data.message || 'Có lỗi xảy ra khi thêm thành viên');
+      }
+    } catch (error: any) {
+      console.error('Error adding participant:', error);
+      alert('Có lỗi xảy ra: ' + (error.message || 'Unknown error'));
+    } finally {
+      setAddingParticipant(false);
+    }
+  };
+
+  // Load students when modal opens
+  useEffect(() => {
+    if (showAddParticipantModal) {
+      fetchAvailableStudents(searchStudentTerm, studentsCurrentPage);
+    }
+  }, [showAddParticipantModal, searchStudentTerm, studentsCurrentPage, fetchAvailableStudents]);
 
   // Show loading spinner when loading activity data in edit mode
   if (isLoadingActivity) {
@@ -1404,11 +1616,11 @@ export default function CreateSingleActivityPage() {
                     {(() => { console.log('🖼️ Render check - selectedImage:', selectedImage, 'form.imageUrl:', form.imageUrl, 'imagePreview:', imagePreview); return null; })()}
                     {/* Ảnh Preview */}
                     {(imagePreview || form.imageUrl) && (
-                      <div className="relative">
+                      <div className="relative w-full max-w-md mx-auto aspect-[4/3] overflow-hidden rounded-lg shadow-md bg-gray-100 flex items-center justify-center">
                         <img 
                           src={imagePreview || form.imageUrl} 
                           alt="Preview" 
-                          className="w-full h-48 object-cover"
+                          className="w-full h-full object-contain"
                         />
                         
                         {/* Overlay gradient cho text dễ đọc */}
@@ -1536,8 +1748,8 @@ export default function CreateSingleActivityPage() {
                     </div>
 
                     {/* Ngày diễn ra */}
-                    <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-gray-700/50 border border-gray-600/50' : 'bg-white/80 border border-gray-200/50'} backdrop-blur-sm`}>
-                      <label className={`block text-[10px] font-semibold mb-1.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-gray-700/50 border border-gray-600/50' : 'bg-white/80 border border-gray-200/50'} backdrop-blur-sm ${isActivityStarted ? 'opacity-60' : ''}`}>
+                      <label className={`block text-[10px] font-semibold mb-1.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} ${isActivityStarted ? 'opacity-70' : ''}`}>
                         <Calendar className="inline w-3 h-3 text-green-500 mr-1" />
                         Ngày diễn ra *
                       </label>
@@ -1548,14 +1760,22 @@ export default function CreateSingleActivityPage() {
                         onChange={handleChange}
                         required
                         min={getTodayDate()}
+                        disabled={isActivityStarted}
                         className={`w-full px-3 py-2 rounded-lg border text-xs ${
-                          isDarkMode 
-                            ? 'bg-gray-600/50 border-gray-500/50 text-white focus:border-green-500 focus:ring-2 focus:ring-green-500/20' 
-                            : 'bg-white/90 border-gray-300/50 text-gray-900 focus:border-green-400 focus:ring-2 focus:ring-green-500/20'
+                          isActivityStarted
+                            ? isDarkMode 
+                              ? 'bg-gray-700/30 border-gray-600/30 text-gray-500 cursor-not-allowed' 
+                              : 'bg-gray-100 border-gray-300 text-gray-400 cursor-not-allowed'
+                            : isDarkMode 
+                              ? 'bg-gray-600/50 border-gray-500/50 text-white focus:border-green-500 focus:ring-2 focus:ring-green-500/20' 
+                              : 'bg-white/90 border-gray-300/50 text-gray-900 focus:border-green-400 focus:ring-2 focus:ring-green-500/20'
                         } focus:outline-none transition-all duration-300 backdrop-blur-sm`}
                       />
                       <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                        💡 Có thể chọn ngày hôm nay hoặc tương lai
+                        {isActivityStarted 
+                          ? '🔒 Hoạt động đã bắt đầu, không thể thay đổi ngày' 
+                          : '💡 Có thể chọn ngày hôm nay hoặc tương lai'
+                        }
                       </p>
                     </div>
                   </div>
@@ -2510,13 +2730,34 @@ export default function CreateSingleActivityPage() {
 
               {/* 6. Danh sách thành viên đã đăng ký */}
               <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl border border-gray-700/50' : 'bg-gradient-to-br from-white/90 to-blue-50/50 backdrop-blur-xl border border-gray-200/50'} shadow-lg hover:shadow-xl transition-all duration-300`}>
-                <div className="mb-3">
-                  <h2 className={`text-sm font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    6. Danh sách thành viên đã đăng ký
-                  </h2>
-                  <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                    Xem danh sách các thành viên đã đăng ký tham gia hoạt động
-                  </p>
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <h2 className={`text-sm font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                      6. Danh sách thành viên đã đăng ký ({participants.length})
+                    </h2>
+                    <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      {isEditMode ? 'Quản lý danh sách thành viên tham gia hoạt động' : 'Xem danh sách các thành viên đã đăng ký tham gia hoạt động'}
+                    </p>
+                  </div>
+                  {isEditMode && activityId && activityId !== 'new' && activityId.trim() !== '' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAddParticipantModal(true);
+                        setSearchStudentTerm('');
+                        setStudentsCurrentPage(1);
+                        fetchAvailableStudents('', 1);
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 flex items-center space-x-1.5 ${
+                        isDarkMode
+                          ? 'bg-blue-600 text-white hover:bg-blue-700'
+                          : 'bg-blue-500 text-white hover:bg-blue-600'
+                      }`}
+                    >
+                      <Plus size={14} strokeWidth={2} />
+                      <span>Thêm thành viên</span>
+                    </button>
+                  )}
                 </div>
 
                 {participants.length === 0 ? (
@@ -2534,36 +2775,54 @@ export default function CreateSingleActivityPage() {
                       <div key={participant.id} className={`flex items-center justify-between p-3 rounded-lg border ${
                         isDarkMode ? 'bg-gray-700/50 border-gray-600/50' : 'bg-white/80 border-gray-200/50'
                       }`}>
-                        <div className="flex items-center space-x-3">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                        <div className="flex items-center space-x-3 flex-1 min-w-0">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
                             isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
                           }`}>
                             <span className={`text-xs font-bold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
                               {participant.name.charAt(0).toUpperCase()}
                             </span>
                           </div>
-                          <div>
-                            <p className={`text-xs font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-xs font-semibold truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                               {participant.name}
                             </p>
-                            <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                            <p className={`text-[10px] truncate ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                               {participant.email}
                             </p>
                           </div>
                         </div>
-                        <span className={`px-2 py-1 rounded text-[10px] font-medium ${
-                          participant.role === 'Trưởng Nhóm'
-                            ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-                            : participant.role === 'Phó Trưởng Nhóm'
-                            ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
-                            : participant.role === 'Thành Viên Ban Tổ Chức'
-                            ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300'
-                            : participant.role === 'Người Giám Sát'
-                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
-                            : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-                        }`}>
-                          {participant.role}
-                        </span>
+                        <div className="flex items-center space-x-2 ml-3">
+                          <span className={`px-2 py-1 rounded text-[10px] font-medium whitespace-nowrap ${
+                            participant.role === 'Trưởng Nhóm'
+                              ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+                              : participant.role === 'Phó Trưởng Nhóm'
+                              ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
+                              : participant.role === 'Thành Viên Ban Tổ Chức'
+                              ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300'
+                              : participant.role === 'Người Giám Sát'
+                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                              : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                          }`}>
+                            {participant.role}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm(`Bạn có chắc chắn muốn xóa ${participant.name} khỏi danh sách tham gia?`)) {
+                                handleRemoveParticipant(participant.id);
+                              }
+                            }}
+                            className={`p-1.5 rounded-lg transition-all hover:scale-110 ${
+                              isDarkMode
+                                ? 'text-red-400 hover:bg-red-500/20 hover:text-red-300'
+                                : 'text-red-600 hover:bg-red-50 hover:text-red-700'
+                            }`}
+                            title="Xóa thành viên"
+                          >
+                            <XCircle size={16} strokeWidth={2} />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -2729,7 +2988,7 @@ export default function CreateSingleActivityPage() {
 
       {/* Success Notification Modal */}
       {showSuccessModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10000] p-4">
           <div className={`relative w-full max-w-sm rounded-2xl shadow-2xl transform transition-all duration-300 ${
             isDarkMode ? 'bg-gray-800 border border-gray-600' : 'bg-white border border-gray-200'
           }`}>
@@ -2768,7 +3027,7 @@ export default function CreateSingleActivityPage() {
 
       {/* Clear All Locations Modal */}
       {showClearLocationsModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10000] p-4">
           <div className={`relative w-full max-w-md rounded-2xl shadow-2xl transform transition-all duration-300 ${
             isDarkMode ? 'bg-gray-800 border border-gray-600' : 'bg-white border border-gray-200'
           }`}>
@@ -2844,6 +3103,218 @@ export default function CreateSingleActivityPage() {
                 Xóa tất cả
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Participant Modal */}
+      {showAddParticipantModal && (
+        <div 
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[10000] flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowAddParticipantModal(false);
+            }
+          }}
+        >
+          <div className={`w-full max-w-2xl max-h-[90vh] rounded-xl shadow-2xl overflow-hidden flex flex-col relative z-[10001] ${
+            isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'
+          }`}>
+            {/* Header */}
+            <div className={`px-6 py-4 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    Thêm thành viên vào hoạt động
+                  </h3>
+                  <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Tìm kiếm và chọn CLUB_STUDENT hoặc STUDENT để thêm vào danh sách tham gia
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowAddParticipantModal(false)}
+                  className={`p-2 rounded-lg transition-colors ${
+                    isDarkMode ? 'hover:bg-gray-700 text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-900'
+                  }`}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Search */}
+              <div className="mt-4">
+                <div className="relative">
+                  <Search className={`absolute left-3 top-1/2 transform -translate-y-1/2 ${
+                    isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                  }`} size={18} />
+                  <input
+                    type="text"
+                    placeholder="Tìm kiếm theo tên, email, mã số sinh viên..."
+                    value={searchStudentTerm}
+                    onChange={(e) => {
+                      setSearchStudentTerm(e.target.value);
+                      setStudentsCurrentPage(1);
+                      fetchAvailableStudents(e.target.value, 1);
+                    }}
+                    className={`w-full pl-10 pr-4 py-2 rounded-lg border ${
+                      isDarkMode
+                        ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
+                        : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
+                    }`}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {loadingStudents ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader className="animate-spin text-blue-500" size={32} />
+                </div>
+              ) : availableStudents.length === 0 ? (
+                <div className="text-center py-12">
+                  <Users className={`mx-auto mb-3 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} size={48} />
+                  <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    {searchStudentTerm ? 'Không tìm thấy kết quả' : 'Không có thành viên nào'}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {availableStudents.map((student) => {
+                    const isAlreadyAdded = participants.some(p => p.userId === student._id);
+                    return (
+                      <div
+                        key={student._id}
+                        className={`p-3 rounded-lg border transition-all ${
+                          isDarkMode
+                            ? isAlreadyAdded
+                              ? 'bg-gray-700/50 border-gray-600 opacity-60 cursor-not-allowed'
+                              : 'bg-gray-700/30 border-gray-600 hover:bg-gray-700/50'
+                            : isAlreadyAdded
+                              ? 'bg-gray-50 border-gray-300 opacity-60 cursor-not-allowed'
+                              : 'bg-white border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-3 flex-1 min-w-0">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                              isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
+                            }`}>
+                              <span className={`text-sm font-bold ${
+                                isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                              }`}>
+                                {student.name.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-sm font-semibold truncate ${
+                                isDarkMode ? 'text-white' : 'text-gray-900'
+                              }`}>
+                                {student.name}
+                              </p>
+                              <p className={`text-xs truncate ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                {student.email}
+                              </p>
+                              <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                                {student.studentId} • {student.faculty || 'Chưa có khoa/viện'}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-3 ml-4">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                              student.role === 'CLUB_STUDENT'
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                                : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                            }`}>
+                              {student.role === 'CLUB_STUDENT' ? 'Thành viên CLB' : 'Sinh viên'}
+                            </span>
+                            {isAlreadyAdded ? (
+                              <span className={`px-3 py-1.5 rounded-lg text-xs font-medium ${
+                                isDarkMode
+                                  ? 'bg-gray-600 text-gray-300'
+                                  : 'bg-gray-200 text-gray-600'
+                              }`}>
+                                Đã thêm
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleAddParticipantToActivity(student)}
+                                disabled={addingParticipant}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                                  isDarkMode
+                                    ? 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50'
+                                    : 'bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50'
+                                }`}
+                              >
+                                {addingParticipant ? (
+                                  <Loader className="animate-spin" size={14} />
+                                ) : (
+                                  'Thêm'
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Footer - Pagination */}
+            {studentsTotalPages > 1 && (
+              <div className={`px-6 py-4 border-t flex items-center justify-between ${
+                isDarkMode ? 'border-gray-700' : 'border-gray-200'
+              }`}>
+                <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Trang {studentsCurrentPage} / {studentsTotalPages}
+                </p>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => {
+                      if (studentsCurrentPage > 1) {
+                        setStudentsCurrentPage(studentsCurrentPage - 1);
+                        fetchAvailableStudents(searchStudentTerm, studentsCurrentPage - 1);
+                      }
+                    }}
+                    disabled={studentsCurrentPage === 1 || loadingStudents}
+                    className={`px-3 py-1.5 rounded-lg text-sm transition-all ${
+                      isDarkMode
+                        ? studentsCurrentPage === 1 || loadingStudents
+                          ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                          : 'bg-gray-700 text-white hover:bg-gray-600'
+                        : studentsCurrentPage === 1 || loadingStudents
+                          ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (studentsCurrentPage < studentsTotalPages) {
+                        setStudentsCurrentPage(studentsCurrentPage + 1);
+                        fetchAvailableStudents(searchStudentTerm, studentsCurrentPage + 1);
+                      }
+                    }}
+                    disabled={studentsCurrentPage === studentsTotalPages || loadingStudents}
+                    className={`px-3 py-1.5 rounded-lg text-sm transition-all ${
+                      isDarkMode
+                        ? studentsCurrentPage === studentsTotalPages || loadingStudents
+                          ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                          : 'bg-gray-700 text-white hover:bg-gray-600'
+                        : studentsCurrentPage === studentsTotalPages || loadingStudents
+                          ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

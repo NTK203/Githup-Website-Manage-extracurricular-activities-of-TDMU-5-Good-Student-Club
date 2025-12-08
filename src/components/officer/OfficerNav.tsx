@@ -27,6 +27,7 @@ import {
   Loader2,
   AlertTriangle,
   CheckCircle,
+  Newspaper,
   type LucideIcon
 } from 'lucide-react';
 
@@ -490,6 +491,7 @@ export default function OfficerNav() {
           { name: 'Danh sách sinh viên', href: '/officer/students', icon: Users },
         ]
       },
+      { name: 'Bản tin', href: '/officer/news', icon: Newspaper },
     ];
 
     // Thêm dropdown CLB nếu có thông tin bị xóa/duyệt lại

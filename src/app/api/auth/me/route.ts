@@ -23,19 +23,29 @@ export async function GET(request: NextRequest) {
     // Check membership status - if REMOVED, downgrade role (except SUPER_ADMIN)
     let membership = null;
     try {
-      membership = await Membership.findOne({ userId: user._id })
-        .sort({ createdAt: -1 });
+      // Ensure userId is converted to ObjectId for proper query
+      const mongoose = await import('mongoose');
+      const userId = new mongoose.Types.ObjectId(user._id);
+      membership = await Membership.findOne({ userId })
+        .sort({ createdAt: -1 })
+        .lean();
     } catch (membershipError) {
       console.error('Error fetching membership:', membershipError);
+      // Continue without membership check - don't fail the request
     }
 
     // If membership is REMOVED, downgrade user role
     if (membership && membership.status === 'REMOVED' && user.role !== 'SUPER_ADMIN') {
       if (['CLUB_LEADER', 'CLUB_DEPUTY', 'CLUB_MEMBER', 'CLUB_STUDENT'].includes(user.role)) {
-        user.role = 'STUDENT';
-        user.isClubMember = false;
-        await user.save();
-        console.log(`Downgraded user ${user._id} role to STUDENT due to REMOVED membership`);
+        try {
+          user.role = 'STUDENT';
+          user.isClubMember = false;
+          await user.save();
+          console.log(`Downgraded user ${user._id} role to STUDENT due to REMOVED membership`);
+        } catch (saveError) {
+          console.error('Error saving user after role downgrade:', saveError);
+          // Continue even if save fails
+        }
       }
     }
 
@@ -61,8 +71,13 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('Error fetching user data:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json(
-      { success: false, error: 'Internal server error' },
+      { 
+        success: false, 
+        error: 'Internal server error',
+        message: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+      },
       { status: 500 }
     );
   }

@@ -20,11 +20,11 @@ export async function PATCH(
       );
     }
 
-    // Check if user has permission (CLUB_DEPUTY, OFFICER, or CLUB_MEMBER)
-    const allowedRoles = ['CLUB_DEPUTY', 'OFFICER', 'CLUB_MEMBER'];
+    // Check if user has permission (SUPER_ADMIN, ADMIN, CLUB_DEPUTY, OFFICER, or CLUB_MEMBER)
+    const allowedRoles = ['SUPER_ADMIN', 'ADMIN', 'CLUB_DEPUTY', 'OFFICER', 'CLUB_MEMBER'];
     if (!allowedRoles.includes(user.role)) {
       return NextResponse.json(
-        { success: false, message: 'Bạn không có quyền duyệt người tham gia. Chỉ CLUB_DEPUTY, OFFICER và CLUB_MEMBER mới có quyền.' },
+        { success: false, message: 'Bạn không có quyền duyệt người tham gia. Chỉ SUPER_ADMIN, ADMIN, CLUB_DEPUTY, OFFICER và CLUB_MEMBER mới có quyền.' },
         { status: 403 }
       );
     }
@@ -251,11 +251,11 @@ export async function DELETE(
       );
     }
 
-    // Check if user has permission (CLUB_DEPUTY, OFFICER, or CLUB_MEMBER)
-    const allowedRoles = ['CLUB_DEPUTY', 'OFFICER', 'CLUB_MEMBER'];
+    // Check if user has permission (SUPER_ADMIN, ADMIN, CLUB_DEPUTY, OFFICER, or CLUB_MEMBER)
+    const allowedRoles = ['SUPER_ADMIN', 'ADMIN', 'CLUB_DEPUTY', 'OFFICER', 'CLUB_MEMBER'];
     if (!allowedRoles.includes(user.role)) {
       return NextResponse.json(
-        { success: false, message: 'Bạn không có quyền xóa người tham gia. Chỉ CLUB_DEPUTY, OFFICER và CLUB_MEMBER mới có quyền.' },
+        { success: false, message: 'Bạn không có quyền xóa người tham gia. Chỉ SUPER_ADMIN, ADMIN, CLUB_DEPUTY, OFFICER và CLUB_MEMBER mới có quyền.' },
         { status: 403 }
       );
     }

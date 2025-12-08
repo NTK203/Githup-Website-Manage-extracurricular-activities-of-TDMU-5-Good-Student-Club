@@ -137,6 +137,8 @@ export default function ActivityDetailPage() {
   const [selectedDaySlotsForRegistration, setSelectedDaySlotsForRegistration] = useState<Array<{ day: number; slot: 'morning' | 'afternoon' | 'evening' }>>([]);
   const [userRegisteredDaySlots, setUserRegisteredDaySlots] = useState<Array<{ day: number; slot: 'morning' | 'afternoon' | 'evening' }>>([]);
   const [showRegistrationModal, setShowRegistrationModal] = useState(false);
+  const [showSingleDayRegistrationModal, setShowSingleDayRegistrationModal] = useState(false);
+  const [selectedSingleDaySlots, setSelectedSingleDaySlots] = useState<Array<'morning' | 'afternoon' | 'evening'>>([]);
   const [overlapWarning, setOverlapWarning] = useState<{
     show: boolean;
     overlappingActivities: Array<{ activityName: string; day: number; slot: string; date?: string; startTime?: string; endTime?: string }>;
@@ -1139,7 +1141,17 @@ export default function ActivityDetailPage() {
       return;
     }
 
-    // For single_day activities, proceed with registration
+    // For single_day activities, show modal to select slots and check overlap
+    if (activity.type === 'single_day' && activity.timeSlots && activity.timeSlots.length > 0) {
+      const activeSlots = activity.timeSlots.filter((slot: any) => slot.isActive);
+      if (activeSlots.length > 0) {
+        setShowSingleDayRegistrationModal(true);
+        setSelectedSingleDaySlots([]);
+        return;
+      }
+    }
+
+    // For single_day activities without slots or fallback, proceed with registration
     setIsRegistering(true);
     setError(null);
 
@@ -1611,6 +1623,355 @@ export default function ActivityDetailPage() {
     }
   };
 
+  // Toggle slot selection for single_day activities
+  const toggleSingleDaySlotSelection = async (slot: 'morning' | 'afternoon' | 'evening') => {
+    const exists = selectedSingleDaySlots.includes(slot);
+    
+    if (exists) {
+      setSelectedSingleDaySlots(prev => prev.filter(s => s !== slot));
+    } else {
+      // Check if registration is allowed (rate < registrationThreshold)
+      if (!activity) return;
+      
+      // For single_day, we need to check if the slot can be registered
+      // Check maxParticipants if exists
+      if (activity.maxParticipants && activity.maxParticipants !== Infinity) {
+        const approvedCount = activity.participants?.filter((p: any) => {
+          const approvalStatus = p.approvalStatus || 'pending';
+          return approvalStatus === 'approved';
+        }).length || 0;
+        
+        if (approvedCount >= activity.maxParticipants) {
+          alert('Hoạt động này đã đủ số lượng người tham gia.');
+          return;
+        }
+      }
+
+      // Check for overlapping slots with other activities
+      if (user && activity && activity._id && activity.date) {
+        try {
+          // Convert slot to day number (use day 1 for single_day)
+          const slotName = slot === 'morning' ? 'Buổi Sáng' : 
+                          slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+          const timeSlot = activity.timeSlots?.find((ts: any) => ts.name === slotName && ts.isActive);
+          
+          if (!timeSlot) {
+            alert('Buổi này không tồn tại hoặc đã bị tắt.');
+            return;
+          }
+
+          const response = await fetch('/api/activities/check-slot-overlap', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              activityId: activity._id,
+              day: 1, // Use day 1 for single_day
+              slot: slot,
+              schedule: undefined, // No schedule for single_day
+              date: activity.date // Pass the activity date
+            }),
+          });
+
+          const result = await response.json();
+          
+          if (result.success && result.hasOverlap && result.overlappingActivities && result.overlappingActivities.length > 0) {
+            const slotNames: { [key: string]: string } = {
+              'morning': 'Sáng',
+              'afternoon': 'Chiều',
+              'evening': 'Tối'
+            };
+
+            const overlapMessages = result.overlappingActivities.map((overlap: any) => {
+              const slotName = slotNames[overlap.slot] || overlap.slot;
+              let message = `"${overlap.activityName}"`;
+              if (overlap.date) {
+                const date = new Date(overlap.date);
+                message += ` - ${date.toLocaleDateString('vi-VN')}`;
+              }
+              if (overlap.startTime && overlap.endTime) {
+                message += ` (${overlap.startTime} - ${overlap.endTime})`;
+              }
+              return message;
+            });
+
+            const slotName = slotNames[slot] || slot;
+            const activityDate = new Date(activity.date);
+            
+            // Show beautiful warning modal instead of alert
+            setOverlapWarning({
+              show: true,
+              overlappingActivities: result.overlappingActivities,
+              day: 1,
+              slot: slotName,
+              date: activity.date,
+              currentActivityName: activity.name,
+              currentSlotStartTime: timeSlot.startTime,
+              currentSlotEndTime: timeSlot.endTime
+            });
+            return; // Block registration - don't add to selection
+          }
+        } catch (error) {
+          console.error('Error checking slot overlap:', error);
+          // Continue with selection even if check fails
+        }
+      }
+
+      setSelectedSingleDaySlots(prev => [...prev, slot]);
+    }
+  };
+
+  // Handle registration for single_day activities with selected slots
+  const handleRegisterSingleDay = async () => {
+    if (!isAuthenticated || !token || !activity || !user) {
+      alert("Bạn cần đăng nhập để đăng ký hoặc hủy đăng ký hoạt động.");
+      return;
+    }
+
+    // Check if activity has ended - don't allow registration if it has
+    const timeStatus = getActivityTimeStatus();
+    if (!isRegistered && timeStatus === 'after') {
+      alert("Hoạt động này đã kết thúc. Bạn không thể đăng ký tham gia.");
+      return;
+    }
+
+    if (selectedSingleDaySlots.length === 0) {
+      alert("Vui lòng chọn ít nhất một buổi để đăng ký.");
+      return;
+    }
+
+    // Check total registration rate for selected slots
+    // For single_day: rate = selected slots / total available slots
+    const activeSlots = activity.timeSlots?.filter((slot: any) => slot.isActive) || [];
+    const totalAvailableSlots = activeSlots.length;
+    if (totalAvailableSlots === 0) {
+      alert("Không có buổi nào để đăng ký.");
+      return;
+    }
+
+    const selectedSlotsCount = selectedSingleDaySlots.length;
+    const totalRate = Math.round((selectedSlotsCount / totalAvailableSlots) * 100);
+    const threshold = getRegistrationThreshold();
+    
+    if (totalRate < threshold) {
+      alert(`Tổng tỷ lệ đăng ký của các buổi đã chọn là ${totalRate}%. Bạn phải chọn đủ buổi để tổng tỷ lệ đạt ít nhất ${threshold}% mới có thể đăng ký.`);
+      return;
+    }
+
+    // Kiểm tra lại trùng lịch cho tất cả các slot đã chọn trước khi submit
+    if (user && activity && activity._id && activity.date) {
+      try {
+        const overlapChecks = await Promise.all(
+          selectedSingleDaySlots.map(async (slot) => {
+            const slotName = slot === 'morning' ? 'Buổi Sáng' : 
+                            slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+            const timeSlot = activity.timeSlots?.find((ts: any) => ts.name === slotName && ts.isActive);
+            
+            if (!timeSlot) return null;
+
+            const response = await fetch('/api/activities/check-slot-overlap', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                activityId: activity._id,
+                day: 1,
+                slot: slot,
+                schedule: undefined,
+                date: activity.date
+              }),
+            });
+
+            const result = await response.json();
+            
+            if (result.success && result.hasOverlap && result.overlappingActivities && result.overlappingActivities.length > 0) {
+              return { slot, slotName, timeSlot, overlappingActivities: result.overlappingActivities };
+            }
+            return null;
+          })
+        );
+
+        const foundOverlaps = overlapChecks.filter((check): check is { slot: 'morning' | 'afternoon' | 'evening'; slotName: string; timeSlot: any; overlappingActivities: any[] } => check !== null);
+        
+        if (foundOverlaps.length > 0) {
+          // Hiển thị warning cho slot đầu tiên bị trùng
+          const firstOverlap = foundOverlaps[0];
+          const slotNames: { [key: string]: string } = {
+            'morning': 'Sáng',
+            'afternoon': 'Chiều',
+            'evening': 'Tối'
+          };
+          const slotName = slotNames[firstOverlap.slot] || firstOverlap.slot;
+          
+          setOverlapWarning({
+            show: true,
+            overlappingActivities: firstOverlap.overlappingActivities,
+            day: 1,
+            slot: slotName,
+            date: activity.date,
+            currentActivityName: activity.name,
+            currentSlotStartTime: firstOverlap.timeSlot.startTime,
+            currentSlotEndTime: firstOverlap.timeSlot.endTime
+          });
+          return; // Block registration
+        }
+      } catch (error) {
+        console.error('Error checking slot overlap before submit:', error);
+        // Continue with registration even if check fails
+      }
+    }
+
+    setIsRegistering(true);
+    setError(null);
+
+    try {
+      // Convert selected slots to daySlots format (day = 1 for single_day)
+      const daySlots = selectedSingleDaySlots.map(slot => ({
+        day: 1,
+        slot: slot
+      }));
+
+      // Use PATCH if already registered, POST if new registration
+      const method = isRegistered ? 'PATCH' : 'POST';
+
+      const url = `/api/activities/${activity._id}/register`;
+      const response = await fetch(url, {
+        method: method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ 
+          userId: user._id, 
+          name: user.name, 
+          email: user.email, 
+          role: 'Người Tham Gia',
+          daySlots: daySlots
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to register for activity');
+      }
+
+      const result = await response.json();
+      alert(result.message);
+
+      // Close modal
+      setShowSingleDayRegistrationModal(false);
+      setSelectedSingleDaySlots([]);
+
+      // Reload activity data
+      if (activityId && user) {
+        const updatedActivityResponse = await fetch(`/api/activities/${activityId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const updatedActivityData = await updatedActivityResponse.json();
+        const rawUpdatedActivity = updatedActivityData.data.activity;
+
+        if (rawUpdatedActivity) {
+          const isMultiTimeMode = rawUpdatedActivity.location === 'Nhiều địa điểm' || (rawUpdatedActivity.multiTimeLocations && rawUpdatedActivity.multiTimeLocations.length > 0);
+          const updatedActivityDetails: ActivityDetail = {
+            _id: rawUpdatedActivity._id,
+            name: rawUpdatedActivity.name,
+            description: rawUpdatedActivity.description,
+            date: rawUpdatedActivity.date?.$date ? new Date(rawUpdatedActivity.date.$date).toLocaleDateString('vi-VN') : new Date(rawUpdatedActivity.date).toLocaleDateString('vi-VN'),
+            location: rawUpdatedActivity.location,
+            timeSlots: rawUpdatedActivity.timeSlots?.map((slot: any) => ({ 
+              ...slot, 
+              activities: slot.activities || '',
+              detailedLocation: slot.detailedLocation || {} 
+            })) || [],
+            points: rawUpdatedActivity.points || 0,
+            status: rawUpdatedActivity.status,
+            type: rawUpdatedActivity.type,
+            visibility: rawUpdatedActivity.visibility,
+            imageUrl: rawUpdatedActivity.imageUrl,
+            overview: rawUpdatedActivity.overview,
+            numberOfSessions: rawUpdatedActivity.timeSlots?.filter((slot: { isActive: boolean; }) => slot.isActive).length || 0,
+            registeredParticipantsCount: rawUpdatedActivity.participants?.length || 0,
+            maxParticipants: rawUpdatedActivity.maxParticipants,
+            registrationThreshold: rawUpdatedActivity.registrationThreshold !== undefined && rawUpdatedActivity.registrationThreshold !== null ? rawUpdatedActivity.registrationThreshold : 80,
+            organizer: rawUpdatedActivity.responsiblePerson?.name || rawUpdatedActivity.participants?.find((p: { role: string; }) => p.role === 'Trưởng Nhóm')?.name || rawUpdatedActivity.participants?.[0]?.name || 'N/A',
+            participants: rawUpdatedActivity.participants || [],
+            locationData: rawUpdatedActivity.locationData,
+            multiTimeLocations: rawUpdatedActivity.multiTimeLocations?.map((mtl: any) => {
+              const actualRadius = mtl.radius !== undefined && mtl.radius !== null ? mtl.radius : undefined;
+              return {
+                ...mtl, 
+                lat: mtl.location?.lat ?? 0, 
+                lng: mtl.location?.lng ?? 0, 
+                address: mtl.location?.address ?? '', 
+                radius: actualRadius
+              };
+            }) || [],
+            detailedLocation: rawUpdatedActivity.detailedLocation,
+            isMultiTimeLocation: isMultiTimeMode,
+          };
+          setActivity(updatedActivityDetails);
+          
+          const userParticipant = rawUpdatedActivity.participants.find(
+            (p: any) => {
+              const participantUserId = typeof p.userId === 'object' && p.userId !== null
+                ? (p.userId._id || p.userId.$oid || String(p.userId))
+                : (p.userId?.$oid || p.userId || String(p.userId));
+              return participantUserId === user._id;
+            }
+          );
+          
+          if (userParticipant) {
+            setIsRegistered(true);
+            setApprovalStatus(userParticipant.approvalStatus || 'pending');
+            setRejectionReason(userParticipant.rejectionReason);
+            setRejectedAt(userParticipant.rejectedAt);
+            setRemovedAt(userParticipant.removedAt);
+            setRemovedBy(userParticipant.removedBy);
+            setCheckedIn(userParticipant.checkedIn || false);
+            
+            if (userParticipant.registeredDaySlots && Array.isArray(userParticipant.registeredDaySlots)) {
+              setUserRegisteredDaySlots(userParticipant.registeredDaySlots);
+            } else {
+              setUserRegisteredDaySlots([]);
+            }
+            
+            if (userParticipant.approvalStatus === 'approved') {
+              await loadAttendanceRecords();
+            } else {
+              setAttendanceRecords([]);
+            }
+          } else {
+            setIsRegistered(false);
+            setApprovalStatus(undefined);
+            setRejectionReason(undefined);
+            setRejectedAt(undefined);
+            setRemovedAt(undefined);
+            setRemovedBy(undefined);
+            setCheckedIn(false);
+            setAttendanceRecords([]);
+            setUserRegisteredDaySlots([]);
+          }
+          
+          setLocationPickerKey(prev => prev + 1);
+
+          if (isMultiTimeMode && updatedActivityDetails.multiTimeLocations && updatedActivityDetails.multiTimeLocations.length === 1) {
+            setSelectedTimeSlot(updatedActivityDetails.multiTimeLocations[0].timeSlot);
+          }
+        }
+      }
+
+    } catch (err: unknown) {
+      console.error('Error registering:', err);
+      alert(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsRegistering(false);
+    }
+  };
+
   // Helper function to parse time string (HH:MM) to Date
   // const parseTimeToDate = (timeString: string, baseDate: Date): Date => {
   //   const [hours, minutes] = timeString.split(':').map(Number);
@@ -2042,6 +2403,28 @@ export default function ActivityDetailPage() {
                     </button>
                   )}
                   
+                  {isRegistered && activity.type === 'single_day' && (
+                    <button
+                      onClick={() => {
+                        // Convert registeredDaySlots to selectedSingleDaySlots format
+                        // Nếu có userRegisteredDaySlots, dùng nó; nếu không, để trống để user chọn lại
+                        const slots = userRegisteredDaySlots.length > 0 
+                          ? userRegisteredDaySlots.map(ds => ds.slot)
+                          : [];
+                        setSelectedSingleDaySlots(slots);
+                        setShowSingleDayRegistrationModal(true);
+                      }}
+                      className={`flex-1 py-1 px-2 rounded text-[10px] font-medium transition-all flex items-center justify-center gap-1 ${
+                        isDarkMode
+                          ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                          : 'bg-blue-500 hover:bg-blue-600 text-white'
+                      }`}
+                    >
+                      <Eye size={11} />
+                      <span>Xem/Chỉnh sửa buổi đã đăng ký</span>
+                    </button>
+                  )}
+                  
                   {isRegistered && approvalStatus === 'pending' && (
                     <button
                       onClick={handleRegisterToggle}
@@ -2168,13 +2551,13 @@ export default function ActivityDetailPage() {
               </div>
             )}
 
-            {/* Số buổi */}
+            {/* Số buổi / Số ngày */}
             {activity.numberOfSessions !== undefined && activity.numberOfSessions > 0 && (
               <div key="number-of-sessions-card" className={`flex-1 min-w-[120px] rounded-lg border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
                 <div className="p-2 flex flex-col items-center text-center h-full">
                   <BookOpen size={16} className="text-purple-500 mb-1" strokeWidth={2} />
                   <p className={`text-[9px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                    Số buổi
+                    {activity.type === 'multiple_days' ? 'Số ngày' : 'Số buổi'}
                   </p>
                   <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                     {activity.numberOfSessions}
@@ -2461,14 +2844,38 @@ export default function ActivityDetailPage() {
             </div>
 
             {/* Time Slot Cards - Hiển thị các buổi của ngày được chọn - Layout Grid Đẹp Mắt */}
+            {!selectedDaySlot && (
+              <div className={`text-center py-4 rounded-lg border ${isDarkMode ? 'border-gray-600 bg-gray-800/50' : 'border-gray-300 bg-gray-50'}`}>
+                <Calendar size={20} className={`mx-auto mb-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
+                <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Chọn một ngày để xem lịch trình hoạt động
+                </p>
+                <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                  Nhấn vào một ngày ở trên để xem các buổi hoạt động của ngày đó
+                </p>
+              </div>
+            )}
             {selectedDaySlot && (() => {
               const dayData = parsedScheduleData.find(d => d.day === selectedDaySlot.day);
               if (!dayData) return null;
 
+              // Chỉ hiển thị các buổi thực sự có trong ngày này
+              const availableSlots = dayData.slots.filter(s => s.slotKey);
+              if (availableSlots.length === 0) {
+                return (
+                  <div className={`text-center py-4 rounded-lg border ${isDarkMode ? 'border-gray-600 bg-gray-800/50' : 'border-gray-300 bg-gray-50'}`}>
+                    <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Ngày này chưa có lịch trình hoạt động
+                    </p>
+                  </div>
+                );
+              }
+
               return (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-stretch">
-                  {['morning', 'afternoon', 'evening'].map((slotKey) => {
-                    const slot = dayData.slots.find(s => s.slotKey === slotKey);
+                  {availableSlots.map((slotItem) => {
+                    const slotKey = slotItem.slotKey;
+                    const slot = slotItem;
                     const slotName = slotKey === 'morning' ? 'Buổi Sáng' : slotKey === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
                     const SlotIcon = slotKey === 'morning' ? Sunrise : slotKey === 'afternoon' ? Sun : Moon;
                     
@@ -2557,8 +2964,9 @@ export default function ActivityDetailPage() {
                       <div
                         key={slotKey}
                         onClick={() => {
-                          if (isActive && hasLocation) {
+                          if (isActive) {
                             setSelectedDaySlot({ day: dayData.day, slot: slotKey as 'morning' | 'afternoon' | 'evening' });
+                            // Scroll to map section to show location
                             setTimeout(() => {
                               const mapSection = document.getElementById('map-section');
                               if (mapSection) {
@@ -2567,12 +2975,26 @@ export default function ActivityDetailPage() {
                             }, 100);
                           }
                         }}
-                        className={`rounded-lg border p-2.5 transition-all duration-300 ${styles.border} ${
+                        className={`rounded-lg border-2 p-2.5 transition-all duration-300 ${
+                          isSelected && isActive
+                            ? slotKey === 'morning'
+                              ? isDarkMode
+                                ? 'border-yellow-500 ring-2 ring-yellow-400/50 shadow-lg shadow-yellow-500/20'
+                                : 'border-yellow-500 ring-2 ring-yellow-300/50 shadow-lg shadow-yellow-500/20'
+                              : slotKey === 'afternoon'
+                              ? isDarkMode
+                                ? 'border-orange-500 ring-2 ring-orange-400/50 shadow-lg shadow-orange-500/20'
+                                : 'border-orange-500 ring-2 ring-orange-300/50 shadow-lg shadow-orange-500/20'
+                              : isDarkMode
+                                ? 'border-blue-500 ring-2 ring-blue-400/50 shadow-lg shadow-blue-500/20'
+                                : 'border-blue-500 ring-2 ring-blue-300/50 shadow-lg shadow-blue-500/20'
+                            : styles.border
+                        } ${
                           isDarkMode ? 'bg-gray-800' : 'bg-white'
                         } ${
                           !isActive ? 'opacity-60' : ''
                         } ${
-                          isActive && hasLocation ? 'cursor-pointer hover:shadow-lg' : 'cursor-default'
+                          isActive ? 'cursor-pointer hover:shadow-lg hover:scale-[1.02]' : 'cursor-default'
                         } flex flex-col h-full`}
                       >
                         {/* Slot Header */}
@@ -2627,10 +3049,33 @@ export default function ActivityDetailPage() {
                             <div className={`p-2 rounded-lg min-h-[60px] flex flex-col ${
                               isDarkMode ? 'border border-gray-700' : 'border border-gray-200'
                             }`}>
-                              <label className={`block mb-1 text-[9px] font-bold uppercase tracking-wide flex items-center gap-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                <BookOpen size={9} strokeWidth={2} />
-                                <span>Mô tả hoạt động</span>
-                              </label>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className={`block text-[9px] font-bold uppercase tracking-wide flex items-center gap-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                  <BookOpen size={9} strokeWidth={2} />
+                                  <span>Mô tả hoạt động</span>
+                                </label>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedDaySlot({ day: dayData.day, slot: slotKey as 'morning' | 'afternoon' | 'evening' });
+                                    setTimeout(() => {
+                                      const mapSection = document.getElementById('map-section');
+                                      if (mapSection) {
+                                        mapSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                      }
+                                    }, 100);
+                                  }}
+                                  className={`px-1.5 py-0.5 rounded text-[8px] font-semibold transition-all flex items-center gap-1 ${
+                                    isDarkMode
+                                      ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 border border-blue-500/30'
+                                      : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200'
+                                  }`}
+                                  title="Xem địa điểm trên bản đồ"
+                                >
+                                  <Calendar size={8} strokeWidth={2} />
+                                  <span>Lịch trình</span>
+                                </button>
+                              </div>
                               <p className={`text-[10px] leading-relaxed flex-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                                 {slot.activities || <span className="italic opacity-60">Chưa cập nhật</span>}
                               </p>
@@ -2640,10 +3085,35 @@ export default function ActivityDetailPage() {
                             <div className={`p-2 rounded-lg min-h-[50px] flex flex-col ${
                               isDarkMode ? 'border border-gray-700' : 'border border-gray-200'
                             }`}>
-                              <label className={`block mb-1 text-[9px] font-bold uppercase tracking-wide flex items-center gap-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                <FileText size={9} strokeWidth={2} />
-                                <span>Địa điểm chi tiết</span>
-                              </label>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className={`block text-[9px] font-bold uppercase tracking-wide flex items-center gap-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                  <FileText size={9} strokeWidth={2} />
+                                  <span>Địa điểm chi tiết</span>
+                                </label>
+                                {hasLocation && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedDaySlot({ day: dayData.day, slot: slotKey as 'morning' | 'afternoon' | 'evening' });
+                                      setTimeout(() => {
+                                        const mapSection = document.getElementById('map-section');
+                                        if (mapSection) {
+                                          mapSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                        }
+                                      }, 100);
+                                    }}
+                                    className={`px-1.5 py-0.5 rounded text-[8px] font-semibold transition-all flex items-center gap-1 ${
+                                      isDarkMode
+                                        ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30'
+                                        : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
+                                    }`}
+                                    title="Xem địa điểm trên bản đồ"
+                                  >
+                                    <MapPin size={8} strokeWidth={2} />
+                                    <span>Địa điểm</span>
+                                  </button>
+                                )}
+                              </div>
                               <p className={`text-[10px] leading-relaxed flex-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                                 {(slot.detailedLocation || dayData.dayDetailedLocation) || <span className="italic opacity-60">Chưa cập nhật</span>}
                               </p>
@@ -3123,12 +3593,42 @@ export default function ActivityDetailPage() {
                 return (
                   <div
                     key={slotName}
+                    onClick={() => {
+                      if (isActive && hasLocation) {
+                        if (activity.multiTimeLocations && activity.multiTimeLocations.length === 1) {
+                          setSelectedTimeSlot(slotMapName);
+                        } else {
+                          setSelectedTimeSlot(isSelected ? null : slotMapName);
+                        }
+                        // Scroll to map section to show location
+                        setTimeout(() => {
+                          const mapSection = document.getElementById('map-section');
+                          if (mapSection) {
+                            mapSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }
+                        }, 100);
+                      }
+                    }}
                     className={`rounded-lg border-2 transition-all duration-300 ${
-                      isActive
+                      isSelected && isActive
+                        ? slotName === 'Buổi Sáng'
+                          ? isDarkMode
+                            ? 'border-yellow-500 ring-2 ring-yellow-400/50 shadow-lg shadow-yellow-500/20'
+                            : 'border-yellow-500 ring-2 ring-yellow-300/50 shadow-lg shadow-yellow-500/20'
+                          : slotName === 'Buổi Chiều'
+                          ? isDarkMode
+                            ? 'border-orange-500 ring-2 ring-orange-400/50 shadow-lg shadow-orange-500/20'
+                            : 'border-orange-500 ring-2 ring-orange-300/50 shadow-lg shadow-orange-500/20'
+                          : isDarkMode
+                            ? 'border-blue-500 ring-2 ring-blue-400/50 shadow-lg shadow-blue-500/20'
+                            : 'border-blue-500 ring-2 ring-blue-300/50 shadow-lg shadow-blue-500/20'
+                        : isActive
                         ? `${config.borderColor}`
                         : isDarkMode
                         ? 'border-gray-600 opacity-60'
                         : 'border-gray-300 opacity-60'
+                    } ${
+                      isActive && hasLocation ? 'cursor-pointer hover:shadow-lg hover:scale-[1.02]' : 'cursor-default'
                     }`}
                   >
                     {/* Header */}
@@ -3160,18 +3660,74 @@ export default function ActivityDetailPage() {
 
                       {/* Activity Description */}
                       <div className={`pt-2 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-                        <p className={`text-[10px] font-semibold mb-1 uppercase tracking-wide ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                          Mô tả hoạt động
-                        </p>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className={`text-[10px] font-semibold uppercase tracking-wide ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                            Mô tả hoạt động
+                          </p>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (activity.multiTimeLocations && activity.multiTimeLocations.length === 1) {
+                                setSelectedTimeSlot(slotMapName);
+                              } else {
+                                setSelectedTimeSlot(isSelected ? null : slotMapName);
+                              }
+                              setTimeout(() => {
+                                const mapSection = document.getElementById('map-section');
+                                if (mapSection) {
+                                  mapSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                }
+                              }, 100);
+                            }}
+                            className={`px-1.5 py-0.5 rounded text-[8px] font-semibold transition-all flex items-center gap-1 ${
+                              isDarkMode
+                                ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 border border-blue-500/30'
+                                : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200'
+                            }`}
+                            title="Xem địa điểm trên bản đồ"
+                          >
+                            <Calendar size={8} strokeWidth={2} />
+                            <span>Lịch trình</span>
+                          </button>
+                        </div>
                         <p className={`text-[11px] leading-relaxed ${hasActivities ? (isDarkMode ? 'text-gray-300' : 'text-gray-700') : 'italic text-gray-500'}`}>
                           {hasActivities ? slot?.activities : 'Chưa cập nhật'}
                         </p>
                       </div>
 
                       <div className={`pt-2 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-                        <p className={`text-[10px] font-semibold mb-1 uppercase tracking-wide ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                          Địa điểm chi tiết
-                        </p>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className={`text-[10px] font-semibold uppercase tracking-wide ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                            Địa điểm chi tiết
+                          </p>
+                          {hasLocation && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (activity.multiTimeLocations && activity.multiTimeLocations.length === 1) {
+                                  setSelectedTimeSlot(slotMapName);
+                                } else {
+                                  setSelectedTimeSlot(isSelected ? null : slotMapName);
+                                }
+                                setTimeout(() => {
+                                  const mapSection = document.getElementById('map-section');
+                                  if (mapSection) {
+                                    mapSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                  }
+                                }, 100);
+                              }}
+                              className={`px-1.5 py-0.5 rounded text-[8px] font-semibold transition-all flex items-center gap-1 ${
+                                isDarkMode
+                                  ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30'
+                                  : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
+                              }`}
+                              title="Xem địa điểm trên bản đồ"
+                            >
+                              <MapPin size={8} strokeWidth={2} />
+                              <span>Địa điểm</span>
+                            </button>
+                          )}
+                        </div>
                         <p className={`text-[11px] leading-relaxed ${hasDetailedLocation ? (isDarkMode ? 'text-gray-300' : 'text-gray-700') : 'italic text-gray-500'}`}>
                           {hasDetailedLocation ? slotDetailedText : 'Chưa cập nhật'}
                         </p>
@@ -3642,7 +4198,7 @@ export default function ActivityDetailPage() {
                   <Users size={14} className="text-green-500" />
               </div>
                 <h2 className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                  Danh sách người đăng ký ({approvedParticipants.length})
+                  Danh sách người tham gia ({approvedParticipants.length})
               </h2>
             </div>
               {approvedParticipants.length > 0 ? (
@@ -3731,6 +4287,20 @@ export default function ActivityDetailPage() {
                         onLocationChange={() => {}}
                         isReadOnly={true}
                       />
+                    );
+                  } else {
+                    // Hiển thị thông báo khi không có địa điểm
+                    const slotName = selectedDaySlot.slot === 'morning' ? 'Buổi Sáng' : selectedDaySlot.slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+                    return (
+                      <div className={`text-center py-8 rounded-lg border ${isDarkMode ? 'border-gray-600 bg-gray-800/50' : 'border-gray-300 bg-gray-50'}`}>
+                        <MapPin size={32} className={`mx-auto mb-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
+                        <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                          Chưa có thông tin địa điểm
+                        </p>
+                        <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                          {slotName} - Ngày {selectedDaySlot.day}
+                        </p>
+                      </div>
                     );
                   }
                 }
@@ -3956,6 +4526,309 @@ export default function ActivityDetailPage() {
         getRegistrationThreshold={getRegistrationThreshold}
         calculateTotalRegistrationRate={calculateTotalRegistrationRate}
       />
+
+      {/* Single Day Registration Modal */}
+      {showSingleDayRegistrationModal && activity && activity.type === 'single_day' && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className={`rounded-lg border max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col ${
+            isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-300'
+          }`}>
+            {/* Modal Header */}
+            <div className={`px-4 py-3 border-b flex items-center justify-between ${
+              isDarkMode ? 'border-blue-600 bg-blue-700' : 'border-blue-500 bg-blue-600'
+            }`}>
+              <div className="flex items-center gap-2">
+                <Calendar size={18} className="text-white" />
+                <h2 className="text-base font-bold text-white">
+                  Đăng ký tham gia
+                </h2>
+              </div>
+              <button
+                onClick={() => {
+                  setShowSingleDayRegistrationModal(false);
+                  setSelectedSingleDaySlots([]);
+                }}
+                className={`p-1.5 rounded transition-colors ${
+                  isDarkMode ? 'hover:bg-blue-600 text-white' : 'hover:bg-blue-700 text-white'
+                }`}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Info Banner */}
+            <div className={`px-4 py-2.5 border-b ${
+              isDarkMode ? 'bg-blue-600/20 border-blue-600/30' : 'bg-blue-50 border-blue-200'
+            }`}>
+              <div className="flex items-center justify-center gap-2">
+                <AlertCircle size={14} className={isDarkMode ? 'text-blue-300' : 'text-blue-600'} />
+                <p className={`text-xs font-semibold ${
+                  isDarkMode ? 'text-blue-200' : 'text-blue-700'
+                }`}>
+                  Để tham gia hoạt động này, bạn phải chọn đăng ký ít nhất <span className="font-bold text-base">{activity.registrationThreshold !== undefined && activity.registrationThreshold !== null ? activity.registrationThreshold : 80}%</span> tổng số buổi có sẵn
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="mb-4">
+                {activity.date && (
+                  <p className={`text-xs mb-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Ngày: {new Date(activity.date).toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                  </p>
+                )}
+              </div>
+
+              {/* Time Slots */}
+              <div className="space-y-3">
+                {activity.timeSlots?.filter((slot: any) => slot.isActive).map((slot: any) => {
+                  const slotKey = slot.name === 'Buổi Sáng' ? 'morning' : 
+                                 slot.name === 'Buổi Chiều' ? 'afternoon' : 'evening';
+                  const isSelected = selectedSingleDaySlots.includes(slotKey);
+                  const SlotIcon = slotKey === 'morning' ? Sunrise : slotKey === 'afternoon' ? Sun : Moon;
+                  
+                  return (
+                    <button
+                      key={slot.name}
+                      type="button"
+                      onClick={() => toggleSingleDaySlotSelection(slotKey)}
+                      className={`w-full p-3 rounded border text-left transition-all ${
+                        isSelected
+                          ? isDarkMode
+                            ? 'bg-blue-600/50 border-blue-400'
+                            : 'bg-blue-200 border-blue-500'
+                          : isDarkMode
+                            ? 'bg-gray-700/30 border-gray-600 hover:border-gray-500 hover:bg-gray-700/50'
+                            : 'bg-white border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        {/* Icon */}
+                        <div className={`p-1.5 rounded flex-shrink-0 ${
+                          isSelected
+                            ? isDarkMode ? 'bg-blue-500/60' : 'bg-blue-300'
+                            : isDarkMode ? 'bg-gray-600/50' : 'bg-gray-100'
+                        }`}>
+                          <SlotIcon size={14} className={
+                            isSelected
+                              ? isDarkMode ? 'text-blue-200' : 'text-blue-700'
+                              : isDarkMode ? 'text-gray-300' : 'text-gray-600'
+                          } />
+                        </div>
+                        
+                        {/* Content */}
+                        <div className="flex-1 min-w-0">
+                          {/* Header with name */}
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className={`text-sm font-bold ${
+                              isSelected
+                                ? isDarkMode ? 'text-blue-200' : 'text-blue-800'
+                                : isDarkMode ? 'text-white' : 'text-gray-900'
+                            }`}>
+                              {slot.name}
+                            </span>
+                            {isSelected && (
+                              <CheckCircle2 size={14} className={isDarkMode ? 'text-blue-300' : 'text-blue-700'} />
+                            )}
+                          </div>
+                          
+                          {/* Time */}
+                          <div className="mb-1.5">
+                            <div className={`flex items-center gap-1 text-xs ${
+                              isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                            }`}>
+                              <Clock size={11} />
+                              <span>{slot.startTime} - {slot.endTime}</span>
+                            </div>
+                          </div>
+                          
+                          {/* Location */}
+                          {(() => {
+                            // Kiểm tra vị trí từ multiTimeLocations
+                            let locationText: string | undefined = undefined;
+                            const multiTimeLocation = activity.multiTimeLocations?.find((mtl: any) => mtl.timeSlot === slotKey);
+                            if (multiTimeLocation && multiTimeLocation.address) {
+                              locationText = multiTimeLocation.address;
+                            }
+                            // Nếu không có trong multiTimeLocations, kiểm tra detailedLocation của slot
+                            else if (slot.detailedLocation) {
+                              locationText = slot.detailedLocation;
+                            }
+                            // Nếu không có, kiểm tra locationData chung
+                            else if (activity.locationData && activity.locationData.address) {
+                              locationText = activity.locationData.address;
+                            }
+                            // Nếu không có, kiểm tra detailedLocation chung
+                            else if (activity.detailedLocation) {
+                              locationText = activity.detailedLocation;
+                            }
+                            // Nếu không có, dùng location chung
+                            else if (activity.location && activity.location !== 'Nhiều địa điểm') {
+                              locationText = activity.location;
+                            }
+
+                            if (locationText) {
+                              return (
+                                <div className={`flex items-start gap-1 mb-1.5 text-left ${
+                                  isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                                }`}>
+                                  <MapPin size={10} className="mt-0.5 flex-shrink-0" />
+                                  <span className="text-xs line-clamp-1 text-left">{locationText}</span>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
+                          
+                          {/* Activities description */}
+                          {slot.activities && (
+                            <p className={`text-xs mt-1.5 pt-1.5 border-t ${
+                              isSelected
+                                ? isDarkMode ? 'border-blue-500/60 text-gray-400' : 'border-blue-400 text-gray-600'
+                                : isDarkMode ? 'border-gray-700 text-gray-500' : 'border-gray-200 text-gray-500'
+                            }`}>
+                              {slot.activities}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className={`px-4 py-3 border-t flex items-center justify-between gap-3 ${
+              isDarkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50'
+            }`}>
+              {/* Left: Summary Info */}
+              <div className="flex items-center gap-2 flex-1">
+                {selectedSingleDaySlots.length > 0 ? (
+                  <>
+                    <span className={`text-sm font-bold px-2 py-1 rounded ${
+                      isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-200 text-gray-700'
+                    }`}>
+                      {selectedSingleDaySlots.length} buổi
+                    </span>
+                    {(() => {
+                      const activeSlots = activity.timeSlots?.filter((slot: any) => slot.isActive) || [];
+                      const totalAvailableSlots = activeSlots.length;
+                      const selectedSlotsCount = selectedSingleDaySlots.length;
+                      const totalRate = totalAvailableSlots > 0 
+                        ? Math.round((selectedSlotsCount / totalAvailableSlots) * 100) 
+                        : 0;
+                      const threshold = activity.registrationThreshold !== undefined && activity.registrationThreshold !== null 
+                        ? activity.registrationThreshold 
+                        : 80;
+                      const isRateSufficient = totalRate >= threshold;
+                      
+                      return (
+                        <>
+                          {totalAvailableSlots > 0 && (
+                            <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                              / {totalAvailableSlots} buổi
+                            </span>
+                          )}
+                          <span className={`text-sm font-bold px-2 py-1 rounded ${
+                            isRateSufficient
+                              ? isDarkMode 
+                                ? 'bg-green-500/20 text-green-300' 
+                                : 'bg-green-100 text-green-700'
+                              : isDarkMode
+                                ? 'bg-orange-500/20 text-orange-300'
+                                : 'bg-orange-100 text-orange-700'
+                          }`}>
+                            {totalRate}%
+                          </span>
+                          <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                            / {threshold}%
+                          </span>
+                          {isRateSufficient && (
+                            <CheckCircle2 size={14} className={isDarkMode ? 'text-green-300' : 'text-green-600'} />
+                          )}
+                        </>
+                      );
+                    })()}
+                  </>
+                ) : (
+                  <span className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Chưa chọn buổi nào
+                  </span>
+                )}
+              </div>
+              
+              {/* Right: Action Buttons */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setShowSingleDayRegistrationModal(false);
+                    setSelectedSingleDaySlots([]);
+                  }}
+                  className={`px-4 py-2 rounded text-sm font-semibold transition-colors ${
+                    isDarkMode
+                      ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  Hủy
+                </button>
+                {(() => {
+                  // Tính toán tỷ lệ đăng ký để kiểm tra điều kiện disable
+                  const activeSlots = activity.timeSlots?.filter((slot: any) => slot.isActive) || [];
+                  const totalAvailableSlots = activeSlots.length;
+                  const selectedSlotsCount = selectedSingleDaySlots.length;
+                  const totalRate = totalAvailableSlots > 0 
+                    ? Math.round((selectedSlotsCount / totalAvailableSlots) * 100) 
+                    : 0;
+                  const threshold = activity.registrationThreshold !== undefined && activity.registrationThreshold !== null 
+                    ? activity.registrationThreshold 
+                    : 80;
+                  const isRateSufficient = totalRate >= threshold;
+                  const isDisabled = isRegistering || selectedSingleDaySlots.length === 0 || !isRateSufficient;
+
+                  return (
+                    <button
+                      onClick={handleRegisterSingleDay}
+                      disabled={isDisabled}
+                      className={`px-4 py-2 rounded text-sm font-bold transition-all flex items-center gap-2 ${
+                        isDisabled
+                          ? 'bg-gray-400 text-white cursor-not-allowed'
+                          : isDarkMode
+                            ? 'bg-blue-600 text-white hover:bg-blue-500'
+                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                      }`}
+                    >
+                      {isRegistering ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          <span>{isRegistered ? 'Đang cập nhật...' : 'Đang đăng ký...'}</span>
+                        </>
+                      ) : (
+                        <>
+                          {isRegistered ? (
+                            <>
+                              <CheckCircle2 size={14} />
+                              <span>Cập nhật</span>
+                            </>
+                          ) : (
+                            <>
+                              <UserPlus size={14} />
+                              <span>Đăng ký</span>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </button>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Overlap Warning Modal */}
       {overlapWarning && overlapWarning.show && (

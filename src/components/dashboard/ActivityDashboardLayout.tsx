@@ -128,6 +128,11 @@ interface Activity {
     day: number;
     date: string;
     activities: string;
+    timeSlots?: Array<{
+      startTime: string;
+      endTime: string;
+      isActive: boolean;
+    }>;
   }>;
   participants: Array<{
     userId: string;
@@ -181,11 +186,22 @@ export default function ActivityDashboardLayout({
       setLoading(true);
       setError(null);
       
-      const response = await fetch('/api/activities?limit=100');
+      // Fetch ALL activities without filtering by responsiblePerson
+      // Admin dashboard should show all activities regardless of who is responsible
+      // IMPORTANT: Do NOT include myActivities=true parameter - we want ALL activities
+      const response = await fetch('/api/activities?limit=100&myActivities=false');
       const data = await response.json();
       
       if (data.success) {
-        setActivities(data.data.activities || []);
+        const fetchedActivities = data.data.activities || [];
+        // Debug: Log activities to check responsiblePerson
+        console.log('📋 Fetched activities:', fetchedActivities.length);
+        console.log('📋 Activities with responsiblePerson:', fetchedActivities.map((a: Activity) => ({
+          id: a._id,
+          name: a.name,
+          responsiblePerson: a.responsiblePerson ? (typeof a.responsiblePerson === 'object' ? a.responsiblePerson.name : a.responsiblePerson) : 'N/A'
+        })));
+        setActivities(fetchedActivities);
       } else {
         setError('Không thể tải danh sách hoạt động');
       }
@@ -287,7 +303,7 @@ export default function ActivityDashboardLayout({
     }
   };
 
-  // Filter activities - Admin view: show ALL activities
+  // Filter activities - Admin view: show ALL activities regardless of responsiblePerson
   const activeActivities = useMemo(() => {
     return activities.filter(a => {
       const temporal = getTemporalStatus(a);
@@ -303,6 +319,9 @@ export default function ActivityDashboardLayout({
       
       // Temporal filter
       const matchesTemporalFilter = temporalFilter === 'all' || temporal === temporalFilter;
+      
+      // IMPORTANT: Do NOT filter by responsiblePerson - show ALL activities
+      // Admin dashboard should display all activities regardless of who is responsible
       
       return matchesTemporal && matchesSearch && matchesStatus && matchesTemporalFilter;
     }).sort((a, b) => {
@@ -730,8 +749,10 @@ export default function ActivityDashboardLayout({
     const participantCount = activity.participants?.length || 0;
     const maxParticipants = activity.maxParticipants || Infinity;
     const activeTimeSlots = activity.timeSlots?.filter((slot: any) => slot.isActive) || [];
+    const allTimeSlots = activity.timeSlots || [];
     const temporalStatus = getTemporalStatus(activity);
-    const firstTimeSlot = activeTimeSlots[0];
+    // Use first active time slot, or fallback to first time slot if no active ones
+    const firstTimeSlot = activeTimeSlots[0] || allTimeSlots[0];
 
     // Different layout for main column (left) vs right column
     if (!isPast) {
@@ -744,7 +765,9 @@ export default function ActivityDashboardLayout({
               : 'bg-white hover:bg-gray-50 border-gray-300'
           } ${
             temporalStatus === 'ongoing'
-              ? 'border-l-green-500'
+              ? 'border-l-red-500'
+              : temporalStatus === 'upcoming'
+              ? 'border-l-blue-500'
               : activity.status === 'published'
               ? 'border-l-blue-500'
               : activity.status === 'draft'
@@ -754,16 +777,65 @@ export default function ActivityDashboardLayout({
               : isDarkMode ? 'border-l-gray-500' : 'border-l-gray-400'
           }`}
         >
-          {/* Image Header - Fixed Height - Clickable to edit */}
+          {/* Header Bar - Color based on status */}
+          <div className={`relative px-3 py-2 flex items-center justify-between ${
+            temporalStatus === 'ongoing'
+              ? isDarkMode 
+                ? 'bg-gradient-to-r from-red-600/90 to-red-700/90' 
+                : 'bg-gradient-to-r from-red-500 to-red-600'
+              : temporalStatus === 'upcoming'
+              ? isDarkMode 
+                ? 'bg-gradient-to-r from-blue-600/90 to-blue-700/90' 
+                : 'bg-gradient-to-r from-blue-500 to-blue-600'
+              : isDarkMode 
+                ? 'bg-gray-700/90' 
+                : 'bg-gray-400'
+          }`}>
+            <div className="flex items-center gap-2">
+              {temporalStatus === 'ongoing' ? (
+                <>
+                  <Eye size={12} strokeWidth={2} className={isDarkMode ? 'text-red-100' : 'text-white'} />
+                  <span className={`text-[10px] font-medium ${isDarkMode ? 'text-red-100' : 'text-white'}`}>
+                    Đã xuất bản
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Calendar size={12} strokeWidth={2} className={isDarkMode ? 'text-blue-100' : 'text-white'} />
+                  <span className={`text-[10px] font-medium ${isDarkMode ? 'text-blue-100' : 'text-white'}`}>
+                    Đã xuất bản
+                  </span>
+                </>
+              )}
+            </div>
+            <button className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+              temporalStatus === 'ongoing'
+                ? isDarkMode 
+                  ? 'bg-red-700/50 text-red-100 border border-red-400/30' 
+                  : 'bg-red-700 text-white border border-red-600'
+                : temporalStatus === 'upcoming'
+                ? isDarkMode 
+                  ? 'bg-blue-700/50 text-blue-100 border border-blue-400/30' 
+                  : 'bg-blue-700 text-white border border-blue-600'
+                : isDarkMode 
+                  ? 'bg-gray-600/50 text-gray-100 border border-gray-400/30' 
+                  : 'bg-gray-500 text-white border border-gray-600'
+            }`}>
+              {temporalStatus === 'ongoing' ? 'Đang diễn ra' : temporalStatus === 'upcoming' ? 'Sắp diễn ra' : activity.status}
+            </button>
+          </div>
+
+          {/* Image Header - Banner Aspect Ratio (16:9) - Clickable to edit */}
           <div 
-            className="relative w-full h-40 overflow-hidden flex-shrink-0 cursor-pointer group"
+            className="relative w-full aspect-[16/9] min-h-[200px] overflow-hidden flex-shrink-0 cursor-pointer group bg-gray-100 dark:bg-gray-800"
             onClick={() => onEdit && onEdit(activity._id, activity.type)}
           >
             {activity.imageUrl ? (
               <img 
                 src={activity.imageUrl} 
                 alt={activity.name}
-                className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                className="w-full h-full object-contain object-center transition-transform duration-200 group-hover:scale-105"
+                style={{ maxHeight: '100%', maxWidth: '100%' }}
                 onError={(e) => {
                   const target = e.target as HTMLImageElement;
                   target.style.display = 'none';
@@ -782,74 +854,97 @@ export default function ActivityDashboardLayout({
                 )}
               </div>
             )}
+            
+            {/* Activity Type Badge and Actions Button - Overlay on Image */}
+            <div className="absolute top-2 right-2 flex items-center gap-2 z-20">
+              {/* Activity Type Badge */}
+              {activity.type === 'multiple_days' ? (
+                <span className={`px-2 py-1 rounded-md text-[10px] font-bold shadow-lg backdrop-blur-sm border flex-shrink-0 ${
+                  isDarkMode 
+                    ? 'bg-purple-600/90 text-white border-purple-400/50' 
+                    : 'bg-purple-600 text-white border-purple-700'
+                }`}>
+                  📅 Nhiều ngày
+                </span>
+              ) : (
+                <span className={`px-2 py-1 rounded-md text-[10px] font-bold shadow-lg backdrop-blur-sm border flex-shrink-0 ${
+                  isDarkMode 
+                    ? 'bg-blue-600/90 text-white border-blue-400/50' 
+                    : 'bg-blue-600 text-white border-blue-700'
+                }`}>
+                  📆 Một ngày
+                </span>
+              )}
+              
+              {/* Actions Button */}
+              {showActions && (
+                <div 
+                  className="flex-shrink-0" 
+                  ref={menuRef}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    onClick={() => setShowActionsMenu(!showActionsMenu)}
+                    className={`p-1.5 rounded-md transition-all duration-200 ${
+                      isDarkMode 
+                        ? 'text-gray-200 hover:text-white hover:bg-gray-800/80 bg-gray-900/70 backdrop-blur-sm' 
+                        : 'text-gray-700 hover:text-gray-900 hover:bg-white/90 bg-white/80 backdrop-blur-sm'
+                    } shadow-lg`}
+                  >
+                    <MoreVertical size={16} strokeWidth={2} />
+                  </button>
+
+                  {/* Dropdown Menu */}
+                  {showActionsMenu && (
+                    <div className={`absolute right-0 top-full mt-1 w-36 rounded-md border border-gray-300 dark:border-gray-600 shadow-lg z-20 ${
+                      isDarkMode 
+                        ? 'bg-gray-800' 
+                        : 'bg-white'
+                    }`}>
+                      <div className="py-1">
+                        {onEdit && (
+                          <button
+                            onClick={() => {
+                              onEdit(activity._id, activity.type);
+                              setShowActionsMenu(false);
+                            }}
+                            className={`w-full px-3 py-1.5 text-xs font-medium transition-all duration-200 flex items-center gap-2 ${
+                              isDarkMode 
+                                ? 'text-green-400 hover:bg-green-500/20' 
+                                : 'text-green-600 hover:bg-green-50'
+                            }`}
+                          >
+                            <Edit size={12} strokeWidth={2} />
+                            <span>Chỉnh sửa</span>
+                          </button>
+                        )}
+                        {onDelete && (
+                          <button
+                            onClick={() => {
+                              onDelete(activity._id);
+                              setShowActionsMenu(false);
+                            }}
+                            className={`w-full px-3 py-1.5 text-xs font-medium transition-all duration-200 flex items-center gap-2 ${
+                              isDarkMode 
+                                ? 'text-red-400 hover:bg-red-500/20' 
+                                : 'text-red-600 hover:bg-red-50'
+                            }`}
+                          >
+                            <Trash2 size={12} strokeWidth={2} />
+                            <span>Xóa</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            
             {/* Overlay on hover */}
             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-200 flex items-center justify-center">
               <Eye size={24} className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-white" />
             </div>
-
-            {/* Actions Button - Top Right Corner */}
-            {showActions && (
-              <div 
-                className="absolute top-2 right-2 flex-shrink-0 z-10" 
-                ref={menuRef}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <button
-                  onClick={() => setShowActionsMenu(!showActionsMenu)}
-                  className={`p-1.5 rounded-md transition-all duration-200 ${
-                    isDarkMode 
-                      ? 'text-gray-200 hover:text-white hover:bg-gray-800/80 bg-gray-900/70 backdrop-blur-sm' 
-                      : 'text-gray-700 hover:text-gray-900 hover:bg-white/90 bg-white/80 backdrop-blur-sm'
-                  } shadow-lg`}
-                >
-                  <MoreVertical size={16} strokeWidth={2} />
-                </button>
-
-                {/* Dropdown Menu */}
-                {showActionsMenu && (
-                  <div className={`absolute right-0 top-full mt-1 w-36 rounded-md border border-gray-300 dark:border-gray-600 shadow-lg z-20 ${
-                    isDarkMode 
-                      ? 'bg-gray-800' 
-                      : 'bg-white'
-                  }`}>
-                    <div className="py-1">
-                      {onEdit && (
-                        <button
-                          onClick={() => {
-                            onEdit(activity._id, activity.type);
-                            setShowActionsMenu(false);
-                          }}
-                          className={`w-full px-3 py-1.5 text-xs font-medium transition-all duration-200 flex items-center gap-2 ${
-                            isDarkMode 
-                              ? 'text-green-400 hover:bg-green-500/20' 
-                              : 'text-green-600 hover:bg-green-50'
-                          }`}
-                        >
-                          <Edit size={12} strokeWidth={2} />
-                          <span>Chỉnh sửa</span>
-                        </button>
-                      )}
-                      {onDelete && (
-                        <button
-                          onClick={() => {
-                            onDelete(activity._id);
-                            setShowActionsMenu(false);
-                          }}
-                          className={`w-full px-3 py-1.5 text-xs font-medium transition-all duration-200 flex items-center gap-2 ${
-                            isDarkMode 
-                              ? 'text-red-400 hover:bg-red-500/20' 
-                              : 'text-red-600 hover:bg-red-50'
-                          }`}
-                        >
-                          <Trash2 size={12} strokeWidth={2} />
-                          <span>Xóa</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
 
           {/* Content */}
@@ -926,6 +1021,46 @@ export default function ActivityDashboardLayout({
                   {activity.type === 'multiple_days' && activity.startDate && activity.endDate
                     ? `${formatDate(activity.startDate)} - ${formatDate(activity.endDate)}`
                     : formatDate(activity.date)}
+                </span>
+              </div>
+              
+              {/* Thời gian - Always show */}
+              <div className="flex items-center gap-1.5 min-h-[1.25rem]">
+                <Clock size={12} strokeWidth={2} className="flex-shrink-0" />
+                <span className="truncate">
+                  {(() => {
+                    // For both single_day and multiple_days, try to get time from timeSlots first
+                    if (firstTimeSlot && firstTimeSlot.startTime && firstTimeSlot.endTime) {
+                      return `${firstTimeSlot.startTime} - ${firstTimeSlot.endTime}`;
+                    }
+                    
+                    // For multiple days, try to get from schedule if timeSlots not available
+                    if (activity.type === 'multiple_days' && activity.schedule && activity.schedule.length > 0) {
+                      const firstSchedule = activity.schedule[0];
+                      
+                      // Check if schedule has timeSlots
+                      if (firstSchedule.timeSlots && firstSchedule.timeSlots.length > 0) {
+                        const firstScheduleSlot = firstSchedule.timeSlots.find((s: any) => s.isActive) || firstSchedule.timeSlots[0];
+                        if (firstScheduleSlot && firstScheduleSlot.startTime && firstScheduleSlot.endTime) {
+                          return `${firstScheduleSlot.startTime} - ${firstScheduleSlot.endTime}`;
+                        }
+                      }
+                      
+                      // Fallback: try to parse from activities text
+                      if (firstSchedule.activities) {
+                        const lines = firstSchedule.activities.split('\n').filter((line: string) => line.trim());
+                        const timeLine = lines.find((line: string) => line.includes(':') && line.match(/\d{2}:\d{2}/));
+                        if (timeLine) {
+                          const timeMatch = timeLine.match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
+                          if (timeMatch) {
+                            return `${timeMatch[1]} - ${timeMatch[2]}`;
+                          }
+                        }
+                      }
+                    }
+                    
+                    return 'Chưa cập nhật';
+                  })()}
                 </span>
               </div>
               
@@ -1047,10 +1182,10 @@ export default function ActivityDashboardLayout({
                           <img 
                             src={activity.imageUrl} 
                             alt={activity.name}
-                            className="w-24 h-24 rounded-lg object-cover border-2 border-gray-300 dark:border-gray-600 shadow-md"
+                            className="w-20 h-20 rounded-lg object-cover border-2 border-gray-300 dark:border-gray-600 shadow-md"
                           />
                         ) : (
-                          <div className={`w-24 h-24 rounded-lg flex items-center justify-center border-2 ${
+                          <div className={`w-20 h-20 rounded-lg flex items-center justify-center border-2 ${
                             activity.type === 'single_day'
                               ? isDarkMode 
                                 ? 'bg-gray-800 border-gray-600' 
@@ -1577,12 +1712,97 @@ export default function ActivityDashboardLayout({
             : 'bg-white hover:bg-gray-50 border-gray-300'
         }`}
       >
+        {/* Activity Type Badge and Actions Button - Top Right Corner */}
+        <div className="absolute top-2 right-2 flex items-center gap-2 z-20">
+          {/* Activity Type Badge */}
+          {activity.type === 'multiple_days' ? (
+            <span className={`px-2 py-1 rounded-md text-[10px] font-bold shadow-lg backdrop-blur-sm border flex-shrink-0 ${
+              isDarkMode 
+                ? 'bg-purple-600/90 text-white border-purple-400/50' 
+                : 'bg-purple-600 text-white border-purple-700'
+            }`}>
+              📅 Nhiều ngày
+            </span>
+          ) : (
+            <span className={`px-2 py-1 rounded-md text-[10px] font-bold shadow-lg backdrop-blur-sm border flex-shrink-0 ${
+              isDarkMode 
+                ? 'bg-blue-600/90 text-white border-blue-400/50' 
+                : 'bg-blue-600 text-white border-blue-700'
+            }`}>
+              📆 Một ngày
+            </span>
+          )}
+          
+          {/* Actions Button */}
+          {showActions && (
+            <div 
+              className="flex-shrink-0" 
+              ref={menuRef}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => setShowActionsMenu(!showActionsMenu)}
+                className={`p-1 rounded transition-all duration-200 ${
+                  isDarkMode 
+                    ? 'text-gray-200 hover:text-white hover:bg-gray-800/80 bg-gray-900/70 backdrop-blur-sm' 
+                    : 'text-gray-700 hover:text-gray-900 hover:bg-white/90 bg-white/80 backdrop-blur-sm'
+                } shadow-lg`}
+              >
+                <MoreVertical size={12} strokeWidth={2} />
+              </button>
+
+              {showActionsMenu && (
+              <div className={`absolute right-0 top-full mt-1 w-36 rounded-md border border-gray-300 dark:border-gray-600 shadow-lg z-20 ${
+                isDarkMode 
+                  ? 'bg-gray-800' 
+                  : 'bg-white'
+              }`}>
+                <div className="py-1">
+                  {onEdit && (
+                    <button
+                      onClick={() => {
+                        onEdit(activity._id, activity.type);
+                        setShowActionsMenu(false);
+                      }}
+                      className={`w-full px-3 py-1.5 text-xs font-medium transition-all duration-200 flex items-center gap-2 ${
+                        isDarkMode 
+                          ? 'text-green-400 hover:bg-green-500/20' 
+                          : 'text-green-600 hover:bg-green-50'
+                      }`}
+                    >
+                      <Edit size={12} strokeWidth={2} />
+                      <span>Chỉnh sửa</span>
+                    </button>
+                  )}
+                  {onDelete && (
+                    <button
+                      onClick={() => {
+                        onDelete(activity._id);
+                        setShowActionsMenu(false);
+                      }}
+                      className={`w-full px-3 py-1.5 text-xs font-medium transition-all duration-200 flex items-center gap-2 ${
+                        isDarkMode 
+                          ? 'text-red-400 hover:bg-red-500/20' 
+                          : 'text-red-600 hover:bg-red-50'
+                      }`}
+                    >
+                      <Trash2 size={12} strokeWidth={2} />
+                      <span>Xóa</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="p-3 flex flex-col h-full">
           <div className="flex items-start gap-3 flex-1">
-            {/* Image - Clickable to edit */}
+            {/* Image - Clickable to edit - Centered */}
             <div 
-              className={`relative w-16 h-16 flex-shrink-0 overflow-hidden rounded border cursor-pointer group transition-all duration-200 ${
-                isDarkMode ? 'border-gray-600' : 'border-gray-300'
+              className={`relative w-16 h-16 flex-shrink-0 overflow-hidden rounded-lg border cursor-pointer group transition-all duration-200 flex items-center justify-center ${
+                isDarkMode ? 'border-gray-600 bg-gray-800' : 'border-gray-300 bg-gray-100'
               }`}
               onClick={() => onEdit && onEdit(activity._id, activity.type)}
             >
@@ -1590,7 +1810,8 @@ export default function ActivityDashboardLayout({
                 <img 
                   src={activity.imageUrl} 
                   alt={activity.name}
-                  className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-110"
+                  className="w-full h-full object-contain object-center transition-transform duration-200 group-hover:scale-110"
+                  style={{ maxHeight: '100%', maxWidth: '100%' }}
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
                     target.style.display = 'none';
@@ -1613,69 +1834,6 @@ export default function ActivityDashboardLayout({
               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-200 flex items-center justify-center">
                 <Eye size={16} className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-white" />
               </div>
-
-              {/* Actions Button - Top Right Corner */}
-              {showActions && (
-                <div 
-                  className="absolute top-0.5 right-0.5 flex-shrink-0 z-10" 
-                  ref={menuRef}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <button
-                    onClick={() => setShowActionsMenu(!showActionsMenu)}
-                    className={`p-1 rounded transition-all duration-200 ${
-                      isDarkMode 
-                        ? 'text-gray-200 hover:text-white hover:bg-gray-800/80 bg-gray-900/70 backdrop-blur-sm' 
-                        : 'text-gray-700 hover:text-gray-900 hover:bg-white/90 bg-white/80 backdrop-blur-sm'
-                    } shadow-lg`}
-                  >
-                    <MoreVertical size={12} strokeWidth={2} />
-                  </button>
-
-                  {showActionsMenu && (
-                    <div className={`absolute right-0 top-full mt-1 w-36 rounded-md border border-gray-300 dark:border-gray-600 shadow-lg z-20 ${
-                      isDarkMode 
-                        ? 'bg-gray-800' 
-                        : 'bg-white'
-                    }`}>
-                      <div className="py-1">
-                        {onEdit && (
-                          <button
-                            onClick={() => {
-                              onEdit(activity._id, activity.type);
-                              setShowActionsMenu(false);
-                            }}
-                            className={`w-full px-3 py-1.5 text-xs font-medium transition-all duration-200 flex items-center gap-2 ${
-                              isDarkMode 
-                                ? 'text-green-400 hover:bg-green-500/20' 
-                                : 'text-green-600 hover:bg-green-50'
-                            }`}
-                          >
-                            <Edit size={12} strokeWidth={2} />
-                            <span>Chỉnh sửa</span>
-                          </button>
-                        )}
-                        {onDelete && (
-                          <button
-                            onClick={() => {
-                              onDelete(activity._id);
-                              setShowActionsMenu(false);
-                            }}
-                            className={`w-full px-3 py-1.5 text-xs font-medium transition-all duration-200 flex items-center gap-2 ${
-                              isDarkMode 
-                                ? 'text-red-400 hover:bg-red-500/20' 
-                                : 'text-red-600 hover:bg-red-50'
-                            }`}
-                          >
-                            <Trash2 size={12} strokeWidth={2} />
-                            <span>Xóa</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
             
             {/* Content */}
@@ -1713,6 +1871,47 @@ export default function ActivityDashboardLayout({
                       : formatDate(activity.date)}
                   </span>
                 </div>
+                
+                {/* Thời gian - Always show */}
+                <div className="flex items-center gap-1">
+                  <Clock size={11} strokeWidth={2} className="flex-shrink-0" />
+                  <span className="truncate">
+                    {(() => {
+                      // For both single_day and multiple_days, try to get time from timeSlots first
+                      if (firstTimeSlot && firstTimeSlot.startTime && firstTimeSlot.endTime) {
+                        return `${firstTimeSlot.startTime} - ${firstTimeSlot.endTime}`;
+                      }
+                      
+                      // For multiple days, try to get from schedule if timeSlots not available
+                      if (activity.type === 'multiple_days' && activity.schedule && activity.schedule.length > 0) {
+                        const firstSchedule = activity.schedule[0];
+                        
+                        // Check if schedule has timeSlots
+                        if (firstSchedule.timeSlots && firstSchedule.timeSlots.length > 0) {
+                          const firstScheduleSlot = firstSchedule.timeSlots.find((s: any) => s.isActive) || firstSchedule.timeSlots[0];
+                          if (firstScheduleSlot && firstScheduleSlot.startTime && firstScheduleSlot.endTime) {
+                            return `${firstScheduleSlot.startTime} - ${firstScheduleSlot.endTime}`;
+                          }
+                        }
+                        
+                        // Fallback: try to parse from activities text
+                        if (firstSchedule.activities) {
+                          const lines = firstSchedule.activities.split('\n').filter((line: string) => line.trim());
+                          const timeLine = lines.find((line: string) => line.includes(':') && line.match(/\d{2}:\d{2}/));
+                          if (timeLine) {
+                            const timeMatch = timeLine.match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
+                            if (timeMatch) {
+                              return `${timeMatch[1]} - ${timeMatch[2]}`;
+                            }
+                          }
+                        }
+                      }
+                      
+                      return 'Chưa cập nhật';
+                    })()}
+                  </span>
+                </div>
+                
                 {activity.location && (
                   <div className="flex items-center gap-1">
                     <MapPin size={11} strokeWidth={2} className="flex-shrink-0" />
@@ -1829,10 +2028,10 @@ export default function ActivityDashboardLayout({
                         <img 
                           src={activity.imageUrl} 
                           alt={activity.name}
-                          className="w-24 h-24 rounded-lg object-cover border-2 border-gray-300 dark:border-gray-600 shadow-md"
+                          className="w-20 h-20 rounded-lg object-cover border-2 border-gray-300 dark:border-gray-600 shadow-md"
                         />
                       ) : (
-                        <div className={`w-24 h-24 rounded-lg flex items-center justify-center border-2 ${
+                        <div className={`w-20 h-20 rounded-lg flex items-center justify-center border-2 ${
                           activity.type === 'single_day'
                             ? isDarkMode 
                               ? 'bg-gray-800 border-gray-600' 
@@ -2177,19 +2376,30 @@ export default function ActivityDashboardLayout({
           {/* Main Column - Active Activities */}
           <div ref={leftColumnRef} className="lg:col-span-8 flex flex-col">
             {/* Header */}
-            <div ref={leftHeaderRef} className={`mb-3 pb-2 border-b flex-shrink-0 ${
-              isDarkMode ? 'border-gray-600' : 'border-gray-300'
+            <div ref={leftHeaderRef} className={`mb-3 pb-3 rounded-lg p-3 border flex-shrink-0 ${
+              isDarkMode 
+                ? 'bg-gradient-to-r from-blue-800/60 via-blue-700/60 to-blue-800/60 border-blue-500/70' 
+                : 'bg-gradient-to-r from-blue-200 via-blue-300/50 to-blue-200 border-blue-400'
             }`}>
-              <h2 className={`text-lg font-bold leading-tight ${
-                isDarkMode ? 'text-white' : 'text-gray-900'
-              }`}>
-                Hoạt động đang diễn ra & Sắp diễn ra
-              </h2>
-              <p className={`text-sm mt-1 leading-tight ${
-                isDarkMode ? 'text-gray-400' : 'text-gray-600'
-              }`}>
-                {activeActivities.length} hoạt động {activeActivities.length > 6 && `(hiển thị 6)`}
-              </p>
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className={`p-1.5 rounded-lg ${
+                  isDarkMode 
+                    ? 'bg-blue-600/40 text-blue-200' 
+                    : 'bg-blue-500 text-white shadow-xl'
+                }`}>
+                  <Calendar size={16} strokeWidth={2} />
+                </div>
+                <div className="flex-1">
+                  <h2 className={`text-sm sm:text-base font-bold mb-0.5 ${
+                    isDarkMode ? 'text-blue-100' : 'text-blue-900'
+                  }`}>
+                    📅 Hoạt động đang diễn ra & Sắp diễn ra
+                  </h2>
+                  <p className={`text-xs ${isDarkMode ? 'text-blue-200/90' : 'text-blue-800'}`}>
+                    Có <span className="font-bold">{activeActivities.length}</span> hoạt động {activeActivities.length > 6 && `(hiển thị 6)`}
+                  </p>
+                </div>
+              </div>
               {activeActivities.length > 0 && (
                 <div className={`mt-2 pt-2 border-t ${
                   isDarkMode ? 'border-gray-600' : 'border-gray-300'
@@ -2282,8 +2492,10 @@ export default function ActivityDashboardLayout({
           {/* Right Column - Past Activities */}
           <div className="lg:col-span-4 flex flex-col">
             {/* Header */}
-            <div className={`mb-3 pb-2 border-b flex-shrink-0 ${
-              isDarkMode ? 'border-gray-600' : 'border-gray-300'
+            <div className={`mb-3 pb-3 rounded-lg p-3 border flex-shrink-0 ${
+              isDarkMode 
+                ? 'bg-gradient-to-r from-gray-700/60 via-gray-600/60 to-gray-700/60 border-gray-500/70' 
+                : 'bg-gradient-to-r from-gray-100 via-gray-200/50 to-gray-100 border-gray-300'
             }`} style={{ 
               height: leftHeaderHeight ? `${leftHeaderHeight}px` : 'auto',
               boxSizing: 'border-box',
@@ -2291,16 +2503,25 @@ export default function ActivityDashboardLayout({
               flexDirection: 'column',
               justifyContent: 'flex-start'
             }}>
-              <h2 className={`text-lg font-bold leading-tight ${
-                isDarkMode ? 'text-white' : 'text-gray-900'
-              }`}>
-                Đã kết thúc
-              </h2>
-              <p className={`text-sm mt-1 leading-tight ${
-                isDarkMode ? 'text-gray-400' : 'text-gray-600'
-              }`}>
-                {pastActivities.length} hoạt động
-              </p>
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className={`p-1.5 rounded-lg ${
+                  isDarkMode 
+                    ? 'bg-gray-600/40 text-gray-200' 
+                    : 'bg-gray-400 text-white shadow-xl'
+                }`}>
+                  <CheckCircle2 size={16} strokeWidth={2} />
+                </div>
+                <div className="flex-1">
+                  <h2 className={`text-sm sm:text-base font-bold mb-0.5 ${
+                    isDarkMode ? 'text-gray-100' : 'text-gray-900'
+                  }`}>
+                    ✅ Đã kết thúc
+                  </h2>
+                  <p className={`text-xs ${isDarkMode ? 'text-gray-300/90' : 'text-gray-700'}`}>
+                    Có <span className="font-bold">{pastActivities.length}</span> hoạt động đã kết thúc
+                  </p>
+                </div>
+              </div>
               {pastActivities.length > 0 && (
                 <div className={`mt-2 pt-2 border-t ${
                   isDarkMode ? 'border-gray-600' : 'border-gray-300'

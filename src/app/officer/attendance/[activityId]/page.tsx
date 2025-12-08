@@ -6,6 +6,7 @@ import OfficerNav from '@/components/officer/OfficerNav';
 import Footer from '@/components/common/Footer';
 import ProtectedRoute from '@/components/common/ProtectedRoute';
 import { useAuth } from '@/hooks/useAuth';
+import ExcelJS from 'exceljs';
 import {
   Crown,
   Briefcase,
@@ -68,10 +69,11 @@ interface AttendanceRecord {
 }
 
 interface Participant {
-  userId: string | { _id: string; name: string; email: string };
+  userId: string | { _id: string; name: string; email: string; studentId?: string };
   name: string;
   email: string;
   role: string;
+  studentId?: string; // MSSV
   checkedIn: boolean;
   checkedInAt?: string;
   checkedInBy?: string;
@@ -2032,94 +2034,612 @@ export default function AttendancePage() {
     }
   };
 
-  const exportToExcel = () => {
+  const exportToExcel = async () => {
     try {
-      // Prepare data for export
-      const exportData = filteredParticipants.map((participant, index) => {
+      const workbook = new ExcelJS.Workbook();
+
+      // Helper function để apply border
+      const applyBorder = (cell: ExcelJS.Cell) => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          left: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          right: { style: 'thin', color: { argb: 'FFCCCCCC' } }
+        };
+      };
+
+      // ============================================
+      // SHEET 1: DS_NGUOI_THAM_GIA_GON (Bảng tổng quan)
+      // ============================================
+      const summarySheet = workbook.addWorksheet('DS_NGUOI_THAM_GIA_GON');
+
+      const summaryHeaders = [
+        'STT',
+        'Họ và tên',
+        'Email',
+        'MSSV',
+        'Vai trò',
+        'Tỷ lệ hoàn thành (%)',
+        'Số buổi đã tham gia',
+        'Tổng số buổi cần tham gia',
+        'Số buổi đúng giờ',
+        'Số buổi trễ',
+        'Số buổi vắng'
+      ];
+
+      // Thêm header row
+      const summaryHeaderRow = summarySheet.addRow(summaryHeaders);
+      summaryHeaderRow.font = { bold: true, size: 11 };
+      summaryHeaderRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE8F4F8' }
+      };
+      summaryHeaderRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      summaryHeaderRow.height = 30;
+      summaryHeaderRow.eachCell((cell: ExcelJS.Cell) => {
+        applyBorder(cell);
+      });
+
+      // Thêm data rows cho sheet tổng quan
+      filteredParticipants.forEach((participant, index) => {
         const participantName = participant.name || 'N/A';
         const participantEmail = participant.email || 'N/A';
         const participantRole = participant.role || 'Người Tham Gia';
+        
+        // Lấy MSSV từ participant hoặc userId
+        let mssv = 'N/A';
+        if (participant.studentId) {
+          mssv = participant.studentId;
+        } else if (typeof participant.userId === 'object' && participant.userId !== null) {
+          mssv = (participant.userId as any).studentId || 'N/A';
+        }
 
-        // Calculate attendance status (for the latest attendance)
-        let attendanceStatus = 'Chưa điểm danh';
-        let attendanceStatusDetail = 'N/A';
-        let checkInTime = 'N/A';
-        let checkInLocation = 'N/A';
-        let timeSlot = 'N/A';
+        // Tính phần trăm và số buổi
+        const attendanceData = calculateOverallAttendancePercentage(participant);
+        const percentage = attendanceData.percentage;
+        const completed = attendanceData.completed;
+        const total = attendanceData.total;
+        const absent = total - completed;
 
-        if (participant.checkedIn && participant.attendances && participant.attendances.length > 0) {
-          const latestAttendance = participant.attendances[participant.attendances.length - 1];
+        // Đếm số buổi đúng giờ và trễ
+        let onTimeCount = 0;
+        let lateCount = 0;
+        
+        if (participant.attendances) {
+          participant.attendances.forEach((attendance) => {
+            if (attendance.status === 'approved' || attendance.status === 'pending') {
+              const timeValidation = validateTime(attendance);
+              if (timeValidation.isLate || attendance.lateReason) {
+                lateCount++;
+              } else if (timeValidation.isOnTime) {
+                onTimeCount++;
+              }
+            }
+          });
+        }
 
-          if (latestAttendance.status === 'approved') {
-            attendanceStatus = 'Đã điểm danh';
-            attendanceStatusDetail = 'Đã xác nhận';
-          } else if (latestAttendance.status === 'pending') {
-            attendanceStatus = 'Đã điểm danh';
-            attendanceStatusDetail = 'Chờ xác nhận';
-          } else if (latestAttendance.status === 'rejected') {
-            attendanceStatus = 'Đã điểm danh';
-            attendanceStatusDetail = 'Bị từ chối';
+        const rowData = [
+          index + 1,
+          participantName,
+          participantEmail,
+          mssv,
+          participantRole,
+          `${percentage}%`,
+          completed,
+          total,
+          onTimeCount,
+          lateCount,
+          absent
+        ];
+
+        const row = summarySheet.addRow(rowData);
+        row.font = { size: 10 };
+        row.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+        row.height = 20;
+
+        // Style đặc biệt
+        row.eachCell((cell: ExcelJS.Cell, colNumber: number) => {
+          const headerIndex = colNumber - 1;
+          const headerName = summaryHeaders[headerIndex];
+
+          if (headerName === 'STT') {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.font = { size: 10, bold: true };
           }
 
-          timeSlot = latestAttendance.timeSlot || 'N/A';
-
-          if (latestAttendance.checkInTime) {
-            try {
-              const date = new Date(latestAttendance.checkInTime);
-              checkInTime = date.toLocaleString('vi-VN');
-            } catch {
-              checkInTime = 'Lỗi thời gian';
+          if (headerName === 'Tỷ lệ hoàn thành (%)') {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.font = { size: 10, bold: true };
+            const percentValue = parseInt(cell.value?.toString().replace('%', '') || '0');
+            if (percentValue >= 80) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+            } else if (percentValue >= 50) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+            } else if (percentValue > 0) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
             }
           }
 
-          if (latestAttendance.location) {
-            checkInLocation = latestAttendance.location.address || `Lat: ${latestAttendance.location.lat}, Lng: ${latestAttendance.location.lng}`;
+          if (headerName === 'Số buổi đúng giờ') {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.font = { size: 10, bold: true, color: { argb: 'FF059669' } };
+          }
+
+          if (headerName === 'Số buổi trễ') {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.font = { size: 10, bold: true, color: { argb: 'FFD97706' } };
+          }
+
+          if (headerName === 'Số buổi vắng') {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.font = { size: 10, bold: true, color: { argb: 'FFDC2626' } };
+          }
+
+          applyBorder(cell);
+        });
+      });
+
+      // Set column widths cho sheet tổng quan
+      summarySheet.getColumn(1).width = 5; // STT
+      summarySheet.getColumn(2).width = 25; // Họ và tên
+      summarySheet.getColumn(3).width = 30; // Email
+      summarySheet.getColumn(4).width = 15; // MSSV
+      summarySheet.getColumn(5).width = 15; // Vai trò
+      summarySheet.getColumn(6).width = 18; // Tỷ lệ hoàn thành
+      summarySheet.getColumn(7).width = 18; // Số buổi đã tham gia
+      summarySheet.getColumn(8).width = 22; // Tổng số buổi cần tham gia
+      summarySheet.getColumn(9).width = 15; // Số buổi đúng giờ
+      summarySheet.getColumn(10).width = 15; // Số buổi trễ
+      summarySheet.getColumn(11).width = 15; // Số buổi vắng
+
+      // ============================================
+      // SHEET 2: NHAT_KY_DIEM_DANH_CHI_TIET (Nhật ký chi tiết)
+      // ============================================
+      const detailSheet = workbook.addWorksheet('NHAT_KY_DIEM_DANH_CHI_TIET');
+
+      const detailHeaders = [
+        'STT',
+        'Họ tên',
+        'MSSV',
+        'Ngày',
+        'Ca',
+        'Phiên',
+        'Trạng thái đăng ký',
+        'Thời gian điểm danh',
+        'Kết quả điểm danh',
+        'Link ảnh minh chứng',
+        'Vị trí',
+        'Người duyệt',
+        'Thời gian duyệt',
+        'Ghi chú',
+        'Lý do trễ',
+        'Lý do từ chối'
+      ];
+
+      // Thêm header row
+      const detailHeaderRow = detailSheet.addRow(detailHeaders);
+      detailHeaderRow.font = { bold: true, size: 11 };
+      detailHeaderRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE8F4F8' }
+      };
+      detailHeaderRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      detailHeaderRow.height = 30;
+      detailHeaderRow.eachCell((cell: ExcelJS.Cell) => {
+        applyBorder(cell);
+      });
+
+      // Tạo cấu trúc để duyệt qua tất cả các buổi cần điểm danh
+      const allCheckInSlots: Array<{
+        participant: Participant;
+        dayNumber?: number;
+        dayDate?: string;
+        slotName: string;
+        checkInType: 'start' | 'end';
+        slot: TimeSlot;
+      }> = [];
+
+      if (activity && activity.timeSlots) {
+        const activeSlots = activity.timeSlots.filter(slot => slot.isActive);
+        
+        filteredParticipants.forEach((participant) => {
+          if (activity.type === 'multiple_days' && activity.schedule) {
+            activity.schedule.forEach((scheduleDay: any) => {
+              const dayNumber = scheduleDay.day || 1;
+              const dayDate = scheduleDay.date || activity.date;
+              
+              activeSlots.forEach((slot) => {
+                allCheckInSlots.push({
+                  participant,
+                  dayNumber,
+                  dayDate,
+                  slotName: slot.name,
+                  checkInType: 'start',
+                  slot
+                });
+                allCheckInSlots.push({
+                  participant,
+                  dayNumber,
+                  dayDate,
+                  slotName: slot.name,
+                  checkInType: 'end',
+                  slot
+                });
+              });
+            });
+          } else {
+            activeSlots.forEach((slot) => {
+              allCheckInSlots.push({
+                participant,
+                slotName: slot.name,
+                checkInType: 'start',
+                slot
+              });
+              allCheckInSlots.push({
+                participant,
+                slotName: slot.name,
+                checkInType: 'end',
+                slot
+              });
+            });
+          }
+        });
+      }
+
+      // Thêm data rows cho sheet chi tiết
+      let detailRowIndex = 0;
+      allCheckInSlots.forEach((checkInSlot) => {
+        const { participant, dayNumber, dayDate, slotName, checkInType, slot } = checkInSlot;
+        
+        // Lấy MSSV từ participant hoặc userId
+        let mssv = 'N/A';
+        if (participant.studentId) {
+          mssv = participant.studentId;
+        } else if (typeof participant.userId === 'object' && participant.userId !== null) {
+          mssv = (participant.userId as any).studentId || 'N/A';
+        }
+
+        // Kiểm tra đăng ký
+        const isRegistered = isSlotRegistered(participant, slot, dayNumber);
+        
+        // Format ngày
+        let dayStr = 'N/A';
+        if (dayDate) {
+          try {
+            const date = new Date(dayDate);
+            dayStr = date.toLocaleDateString('vi-VN');
+          } catch {
+            dayStr = dayDate;
+          }
+        } else if (activity?.date) {
+          try {
+            const date = new Date(activity.date);
+            dayStr = date.toLocaleDateString('vi-VN');
+          } catch {
+            dayStr = activity.date;
           }
         }
 
-        return {
-          'STT': index + 1,
-          'Họ tên': participantName,
-          'Email': participantEmail,
-          'Vai trò': participantRole,
-          'Thời gian/Buổi': timeSlot,
-          'Trạng thái điểm danh': attendanceStatus,
-          'Chi tiết trạng thái': attendanceStatusDetail,
-          'Thời gian điểm danh': checkInTime,
-          'Địa điểm điểm danh': checkInLocation
-        };
+        // Format ca
+        const caStr = slotName || 'N/A';
+
+        // Format phiên
+        const phienStr = checkInType === 'start' ? 'Đầu buổi' : 'Cuối buổi';
+
+        if (!isRegistered) {
+          // Không đăng ký
+          detailRowIndex++;
+          const rowData = [
+            detailRowIndex,
+            participant.name || 'N/A',
+            mssv,
+            dayStr,
+            caStr,
+            phienStr,
+            'Không đăng ký',
+            'N/A',
+            'N/A',
+            'N/A',
+            'N/A',
+            'N/A',
+            'N/A',
+            'N/A',
+            'N/A',
+            'N/A'
+          ];
+          const row = detailSheet.addRow(rowData);
+          row.font = { size: 10 };
+          row.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+          row.height = 20;
+          
+          row.eachCell((cell: ExcelJS.Cell, colNumber: number) => {
+            const headerIndex = colNumber - 1;
+            const headerName = detailHeaders[headerIndex];
+            
+            if (headerName === 'STT') {
+              cell.alignment = { horizontal: 'center', vertical: 'middle' };
+              cell.font = { size: 10, bold: true };
+            }
+            
+            if (headerName === 'Trạng thái đăng ký' && cell.value === 'Không đăng ký') {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+              cell.font = { size: 10, color: { argb: 'FF6B7280' }, italic: true };
+            }
+            
+            applyBorder(cell);
+          });
+          return;
+        }
+
+        // Tìm attendance record
+        const activityDate = dayDate || activity?.date || '';
+        const attendanceStatus = getAttendanceStatusWithTime(
+          participant,
+          slot,
+          checkInType,
+          activityDate,
+          dayNumber
+        );
+
+        if (!attendanceStatus.hasCheckedIn || !attendanceStatus.attendance) {
+          // Đã đăng ký nhưng chưa điểm danh - cần kiểm tra đã qua thời gian chưa
+          let resultStr = 'Chưa điểm danh';
+          
+          // Kiểm tra xem đã qua thời gian điểm danh chưa
+          const now = new Date();
+          let targetTime: Date | null = null;
+          
+          if (activity && activity.timeSlots) {
+            const slot = activity.timeSlots.find(ts => ts.name === slotName && ts.isActive);
+            if (slot) {
+              const activityDate = dayDate ? new Date(dayDate) : (activity.date ? new Date(activity.date) : null);
+              if (activityDate) {
+                if (checkInType === 'start') {
+                  const [startHours, startMinutes] = slot.startTime.split(':').map(Number);
+                  targetTime = new Date(activityDate);
+                  targetTime.setHours(startHours, startMinutes, 0, 0);
+                  // Thêm 30 phút cửa sổ trễ để xác định "vắng"
+                  targetTime.setMinutes(targetTime.getMinutes() + 30);
+                } else {
+                  const [endHours, endMinutes] = slot.endTime.split(':').map(Number);
+                  targetTime = new Date(activityDate);
+                  targetTime.setHours(endHours, endMinutes, 0, 0);
+                  // Thêm 30 phút cửa sổ trễ để xác định "vắng"
+                  targetTime.setMinutes(targetTime.getMinutes() + 30);
+                }
+              }
+            }
+          }
+          
+          // Nếu đã qua thời gian điểm danh (sau thời gian cửa sổ trễ) thì là "Vắng"
+          if (targetTime && now > targetTime) {
+            resultStr = 'Vắng';
+          } else {
+            resultStr = 'Chưa đến giờ điểm danh';
+          }
+          
+          detailRowIndex++;
+          const rowData = [
+            detailRowIndex,
+            participant.name || 'N/A',
+            mssv,
+            dayStr,
+            caStr,
+            phienStr,
+            'Đã đăng ký',
+            'N/A',
+            resultStr,
+            'N/A',
+            'N/A',
+            'N/A',
+            'N/A',
+            'N/A',
+            'N/A',
+            'N/A'
+          ];
+          const row = detailSheet.addRow(rowData);
+          row.font = { size: 10 };
+          row.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+          row.height = 20;
+          
+          row.eachCell((cell: ExcelJS.Cell, colNumber: number) => {
+            const headerIndex = colNumber - 1;
+            const headerName = detailHeaders[headerIndex];
+            
+            if (headerName === 'STT') {
+              cell.alignment = { horizontal: 'center', vertical: 'middle' };
+              cell.font = { size: 10, bold: true };
+            }
+            
+            if (headerName === 'Kết quả điểm danh') {
+              const resultValue = String(cell.value || '').toLowerCase();
+              if (resultValue.includes('vắng')) {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+                cell.font = { size: 10, bold: true, color: { argb: 'FFDC2626' } };
+              } else if (resultValue.includes('chưa đến giờ')) {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0F2FE' } };
+                cell.font = { size: 10, color: { argb: 'FF0369A1' } };
+              } else if (resultValue.includes('chưa điểm danh')) {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+                cell.font = { size: 10, color: { argb: 'FF6B7280' } };
+              }
+            }
+            
+            applyBorder(cell);
+          });
+          return;
+        }
+
+        const attendance = attendanceStatus.attendance;
+
+        // Format thời gian điểm danh
+        let checkInTimeStr = 'N/A';
+        if (attendance.checkInTime) {
+          try {
+            const date = new Date(attendance.checkInTime);
+            checkInTimeStr = date.toLocaleString('vi-VN');
+          } catch {
+            checkInTimeStr = 'Lỗi thời gian';
+          }
+        }
+
+        // Kiểm tra điểm danh đúng hay trễ
+        const timeValidation = validateTime(attendance);
+        let resultStr = 'Chưa điểm danh';
+        if (attendance.status === 'approved') {
+          if (timeValidation.isLate || attendance.lateReason) {
+            resultStr = 'Trễ';
+          } else if (timeValidation.isOnTime) {
+            resultStr = 'Đúng';
+          } else {
+            resultStr = 'Đã xác nhận';
+          }
+        } else if (attendance.status === 'pending') {
+          if (timeValidation.isLate || attendance.lateReason) {
+            resultStr = 'Trễ (Chờ xác nhận)';
+          } else if (timeValidation.isOnTime) {
+            resultStr = 'Đúng (Chờ xác nhận)';
+          } else {
+            resultStr = 'Chờ xác nhận';
+          }
+        } else if (attendance.status === 'rejected') {
+          resultStr = 'Bị từ chối';
+        }
+
+        // Format vị trí
+        let locationStr = 'N/A';
+        if (attendance.location) {
+          locationStr = attendance.location.address || `Lat: ${attendance.location.lat}, Lng: ${attendance.location.lng}`;
+        }
+
+        // Format người duyệt
+        let verifierName = getVerifierName(attendance.verifiedBy, attendance.verifiedByName);
+        if (attendance.verifiedByName) {
+          verifierName = `${verifierName} (Thủ công)`;
+        } else if (!attendance.photoUrl) {
+          verifierName = `${verifierName} (Thủ công)`;
+        } else {
+          verifierName = verifierName || 'Hệ thống tự động';
+        }
+
+        // Format thời gian xác nhận
+        let verifiedAtStr = 'N/A';
+        if (attendance.verifiedAt) {
+          try {
+            const date = new Date(attendance.verifiedAt);
+            verifiedAtStr = date.toLocaleString('vi-VN');
+          } catch {
+            verifiedAtStr = 'N/A';
+          }
+        }
+
+        detailRowIndex++;
+        const rowData = [
+          detailRowIndex,
+          participant.name || 'N/A',
+          mssv,
+          dayStr,
+          caStr,
+          phienStr,
+          'Đã đăng ký',
+          checkInTimeStr,
+          resultStr,
+          attendance.photoUrl || 'N/A',
+          locationStr,
+          verifierName,
+          verifiedAtStr,
+          attendance.verificationNote || 'N/A',
+          attendance.lateReason || 'N/A',
+          attendance.cancelReason || 'N/A'
+        ];
+
+        const row = detailSheet.addRow(rowData);
+        row.font = { size: 10 };
+        row.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+        row.height = 20;
+
+        // Style đặc biệt
+        row.eachCell((cell: ExcelJS.Cell, colNumber: number) => {
+          const headerIndex = colNumber - 1;
+          const headerName = detailHeaders[headerIndex];
+
+          if (headerName === 'STT') {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.font = { size: 10, bold: true };
+          }
+
+          if (headerName === 'Link ảnh minh chứng' && cell.value && typeof cell.value === 'string' && cell.value !== 'N/A' && cell.value.startsWith('http')) {
+            cell.font = { size: 10, color: { argb: 'FF0066CC' }, underline: true };
+            cell.value = { text: cell.value, hyperlink: cell.value };
+          }
+
+          if (headerName === 'Kết quả điểm danh') {
+            const resultValue = String(cell.value || '').toLowerCase();
+            if (resultValue.includes('đúng')) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+              cell.font = { size: 10, bold: true, color: { argb: 'FF059669' } };
+            } else if (resultValue.includes('trễ')) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+              cell.font = { size: 10, bold: true, color: { argb: 'FFD97706' } };
+            } else             if (resultValue.includes('vắng')) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+              cell.font = { size: 10, bold: true, color: { argb: 'FFDC2626' } };
+            } else if (resultValue.includes('chưa đến giờ')) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0F2FE' } };
+              cell.font = { size: 10, color: { argb: 'FF0369A1' } };
+            } else if (resultValue.includes('chưa điểm danh')) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+              cell.font = { size: 10, color: { argb: 'FF6B7280' } };
+            } else if (resultValue.includes('từ chối')) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+              cell.font = { size: 10, bold: true, color: { argb: 'FFDC2626' } };
+            }
+          }
+
+          applyBorder(cell);
+        });
       });
 
-      // Convert to CSV format (Excel compatible)
-      const headers = Object.keys(exportData[0] || {});
-      const csvContent = [
-        headers.join(','),
-        ...exportData.map(row => headers.map(header => {
-          const value = row[header as keyof typeof row];
-          // Escape commas and quotes in CSV
-          if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
-            return `"${value.replace(/"/g, '""')}"`;
-          }
-          return value;
-        }).join(','))
-      ].join('\n');
+      // Set column widths cho sheet chi tiết
+      detailSheet.getColumn(1).width = 5; // STT
+      detailSheet.getColumn(2).width = 25; // Họ tên
+      detailSheet.getColumn(3).width = 15; // MSSV
+      detailSheet.getColumn(4).width = 12; // Ngày
+      detailSheet.getColumn(5).width = 12; // Ca
+      detailSheet.getColumn(6).width = 12; // Phiên
+      detailSheet.getColumn(7).width = 18; // Trạng thái đăng ký
+      detailSheet.getColumn(8).width = 22; // Thời gian điểm danh
+      detailSheet.getColumn(9).width = 20; // Kết quả điểm danh
+      detailSheet.getColumn(10).width = 50; // Link ảnh minh chứng
+      detailSheet.getColumn(11).width = 35; // Vị trí
+      detailSheet.getColumn(12).width = 30; // Người duyệt
+      detailSheet.getColumn(13).width = 22; // Thời gian duyệt
+      detailSheet.getColumn(14).width = 30; // Ghi chú
+      detailSheet.getColumn(15).width = 30; // Lý do trễ
+      detailSheet.getColumn(16).width = 30; // Lý do từ chối
 
-      // Create and download file
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
+      // Generate Excel file
+      const excelBuffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([excelBuffer], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      });
+      
       const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
+      const link = document.createElement('a');
+      link.href = url;
 
       // Generate filename with activity name and date
       const activityName = activity?.name?.replace(/[^a-zA-Z0-9]/g, '_') || 'Hoat_dong';
       const dateStr = new Date().toISOString().split('T')[0];
-      const filename = `${activityName}_Diem_danh_${dateStr}.csv`;
+      link.download = `${activityName}_Diem_danh_${dateStr}.xlsx`;
 
-      link.setAttribute('download', filename);
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      URL.revokeObjectURL(url);
 
     } catch (error) {
       console.error('Error exporting to Excel:', error);
@@ -2127,7 +2647,712 @@ export default function AttendancePage() {
     }
   };
 
-  const exportSelectedToExcel = () => {
+  // Helper function to add Vietnamese font to jsPDF
+  const addVietnameseFont = async (doc: any): Promise<string> => {
+    try {
+      // Try to import Roboto font (if available)
+      try {
+        // @ts-ignore - Dynamic import may not have types
+        const robotoNormalModule = await import('@/lib/fonts/roboto-normal');
+        const RobotoNormal: string | undefined = (robotoNormalModule as any).RobotoNormal;
+        
+        // Check if font is available (not placeholder)
+        if (RobotoNormal && typeof RobotoNormal === 'string' && RobotoNormal !== 'PLACEHOLDER_BASE64_STRING_HERE' && RobotoNormal.length > 100) {
+          console.log('📝 Loading Roboto font, base64 length:', RobotoNormal.length);
+          
+          // Extract base64 from data URI (handle both formats)
+          let base64String: string = RobotoNormal;
+          if (RobotoNormal.startsWith('data:font/ttf;base64,')) {
+            base64String = RobotoNormal.replace('data:font/ttf;base64,', '');
+          }
+          
+          try {
+            // Add font to jsPDF Virtual File System
+            // Note: jsPDF may require fonts to be converted using their font converter tool
+            // Direct TTF base64 may not work. If this fails, use jsPDF font converter:
+            // https://rawgit.com/MrRio/jsPDF/master/fontconverter/fontconverter.html
+            doc.addFileToVFS('Roboto-Regular.ttf', base64String);
+            doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
+            
+            // Verify font was added
+            const fontList = doc.getFontList();
+            if (fontList && fontList['Roboto']) {
+              console.log('✅ Roboto Regular font added and verified successfully');
+            } else {
+              console.warn('⚠️ Roboto font added but not found in font list. Font may need to be converted using jsPDF font converter.');
+              throw new Error('Font not registered in jsPDF');
+            }
+            
+            // Try to add bold version if available
+            try {
+              // @ts-ignore
+              const robotoBoldModule = await import('@/lib/fonts/roboto-bold');
+              const RobotoBold: string | undefined = (robotoBoldModule as any).RobotoBold;
+              if (RobotoBold && typeof RobotoBold === 'string' && RobotoBold !== 'PLACEHOLDER_BASE64_STRING_HERE' && RobotoBold.length > 100) {
+                let boldBase64: string = RobotoBold;
+                if (RobotoBold.startsWith('data:font/ttf;base64,')) {
+                  boldBase64 = RobotoBold.replace('data:font/ttf;base64,', '');
+                }
+                doc.addFileToVFS('Roboto-Bold.ttf', boldBase64);
+                doc.addFont('Roboto-Bold.ttf', 'Roboto', 'bold');
+                console.log('✅ Roboto Bold font added successfully');
+              } else {
+                // Use normal font for bold if bold not available
+                doc.addFont('Roboto-Regular.ttf', 'Roboto', 'bold');
+                console.log('⚠️ Roboto Bold not available, using Regular for bold');
+              }
+            } catch (boldError) {
+              // Bold font not available, use normal for bold
+              doc.addFont('Roboto-Regular.ttf', 'Roboto', 'bold');
+              console.warn('⚠️ Could not load Roboto Bold, using Regular for bold:', boldError);
+            }
+            
+            // Verify font is registered
+            const fonts = doc.getFontList();
+            console.log('📋 Available fonts:', Object.keys(fonts));
+            
+            return 'Roboto';
+          } catch (addFontError: any) {
+            console.error('❌ Error adding Roboto font to jsPDF:', addFontError);
+            console.error('Error details:', addFontError.message, addFontError.stack);
+            // Continue to fallback
+          }
+        } else {
+          console.warn('⚠️ Roboto font not available or invalid (length:', RobotoNormal?.length || 0, ')');
+        }
+        
+        // Fallback: Try Noto Sans
+        const NotoSansNormal: string | undefined = (robotoNormalModule as any).NotoSansNormal;
+        if (NotoSansNormal && typeof NotoSansNormal === 'string' && NotoSansNormal !== 'PLACEHOLDER_BASE64_STRING_HERE' && NotoSansNormal.length > 100) {
+          let base64String: string = NotoSansNormal;
+          if (NotoSansNormal.startsWith('data:font/ttf;base64,')) {
+            base64String = NotoSansNormal.replace('data:font/ttf;base64,', '');
+          }
+          doc.addFileToVFS('NotoSans-Regular.ttf', base64String);
+          doc.addFont('NotoSans-Regular.ttf', 'NotoSans', 'normal');
+          doc.addFont('NotoSans-Regular.ttf', 'NotoSans', 'bold');
+          console.log('✅ Noto Sans font added as fallback');
+          return 'NotoSans';
+        }
+      } catch (fontError) {
+        console.error('❌ Could not load custom Vietnamese font:', fontError);
+      }
+    } catch (error) {
+      console.error('❌ Error in addVietnameseFont:', error);
+    }
+    
+    // Final fallback: use times font (better Unicode support than helvetica)
+    console.warn('⚠️ Using fallback font: times');
+    return 'times';
+  };
+
+  // Export to PDF
+  const exportToPDF = async () => {
+    try {
+      // Dynamic import jsPDF
+      // @ts-ignore - jspdf types may not be available
+      const jsPDFModule = await import('jspdf');
+      const jsPDF = jsPDFModule.default || jsPDFModule;
+      // @ts-ignore - jspdf-autotable types may not be available
+      const autoTableModule = await import('jspdf-autotable');
+      const autoTable = autoTableModule.default || autoTableModule;
+
+      const doc = new jsPDF('landscape', 'mm', 'a4');
+      
+      // Try to add Vietnamese font
+      const fontName = await addVietnameseFont(doc);
+      
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 10;
+      let yPos = margin;
+
+      // Helper function to add new page if needed
+      const checkNewPage = (requiredHeight: number) => {
+        if (yPos + requiredHeight > pageHeight - margin) {
+          doc.addPage();
+          yPos = margin;
+          // Re-apply font on new page
+          try {
+            doc.setFont(fontName, 'normal');
+          } catch (e) {
+            console.warn('Could not set font on new page:', e);
+          }
+          return true;
+        }
+        return false;
+      };
+
+      // Use the font we loaded (or fallback to times)
+      console.log('📄 Using font:', fontName);
+      
+      // Set font before using it - with error handling
+      try {
+        doc.setFont(fontName, 'normal');
+        console.log('✅ Font set successfully:', fontName);
+      } catch (fontError: any) {
+        console.error('❌ Error setting font:', fontError);
+        console.error('Error message:', fontError?.message);
+        // Try to use fallback
+        try {
+          doc.setFont('times', 'normal');
+          console.log('⚠️ Using fallback font: times');
+        } catch (e) {
+          console.error('❌ Even fallback font failed:', e);
+        }
+      }
+      
+      // Title
+      doc.setFontSize(16);
+      doc.setFont(fontName, 'bold');
+      doc.text('BÁO CÁO ĐIỂM DANH', pageWidth / 2, yPos, { align: 'center' });
+      yPos += 10;
+
+      // Activity info
+      doc.setFontSize(12);
+      doc.setFont(fontName, 'normal');
+      if (activity) {
+        doc.text(`Hoạt động: ${activity.name || 'N/A'}`, margin, yPos);
+        yPos += 6;
+        if (activity.date) {
+          const dateStr = new Date(activity.date).toLocaleDateString('vi-VN');
+          doc.text(`Ngày: ${dateStr}`, margin, yPos);
+          yPos += 6;
+        }
+      }
+      yPos += 5;
+
+      // Sheet 1: Summary Table
+      doc.setFontSize(14);
+      doc.setFont(fontName, 'bold');
+      doc.text('1. DANH SÁCH NGƯỜI THAM GIA (Tổng quan)', margin, yPos);
+      yPos += 8;
+
+      const summaryData = filteredParticipants.map((participant, index) => {
+        const attendanceData = calculateOverallAttendancePercentage(participant);
+        const percentage = attendanceData.percentage;
+        const completed = attendanceData.completed;
+        const total = attendanceData.total;
+        const absent = total - completed;
+
+        let onTimeCount = 0;
+        let lateCount = 0;
+        if (participant.attendances) {
+          participant.attendances.forEach((attendance) => {
+            if (attendance.status === 'approved' || attendance.status === 'pending') {
+              const timeValidation = validateTime(attendance);
+              if (timeValidation.isLate || attendance.lateReason) {
+                lateCount++;
+              } else if (timeValidation.isOnTime) {
+                onTimeCount++;
+              }
+            }
+          });
+        }
+
+        let mssv = 'N/A';
+        if (participant.studentId) {
+          mssv = participant.studentId;
+        } else if (typeof participant.userId === 'object' && participant.userId !== null) {
+          mssv = (participant.userId as any).studentId || 'N/A';
+        }
+
+        return [
+          index + 1,
+          participant.name || 'N/A',
+          participant.email || 'N/A',
+          mssv,
+          participant.role || 'Người Tham Gia',
+          `${percentage}%`,
+          completed,
+          total,
+          onTimeCount,
+          lateCount,
+          absent
+        ];
+      });
+
+      autoTable(doc, {
+        head: [['STT', 'Họ và tên', 'Email', 'MSSV', 'Vai trò', 'Tỷ lệ (%)', 'Đã tham gia', 'Cần tham gia', 'Đúng giờ', 'Trễ', 'Vắng']],
+        body: summaryData,
+        startY: yPos,
+        margin: { left: margin, right: margin },
+        styles: { 
+          fontSize: 8, 
+          cellPadding: 2,
+          font: fontName,
+          fontStyle: 'normal'
+        },
+        headStyles: { 
+          fillColor: [232, 244, 248], 
+          textColor: [0, 0, 0], 
+          fontStyle: 'bold',
+          font: fontName
+        },
+        alternateRowStyles: { fillColor: [245, 247, 250] },
+        columnStyles: {
+          0: { cellWidth: 10 }, // STT
+          1: { cellWidth: 35 }, // Họ và tên
+          2: { cellWidth: 40 }, // Email
+          3: { cellWidth: 20 }, // MSSV
+          4: { cellWidth: 25 }, // Vai trò
+          5: { cellWidth: 15 }, // Tỷ lệ
+          6: { cellWidth: 15 }, // Đã tham gia
+          7: { cellWidth: 18 }, // Cần tham gia
+          8: { cellWidth: 15 }, // Đúng giờ
+          9: { cellWidth: 15 }, // Trễ
+          10: { cellWidth: 15 } // Vắng
+        }
+      });
+
+      yPos = (doc as any).lastAutoTable.finalY + 10;
+      checkNewPage(50);
+
+      // Sheet 2: Detail Table
+      doc.setFontSize(14);
+      doc.setFont(fontName, 'bold');
+      doc.text('2. NHẬT KÝ ĐIỂM DANH CHI TIẾT', margin, yPos);
+      yPos += 8;
+
+      // Build detail data
+      const detailData: any[] = [];
+      let detailRowIndex = 0;
+
+      if (activity && activity.timeSlots) {
+        const activeSlots = activity.timeSlots.filter(slot => slot.isActive);
+        
+        filteredParticipants.forEach((participant) => {
+          let mssv = 'N/A';
+          if (participant.studentId) {
+            mssv = participant.studentId;
+          } else if (typeof participant.userId === 'object' && participant.userId !== null) {
+            mssv = (participant.userId as any).studentId || 'N/A';
+          }
+
+          if (activity.type === 'multiple_days' && activity.schedule) {
+            activity.schedule.forEach((scheduleDay: any) => {
+              const dayNumber = scheduleDay.day || 1;
+              const dayDate = scheduleDay.date || activity.date;
+              
+              activeSlots.forEach((slot) => {
+                ['start', 'end'].forEach((checkInType) => {
+                  const isRegistered = isSlotRegistered(participant, slot, dayNumber);
+                  
+                  let dayStr = 'N/A';
+                  if (dayDate) {
+                    try {
+                      const date = new Date(dayDate);
+                      dayStr = date.toLocaleDateString('vi-VN');
+                    } catch {
+                      dayStr = dayDate;
+                    }
+                  }
+
+                  const caStr = slot.name || 'N/A';
+                  const phienStr = checkInType === 'start' ? 'Đầu buổi' : 'Cuối buổi';
+
+                  if (!isRegistered) {
+                    detailData.push([
+                      ++detailRowIndex,
+                      participant.name || 'N/A',
+                      mssv,
+                      dayStr,
+                      caStr,
+                      phienStr,
+                      'Không đăng ký',
+                      'N/A',
+                      'N/A',
+                      'N/A',
+                      'N/A',
+                      'N/A',
+                      'N/A',
+                      'N/A',
+                      'N/A',
+                      'N/A'
+                    ]);
+                    return;
+                  }
+
+                  const activityDate = dayDate || activity?.date || '';
+                  const attendanceStatus = getAttendanceStatusWithTime(
+                    participant,
+                    slot,
+                    checkInType as 'start' | 'end',
+                    activityDate,
+                    dayNumber
+                  );
+
+                  if (!attendanceStatus.hasCheckedIn || !attendanceStatus.attendance) {
+                    let resultStr = 'Chưa điểm danh';
+                    const now = new Date();
+                    let targetTime: Date | null = null;
+                    
+                    if (slot) {
+                      const activityDateObj = dayDate ? new Date(dayDate) : (activity.date ? new Date(activity.date) : null);
+                      if (activityDateObj) {
+                        if (checkInType === 'start') {
+                          const [startHours, startMinutes] = slot.startTime.split(':').map(Number);
+                          targetTime = new Date(activityDateObj);
+                          targetTime.setHours(startHours, startMinutes, 0, 0);
+                          targetTime.setMinutes(targetTime.getMinutes() + 30);
+                        } else {
+                          const [endHours, endMinutes] = slot.endTime.split(':').map(Number);
+                          targetTime = new Date(activityDateObj);
+                          targetTime.setHours(endHours, endMinutes, 0, 0);
+                          targetTime.setMinutes(targetTime.getMinutes() + 30);
+                        }
+                      }
+                    }
+                    
+                    if (targetTime && now > targetTime) {
+                      resultStr = 'Vắng';
+                    } else {
+                      resultStr = 'Chưa đến giờ điểm danh';
+                    }
+
+                    detailData.push([
+                      ++detailRowIndex,
+                      participant.name || 'N/A',
+                      mssv,
+                      dayStr,
+                      caStr,
+                      phienStr,
+                      'Đã đăng ký',
+                      'N/A',
+                      resultStr,
+                      'N/A',
+                      'N/A',
+                      'N/A',
+                      'N/A',
+                      'N/A',
+                      'N/A',
+                      'N/A'
+                    ]);
+                    return;
+                  }
+
+                  const attendance = attendanceStatus.attendance;
+                  let checkInTimeStr = 'N/A';
+                  if (attendance.checkInTime) {
+                    try {
+                      const date = new Date(attendance.checkInTime);
+                      checkInTimeStr = date.toLocaleString('vi-VN');
+                    } catch {
+                      checkInTimeStr = 'Lỗi thời gian';
+                    }
+                  }
+
+                  const timeValidation = validateTime(attendance);
+                  let resultStr = 'Chưa điểm danh';
+                  if (attendance.status === 'approved') {
+                    if (timeValidation.isLate || attendance.lateReason) {
+                      resultStr = 'Trễ';
+                    } else if (timeValidation.isOnTime) {
+                      resultStr = 'Đúng';
+                    } else {
+                      resultStr = 'Đã xác nhận';
+                    }
+                  } else if (attendance.status === 'pending') {
+                    if (timeValidation.isLate || attendance.lateReason) {
+                      resultStr = 'Trễ (Chờ xác nhận)';
+                    } else if (timeValidation.isOnTime) {
+                      resultStr = 'Đúng (Chờ xác nhận)';
+                    } else {
+                      resultStr = 'Chờ xác nhận';
+                    }
+                  } else if (attendance.status === 'rejected') {
+                    resultStr = 'Bị từ chối';
+                  }
+
+                  let locationStr = 'N/A';
+                  if (attendance.location) {
+                    locationStr = attendance.location.address || `Lat: ${attendance.location.lat}, Lng: ${attendance.location.lng}`;
+                  }
+
+                  let verifierName = getVerifierName(attendance.verifiedBy, attendance.verifiedByName);
+                  if (attendance.verifiedByName) {
+                    verifierName = `${verifierName} (Thủ công)`;
+                  } else if (!attendance.photoUrl) {
+                    verifierName = `${verifierName} (Thủ công)`;
+                  } else {
+                    verifierName = verifierName || 'Hệ thống tự động';
+                  }
+
+                  let verifiedAtStr = 'N/A';
+                  if (attendance.verifiedAt) {
+                    try {
+                      const date = new Date(attendance.verifiedAt);
+                      verifiedAtStr = date.toLocaleString('vi-VN');
+                    } catch {
+                      verifiedAtStr = 'N/A';
+                    }
+                  }
+
+                  detailData.push([
+                    ++detailRowIndex,
+                    participant.name || 'N/A',
+                    mssv,
+                    dayStr,
+                    caStr,
+                    phienStr,
+                    'Đã đăng ký',
+                    checkInTimeStr,
+                    resultStr,
+                    attendance.photoUrl ? 'Có' : 'N/A',
+                    locationStr.length > 30 ? locationStr.substring(0, 30) + '...' : locationStr,
+                    verifierName,
+                    verifiedAtStr,
+                    (attendance.verificationNote || 'N/A').length > 20 ? (attendance.verificationNote || 'N/A').substring(0, 20) + '...' : (attendance.verificationNote || 'N/A'),
+                    (attendance.lateReason || 'N/A').length > 20 ? (attendance.lateReason || 'N/A').substring(0, 20) + '...' : (attendance.lateReason || 'N/A'),
+                    (attendance.cancelReason || 'N/A').length > 20 ? (attendance.cancelReason || 'N/A').substring(0, 20) + '...' : (attendance.cancelReason || 'N/A')
+                  ]);
+                });
+              });
+            });
+          } else {
+            activeSlots.forEach((slot) => {
+              ['start', 'end'].forEach((checkInType) => {
+                const isRegistered = isSlotRegistered(participant, slot);
+                
+                let dayStr = 'N/A';
+                if (activity?.date) {
+                  try {
+                    const date = new Date(activity.date);
+                    dayStr = date.toLocaleDateString('vi-VN');
+                  } catch {
+                    dayStr = activity.date;
+                  }
+                }
+
+                const caStr = slot.name || 'N/A';
+                const phienStr = checkInType === 'start' ? 'Đầu buổi' : 'Cuối buổi';
+
+                if (!isRegistered) {
+                  detailData.push([
+                    ++detailRowIndex,
+                    participant.name || 'N/A',
+                    mssv,
+                    dayStr,
+                    caStr,
+                    phienStr,
+                    'Không đăng ký',
+                    'N/A',
+                    'N/A',
+                    'N/A',
+                    'N/A',
+                    'N/A',
+                    'N/A',
+                    'N/A',
+                    'N/A',
+                    'N/A'
+                  ]);
+                  return;
+                }
+
+                const activityDate = activity?.date || '';
+                const attendanceStatus = getAttendanceStatusWithTime(
+                  participant,
+                  slot,
+                  checkInType as 'start' | 'end',
+                  activityDate
+                );
+
+                if (!attendanceStatus.hasCheckedIn || !attendanceStatus.attendance) {
+                  let resultStr = 'Chưa điểm danh';
+                  const now = new Date();
+                  let targetTime: Date | null = null;
+                  
+                  if (slot && activity?.date) {
+                    const activityDateObj = new Date(activity.date);
+                    if (checkInType === 'start') {
+                      const [startHours, startMinutes] = slot.startTime.split(':').map(Number);
+                      targetTime = new Date(activityDateObj);
+                      targetTime.setHours(startHours, startMinutes, 0, 0);
+                      targetTime.setMinutes(targetTime.getMinutes() + 30);
+                    } else {
+                      const [endHours, endMinutes] = slot.endTime.split(':').map(Number);
+                      targetTime = new Date(activityDateObj);
+                      targetTime.setHours(endHours, endMinutes, 0, 0);
+                      targetTime.setMinutes(targetTime.getMinutes() + 30);
+                    }
+                  }
+                  
+                  if (targetTime && now > targetTime) {
+                    resultStr = 'Vắng';
+                  } else {
+                    resultStr = 'Chưa đến giờ điểm danh';
+                  }
+
+                  detailData.push([
+                    ++detailRowIndex,
+                    participant.name || 'N/A',
+                    mssv,
+                    dayStr,
+                    caStr,
+                    phienStr,
+                    'Đã đăng ký',
+                    'N/A',
+                    resultStr,
+                    'N/A',
+                    'N/A',
+                    'N/A',
+                    'N/A',
+                    'N/A',
+                    'N/A',
+                    'N/A'
+                  ]);
+                  return;
+                }
+
+                const attendance = attendanceStatus.attendance;
+                let checkInTimeStr = 'N/A';
+                if (attendance.checkInTime) {
+                  try {
+                    const date = new Date(attendance.checkInTime);
+                    checkInTimeStr = date.toLocaleString('vi-VN');
+                  } catch {
+                    checkInTimeStr = 'Lỗi thời gian';
+                  }
+                }
+
+                const timeValidation = validateTime(attendance);
+                let resultStr = 'Chưa điểm danh';
+                if (attendance.status === 'approved') {
+                  if (timeValidation.isLate || attendance.lateReason) {
+                    resultStr = 'Trễ';
+                  } else if (timeValidation.isOnTime) {
+                    resultStr = 'Đúng';
+                  } else {
+                    resultStr = 'Đã xác nhận';
+                  }
+                } else if (attendance.status === 'pending') {
+                  if (timeValidation.isLate || attendance.lateReason) {
+                    resultStr = 'Trễ (Chờ xác nhận)';
+                  } else if (timeValidation.isOnTime) {
+                    resultStr = 'Đúng (Chờ xác nhận)';
+                  } else {
+                    resultStr = 'Chờ xác nhận';
+                  }
+                } else if (attendance.status === 'rejected') {
+                  resultStr = 'Bị từ chối';
+                }
+
+                let locationStr = 'N/A';
+                if (attendance.location) {
+                  locationStr = attendance.location.address || `Lat: ${attendance.location.lat}, Lng: ${attendance.location.lng}`;
+                }
+
+                let verifierName = getVerifierName(attendance.verifiedBy, attendance.verifiedByName);
+                if (attendance.verifiedByName) {
+                  verifierName = `${verifierName} (Thủ công)`;
+                } else if (!attendance.photoUrl) {
+                  verifierName = `${verifierName} (Thủ công)`;
+                } else {
+                  verifierName = verifierName || 'Hệ thống tự động';
+                }
+
+                let verifiedAtStr = 'N/A';
+                if (attendance.verifiedAt) {
+                  try {
+                    const date = new Date(attendance.verifiedAt);
+                    verifiedAtStr = date.toLocaleString('vi-VN');
+                  } catch {
+                    verifiedAtStr = 'N/A';
+                  }
+                }
+
+                detailData.push([
+                  ++detailRowIndex,
+                  participant.name || 'N/A',
+                  mssv,
+                  dayStr,
+                  caStr,
+                  phienStr,
+                  'Đã đăng ký',
+                  checkInTimeStr,
+                  resultStr,
+                  attendance.photoUrl ? 'Có' : 'N/A',
+                  locationStr.length > 30 ? locationStr.substring(0, 30) + '...' : locationStr,
+                  verifierName,
+                  verifiedAtStr,
+                  (attendance.verificationNote || 'N/A').length > 20 ? (attendance.verificationNote || 'N/A').substring(0, 20) + '...' : (attendance.verificationNote || 'N/A'),
+                  (attendance.lateReason || 'N/A').length > 20 ? (attendance.lateReason || 'N/A').substring(0, 20) + '...' : (attendance.lateReason || 'N/A'),
+                  (attendance.cancelReason || 'N/A').length > 20 ? (attendance.cancelReason || 'N/A').substring(0, 20) + '...' : (attendance.cancelReason || 'N/A')
+                ]);
+              });
+            });
+          }
+        });
+      }
+
+      autoTable(doc, {
+        head: [['STT', 'Họ tên', 'MSSV', 'Ngày', 'Ca', 'Phiên', 'Đăng ký', 'Thời gian', 'Kết quả', 'Ảnh', 'Vị trí', 'Người duyệt', 'Thời gian duyệt', 'Ghi chú', 'Lý do trễ', 'Lý do từ chối']],
+        body: detailData,
+        startY: yPos,
+        margin: { left: margin, right: margin },
+        styles: { 
+          fontSize: 6, 
+          cellPadding: 1,
+          font: fontName,
+          fontStyle: 'normal'
+        },
+        headStyles: { 
+          fillColor: [232, 244, 248], 
+          textColor: [0, 0, 0], 
+          fontStyle: 'bold',
+          font: fontName
+        },
+        alternateRowStyles: { fillColor: [245, 247, 250] },
+        columnStyles: {
+          0: { cellWidth: 8 }, // STT
+          1: { cellWidth: 25 }, // Họ tên
+          2: { cellWidth: 15 }, // MSSV
+          3: { cellWidth: 15 }, // Ngày
+          4: { cellWidth: 12 }, // Ca
+          5: { cellWidth: 12 }, // Phiên
+          6: { cellWidth: 15 }, // Đăng ký
+          7: { cellWidth: 20 }, // Thời gian
+          8: { cellWidth: 18 }, // Kết quả
+          9: { cellWidth: 10 }, // Ảnh
+          10: { cellWidth: 25 }, // Vị trí
+          11: { cellWidth: 20 }, // Người duyệt
+          12: { cellWidth: 20 }, // Thời gian duyệt
+          13: { cellWidth: 20 }, // Ghi chú
+          14: { cellWidth: 20 }, // Lý do trễ
+          15: { cellWidth: 20 } // Lý do từ chối
+        }
+      });
+
+      // Save PDF
+      const activityName = activity?.name?.replace(/[^a-zA-Z0-9]/g, '_') || 'Hoat_dong';
+      const dateStr = new Date().toISOString().split('T')[0];
+      doc.save(`${activityName}_Diem_danh_${dateStr}.pdf`);
+
+    } catch (error: any) {
+      console.error('Error exporting to PDF:', error);
+      if (error.message && error.message.includes('Cannot find module')) {
+        alert('Thư viện PDF chưa được cài đặt. Vui lòng chạy: npm install jspdf jspdf-autotable');
+      } else {
+        alert('Có lỗi xảy ra khi xuất PDF. Vui lòng thử lại.');
+      }
+    }
+  };
+
+  // Export both Excel and PDF
+  const exportBoth = async () => {
+    try {
+      await exportToExcel();
+      // Wait a bit before exporting PDF to avoid browser blocking multiple downloads
+      setTimeout(async () => {
+        await exportToPDF();
+      }, 500);
+    } catch (error) {
+      console.error('Error exporting both formats:', error);
+      alert('Có lỗi xảy ra khi xuất file. Vui lòng thử lại.');
+    }
+  };
+
+  const exportSelectedToExcel = async () => {
     try {
       if (selectedParticipants.size === 0) {
         alert('Vui lòng chọn ít nhất một người để xuất Excel.');
@@ -2142,97 +3367,266 @@ export default function AttendancePage() {
         return selectedParticipants.has(participantId);
       });
 
-      // Prepare data for export
-      const exportData = selectedParticipantsList.map((participant, index) => {
-        const participantName = participant.name || 'N/A';
-        const participantEmail = participant.email || 'N/A';
-        const participantRole = participant.role || 'Người Tham Gia';
-
-        // Calculate attendance status (for the latest attendance)
-        let attendanceStatus = 'Chưa điểm danh';
-        let attendanceStatusDetail = 'N/A';
-        let checkInTime = 'N/A';
-        let checkInLocation = 'N/A';
-        let timeSlot = 'N/A';
-
-        if (participant.checkedIn && participant.attendances && participant.attendances.length > 0) {
-          const latestAttendance = participant.attendances[participant.attendances.length - 1];
-
-          if (latestAttendance.status === 'approved') {
-            attendanceStatus = 'Đã điểm danh';
-            attendanceStatusDetail = 'Đã xác nhận';
-          } else if (latestAttendance.status === 'pending') {
-            attendanceStatus = 'Đã điểm danh';
-            attendanceStatusDetail = 'Chờ xác nhận';
-          } else if (latestAttendance.status === 'rejected') {
-            attendanceStatus = 'Đã điểm danh';
-            attendanceStatusDetail = 'Bị từ chối';
-          }
-
-          timeSlot = latestAttendance.timeSlot || 'N/A';
-
-          if (latestAttendance.checkInTime) {
-            try {
-              const date = new Date(latestAttendance.checkInTime);
-              checkInTime = date.toLocaleString('vi-VN');
-            } catch {
-              checkInTime = 'Lỗi thời gian';
-            }
-          }
-
-          if (latestAttendance.location) {
-            checkInLocation = latestAttendance.location.address || `Lat: ${latestAttendance.location.lat}, Lng: ${latestAttendance.location.lng}`;
-          }
-        }
-
-        return {
-          'STT': index + 1,
-          'Họ tên': participantName,
-          'Email': participantEmail,
-          'Vai trò': participantRole,
-          'Thời gian/Buổi': timeSlot,
-          'Trạng thái điểm danh': attendanceStatus,
-          'Chi tiết trạng thái': attendanceStatusDetail,
-          'Thời gian điểm danh': checkInTime,
-          'Địa điểm điểm danh': checkInLocation
-        };
-      });
-
-      if (exportData.length === 0) {
+      if (selectedParticipantsList.length === 0) {
         alert('Không có dữ liệu để xuất.');
         return;
       }
 
-      // Convert to CSV format (Excel compatible)
-      const headers = Object.keys(exportData[0] || {});
-      const csvContent = [
-        headers.join(','),
-        ...exportData.map(row => headers.map(header => {
-          const value = row[header as keyof typeof row];
-          // Escape commas and quotes in CSV
-          if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
-            return `"${value.replace(/"/g, '""')}"`;
-          }
-          return value;
-        }).join(','))
-      ].join('\n');
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Điểm danh đã chọn');
 
-      // Create and download file
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
+      // Helper function để apply border
+      const applyBorder = (cell: ExcelJS.Cell) => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          left: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          right: { style: 'thin', color: { argb: 'FFCCCCCC' } }
+        };
+      };
+
+      // Tính số buổi tối đa để tạo cột động
+      let maxAttendanceCount = 0;
+      selectedParticipantsList.forEach(participant => {
+        if (participant.attendances && participant.attendances.length > maxAttendanceCount) {
+          maxAttendanceCount = participant.attendances.length;
+        }
+      });
+
+      // Tạo header row
+      const headers = [
+        'STT',
+        'Họ tên',
+        'Email',
+        'Vai trò',
+        'Tỷ lệ hoàn thành (%)',
+        'Số buổi đã tham gia',
+        'Tổng số buổi cần tham gia'
+      ];
+
+      // Thêm cột cho mỗi buổi điểm danh
+      for (let i = 1; i <= maxAttendanceCount; i++) {
+        headers.push(
+          `Buổi ${i} - Buổi/Thời gian`,
+          `Buổi ${i} - Loại điểm danh`,
+          `Buổi ${i} - Thời gian điểm danh`,
+          `Buổi ${i} - Vị trí`,
+          `Buổi ${i} - Link ảnh điểm danh`,
+          `Buổi ${i} - Trạng thái`,
+          `Buổi ${i} - Người xác nhận`,
+          `Buổi ${i} - Thời gian xác nhận`,
+          `Buổi ${i} - Ghi chú`,
+          `Buổi ${i} - Lý do trễ`,
+          `Buổi ${i} - Lý do từ chối`
+        );
+      }
+
+      // Thêm header row
+      const headerRow = worksheet.addRow(headers);
+      headerRow.font = { bold: true, size: 11 };
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE8F4F8' }
+      };
+      headerRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      headerRow.height = 30;
+      headerRow.eachCell((cell: ExcelJS.Cell) => {
+        applyBorder(cell);
+      });
+
+      // Thêm data rows
+      selectedParticipantsList.forEach((participant, index) => {
+        const participantName = participant.name || 'N/A';
+        const participantEmail = participant.email || 'N/A';
+        const participantRole = participant.role || 'Người Tham Gia';
+
+        // Tính phần trăm điểm danh
+        const attendanceData = calculateOverallAttendancePercentage(participant);
+        const percentage = attendanceData.percentage;
+        const completed = attendanceData.completed;
+        const total = attendanceData.total;
+
+        // Tạo row data
+        const rowData: any[] = [
+          index + 1,
+          participantName,
+          participantEmail,
+          participantRole,
+          `${percentage}%`,
+          completed,
+          total
+        ];
+
+        // Thêm thông tin từng buổi điểm danh
+        const attendances = participant.attendances || [];
+        for (let i = 0; i < maxAttendanceCount; i++) {
+          if (i < attendances.length) {
+            const attendance = attendances[i];
+            
+            // Format thời gian điểm danh
+            let checkInTimeStr = 'N/A';
+            if (attendance.checkInTime) {
+              try {
+                const date = new Date(attendance.checkInTime);
+                checkInTimeStr = date.toLocaleString('vi-VN');
+              } catch {
+                checkInTimeStr = 'Lỗi thời gian';
+              }
+            }
+
+            // Format vị trí
+            let locationStr = 'N/A';
+            if (attendance.location) {
+              locationStr = attendance.location.address || `Lat: ${attendance.location.lat}, Lng: ${attendance.location.lng}`;
+            }
+
+            // Format loại điểm danh
+            const checkInTypeStr = attendance.checkInType === 'start' ? 'Đầu buổi' : attendance.checkInType === 'end' ? 'Cuối buổi' : attendance.checkInType || 'N/A';
+
+            // Format trạng thái
+            let statusStr = 'Chưa điểm danh';
+            if (attendance.status === 'approved') {
+              statusStr = 'Đã xác nhận';
+            } else if (attendance.status === 'pending') {
+              statusStr = 'Chờ xác nhận';
+            } else if (attendance.status === 'rejected') {
+              statusStr = 'Bị từ chối';
+            }
+
+            // Format người xác nhận
+            const verifierName = getVerifierName(attendance.verifiedBy, attendance.verifiedByName);
+
+            // Format thời gian xác nhận
+            let verifiedAtStr = 'N/A';
+            if (attendance.verifiedAt) {
+              try {
+                const date = new Date(attendance.verifiedAt);
+                verifiedAtStr = date.toLocaleString('vi-VN');
+              } catch {
+                verifiedAtStr = 'N/A';
+              }
+            }
+
+            rowData.push(
+              attendance.timeSlot || 'N/A',
+              checkInTypeStr,
+              checkInTimeStr,
+              locationStr,
+              attendance.photoUrl || 'N/A',
+              statusStr,
+              verifierName,
+              verifiedAtStr,
+              attendance.verificationNote || 'N/A',
+              attendance.lateReason || 'N/A',
+              attendance.cancelReason || 'N/A'
+            );
+          } else {
+            // Không có dữ liệu cho buổi này
+            rowData.push('N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A');
+          }
+        }
+
+        const row = worksheet.addRow(rowData);
+        row.font = { size: 10 };
+        row.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+        row.height = 20;
+
+        // Style đặc biệt cho các cột
+        row.eachCell((cell: ExcelJS.Cell, colNumber: number) => {
+          const headerIndex = colNumber - 1;
+          const headerName = headers[headerIndex];
+
+          // Style cho cột STT
+          if (headerName === 'STT') {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.font = { size: 10, bold: true };
+          }
+
+          // Style cho cột phần trăm
+          if (headerName === 'Tỷ lệ hoàn thành (%)') {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.font = { size: 10, bold: true };
+            const percentValue = parseInt(cell.value?.toString().replace('%', '') || '0');
+            if (percentValue >= 80) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+            } else if (percentValue >= 50) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+            } else if (percentValue > 0) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+            }
+          }
+
+          // Style cho cột Link ảnh (hyperlink)
+          if (headerName && headerName.includes('Link ảnh') && cell.value && typeof cell.value === 'string' && cell.value !== 'N/A' && cell.value.startsWith('http')) {
+            cell.font = { size: 10, color: { argb: 'FF0066CC' }, underline: true };
+            cell.value = { text: cell.value, hyperlink: cell.value };
+          }
+
+          // Style cho cột Trạng thái
+          if (headerName && headerName.includes('Trạng thái')) {
+            const statusValue = String(cell.value || '').toLowerCase();
+            if (statusValue.includes('đã xác nhận')) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+            } else if (statusValue.includes('chờ')) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+            } else if (statusValue.includes('từ chối')) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+            }
+          }
+
+          applyBorder(cell);
+        });
+      });
+
+      // Set column widths
+      worksheet.getColumn(1).width = 5; // STT
+      worksheet.getColumn(2).width = 25; // Họ tên
+      worksheet.getColumn(3).width = 30; // Email
+      worksheet.getColumn(4).width = 15; // Vai trò
+      worksheet.getColumn(5).width = 18; // Tỷ lệ hoàn thành
+      worksheet.getColumn(6).width = 15; // Số buổi đã tham gia
+      worksheet.getColumn(7).width = 20; // Tổng số buổi cần tham gia
+
+      // Set widths cho các cột buổi
+      for (let i = 8; i <= headers.length; i++) {
+        const headerIndex = i - 1;
+        const headerName = headers[headerIndex];
+        if (headerName && headerName.includes('Link ảnh')) {
+          worksheet.getColumn(i).width = 50;
+        } else if (headerName && headerName.includes('Vị trí')) {
+          worksheet.getColumn(i).width = 35;
+        } else if (headerName && headerName.includes('Thời gian')) {
+          worksheet.getColumn(i).width = 22;
+        } else if (headerName && (headerName.includes('Ghi chú') || headerName.includes('Lý do'))) {
+          worksheet.getColumn(i).width = 30;
+        } else if (headerName && headerName.includes('Người xác nhận')) {
+          worksheet.getColumn(i).width = 25;
+        } else {
+          worksheet.getColumn(i).width = 18;
+        }
+      }
+
+      // Generate Excel file
+      const excelBuffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([excelBuffer], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      });
+      
       const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
+      const link = document.createElement('a');
+      link.href = url;
 
       // Generate filename with activity name and date
       const activityName = activity?.name?.replace(/[^a-zA-Z0-9]/g, '_') || 'Hoat_dong';
       const dateStr = new Date().toISOString().split('T')[0];
-      const filename = `${activityName}_Diem_danh_Da_chon_${dateStr}.csv`;
+      link.download = `${activityName}_Diem_danh_Da_chon_${dateStr}.xlsx`;
 
-      link.setAttribute('download', filename);
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      URL.revokeObjectURL(url);
 
     } catch (error) {
       console.error('Error exporting selected to Excel:', error);
@@ -4790,8 +6184,45 @@ export default function AttendancePage() {
                             onClick={exportSelectedToExcel}
                             className="px-2 py-1.5 rounded-lg text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-all shadow-sm flex items-center gap-1.5"
                         >
-                          <Download size={14} strokeWidth={2.5} />
+                          <FileSpreadsheet size={14} strokeWidth={2.5} />
                           Xuất Excel
+                        </button>
+                        <button
+                            onClick={async () => {
+                              try {
+                                // @ts-ignore - jspdf types may not be available
+                                const jsPDFModule = await import('jspdf');
+                                // @ts-ignore
+                                const jsPDF = jsPDFModule.default || jsPDFModule;
+                                // @ts-ignore - jspdf-autotable types may not be available
+                                const autoTableModule = await import('jspdf-autotable');
+                                // @ts-ignore
+                                const autoTable = autoTableModule.default || autoTableModule;
+                                // Export selected participants to PDF
+                                const selectedParticipantsList = filteredParticipants.filter(p => {
+                                  const participantId = typeof p.userId === 'object' && p.userId !== null
+                                    ? p.userId._id || String(p.userId)
+                                    : String(p.userId);
+                                  return selectedParticipants.has(participantId);
+                                });
+                                if (selectedParticipantsList.length === 0) {
+                                  alert('Vui lòng chọn ít nhất một người để xuất PDF.');
+                                  return;
+                                }
+                                // Similar PDF export logic but for selected participants only
+                                alert('Chức năng xuất PDF cho người đã chọn đang được phát triển. Vui lòng sử dụng "Xuất tất cả" để xuất PDF.');
+                              } catch (error: any) {
+                                if (error.message && error.message.includes('Cannot find module')) {
+                                  alert('Thư viện PDF chưa được cài đặt. Vui lòng chạy: npm install jspdf jspdf-autotable');
+                                } else {
+                                  alert('Có lỗi xảy ra khi xuất PDF.');
+                                }
+                              }
+                            }}
+                            className="px-2 py-1.5 rounded-lg text-xs font-medium bg-red-600 text-white hover:bg-red-700 transition-all shadow-sm flex items-center gap-1.5"
+                        >
+                          <Download size={14} strokeWidth={2.5} />
+                          Xuất PDF
                         </button>
                         <button
                           onClick={() => handleBulkCheckIn(true)}
@@ -4840,8 +6271,23 @@ export default function AttendancePage() {
                             onClick={exportToExcel}
                             className="px-2 py-1.5 rounded-lg text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-all shadow-sm flex items-center gap-1.5"
                           >
-                            <Download size={14} strokeWidth={2.5} />
+                            <FileSpreadsheet size={14} strokeWidth={2.5} />
                             Xuất Excel
+                              </button>
+                              <button
+                            onClick={exportToPDF}
+                            className="px-2 py-1.5 rounded-lg text-xs font-medium bg-red-600 text-white hover:bg-red-700 transition-all shadow-sm flex items-center gap-1.5"
+                          >
+                            <Download size={14} strokeWidth={2.5} />
+                            Xuất PDF
+                              </button>
+                              <button
+                            onClick={exportBoth}
+                            className="px-2 py-1.5 rounded-lg text-xs font-medium bg-purple-600 text-white hover:bg-purple-700 transition-all shadow-sm flex items-center gap-1.5"
+                          >
+                            <FileSpreadsheet size={14} strokeWidth={2.5} />
+                            <Download size={14} strokeWidth={2.5} />
+                            Xuất cả 2
                               </button>
                                   <button
                                     onClick={() => {

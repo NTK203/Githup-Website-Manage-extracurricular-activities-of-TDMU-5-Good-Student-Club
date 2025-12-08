@@ -7,6 +7,8 @@ import StudentNav from '@/components/student/StudentNav';
 import Footer from '@/components/common/Footer';
 import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
+import ExcelJS from 'exceljs';
+import { RadialBarChart, RadialBar, PieChart, Pie, Cell, ResponsiveContainer, Legend } from 'recharts';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -45,7 +47,9 @@ import {
   XCircle,
   Award,
   TrendingUp,
-  Activity
+  Activity,
+  FileSpreadsheet,
+  FileDown
 } from 'lucide-react';
 
 // Dynamically import Leaflet components to avoid SSR issues
@@ -2892,6 +2896,934 @@ export default function StudentAttendancePage() {
     };
   }, []);
 
+  // Export to Excel - Student's own attendance data
+  const exportToExcel = async () => {
+    try {
+      const workbook = new ExcelJS.Workbook();
+
+      // Helper function để apply border
+      const applyBorder = (cell: ExcelJS.Cell) => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          left: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          right: { style: 'thin', color: { argb: 'FFCCCCCC' } }
+        };
+      };
+
+      // ============================================
+      // SHEET 1: THONG_TIN_CA_NHAN (Thông tin cá nhân)
+      // ============================================
+      const summarySheet = workbook.addWorksheet('THONG_TIN_CA_NHAN');
+
+      // Calculate attendance statistics
+      let totalSlots = 0;
+      let completedSlots = 0;
+      let onTimeCount = 0;
+      let lateCount = 0;
+      let absentCount = 0;
+
+      if (activity?.type === 'multiple_days' && parsedScheduleData.length > 0) {
+        // For multiple_days: count all registered slots
+        const slotOrder: ('morning' | 'afternoon' | 'evening')[] = ['morning', 'afternoon', 'evening'];
+        
+        parsedScheduleData.forEach((dayData) => {
+          slotOrder.forEach(slotKey => {
+            // Only count if user has registered for this slot
+            if (!hasRegisteredForSlot(dayData.day, slotKey)) {
+              return;
+            }
+            
+            const slot = dayData.slots.find(s => s.slotKey === slotKey);
+            if (!slot) return;
+            
+            totalSlots++;
+            
+            const slotName = slot.name; // "Buổi Sáng", "Buổi Chiều", "Buổi Tối"
+            const daySlotKey1 = `Ngày ${dayData.day} - ${slotName}`;
+            const daySlotKey2 = `Ngày ${dayData.day}-${slotName}`;
+            const daySlotKey3 = `Ngày${dayData.day} - ${slotName}`;
+            const daySlotKey4 = `Ngày${dayData.day}-${slotName}`;
+            
+            const matchesTimeSlot = (r: any) => {
+              const timeSlot = r.timeSlot || '';
+              return timeSlot === daySlotKey1 || 
+                     timeSlot === daySlotKey2 || 
+                     timeSlot === daySlotKey3 || 
+                     timeSlot === daySlotKey4 ||
+                     (timeSlot.includes(`Ngày ${dayData.day}`) && timeSlot.includes(slotName));
+            };
+            
+            const startRecord = (attendanceRecords || []).find(
+              (r) => matchesTimeSlot(r) && r.checkInType === 'start' && (r.status === 'approved' || r.status === 'pending')
+            );
+            const endRecord = (attendanceRecords || []).find(
+              (r) => matchesTimeSlot(r) && r.checkInType === 'end' && (r.status === 'approved' || r.status === 'pending')
+            );
+
+            if (startRecord && endRecord) {
+              completedSlots++;
+              if (startRecord.lateReason) {
+                lateCount++;
+              } else {
+                onTimeCount++;
+              }
+            } else {
+              absentCount++;
+            }
+          });
+        });
+      } else if (activity?.timeSlots) {
+        // For single_day: use timeSlots
+        totalSlots = activity.timeSlots.length;
+        
+        activity.timeSlots.forEach((slot) => {
+          const startRecord = (attendanceRecords || []).find(
+            (r) => r.timeSlot === slot.name && r.checkInType === 'start' && (r.status === 'approved' || r.status === 'pending')
+          );
+          const endRecord = (attendanceRecords || []).find(
+            (r) => r.timeSlot === slot.name && r.checkInType === 'end' && (r.status === 'approved' || r.status === 'pending')
+          );
+
+          if (startRecord && endRecord) {
+            completedSlots++;
+            // Check if on time or late
+            const startTime = new Date(startRecord.checkInTime);
+            const slotStartTime = new Date(`${new Date().toISOString().split('T')[0]}T${slot.startTime}`);
+            const diffMinutes = (startTime.getTime() - slotStartTime.getTime()) / (1000 * 60);
+            
+            if (diffMinutes <= 15 && !startRecord.lateReason) {
+              onTimeCount++;
+            } else {
+              lateCount++;
+            }
+          } else {
+            absentCount++;
+          }
+        });
+      }
+
+      const percentage = totalSlots > 0 ? Math.round((completedSlots / totalSlots) * 100) : 0;
+
+      // Add summary data
+      const summaryData = [
+        ['Họ và tên', user?.name || 'N/A'],
+        ['Email', user?.email || 'N/A'],
+        ['MSSV', (user as any)?.studentId || 'N/A'],
+        ['Hoạt động', activity?.name || 'N/A'],
+        ['Ngày', activity?.date || activity?.startDate && activity?.endDate ? `${activity.startDate} - ${activity.endDate}` : 'N/A'],
+        ['Địa điểm', activity?.location || 'N/A'],
+        ['', ''],
+        ['Tỷ lệ hoàn thành', `${percentage}%`],
+        ['Số buổi đã tham gia', completedSlots],
+        ['Tổng số buổi cần tham gia', totalSlots],
+        ['Số buổi đúng giờ', onTimeCount],
+        ['Số buổi trễ', lateCount],
+        ['Số buổi vắng', absentCount]
+      ];
+
+      summaryData.forEach((row, index) => {
+        const excelRow = summarySheet.addRow(row);
+        excelRow.font = { size: 11 };
+        excelRow.height = 25;
+        excelRow.eachCell((cell: ExcelJS.Cell, colNumber: number) => {
+          applyBorder(cell);
+          if (colNumber === 1) {
+            cell.font = { size: 11, bold: true };
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFE8F4F8' }
+            };
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          } else {
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+            if (index === 7) { // Tỷ lệ hoàn thành
+              cell.font = { size: 11, bold: true };
+              if (percentage >= 80) {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+              } else if (percentage >= 50) {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+              } else {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+              }
+            }
+          }
+        });
+      });
+
+      summarySheet.getColumn(1).width = 25;
+      summarySheet.getColumn(2).width = 40;
+
+      // ============================================
+      // SHEET 2: NHAT_KY_DIEM_DANH_CHI_TIET (Nhật ký chi tiết)
+      // ============================================
+      const detailSheet = workbook.addWorksheet('NHAT_KY_DIEM_DANH_CHI_TIET');
+
+      const detailHeaders = [
+        'STT',
+        'Thứ',
+        'Ngày',
+        'Ca',
+        'Phiên',
+        'Trạng thái đăng ký',
+        'Thời gian điểm danh',
+        'Kết quả điểm danh',
+        'Link ảnh minh chứng',
+        'Vị trí',
+        'Người duyệt',
+        'Thời gian duyệt',
+        'Ghi chú',
+        'Lý do trễ',
+        'Lý do từ chối'
+      ];
+
+      const detailHeaderRow = detailSheet.addRow(detailHeaders);
+      detailHeaderRow.font = { bold: true, size: 11 };
+      detailHeaderRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE8F4F8' }
+      };
+      detailHeaderRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      detailHeaderRow.height = 30;
+      detailHeaderRow.eachCell((cell: ExcelJS.Cell) => {
+        applyBorder(cell);
+      });
+
+      // Build detail data from attendance records
+      const detailData: any[] = [];
+      let detailRowIndex = 0;
+
+      // Helper function to get day of week in Vietnamese
+      const getDayOfWeek = (dateStr: string): string => {
+        try {
+          if (!dateStr || dateStr === 'N/A') return 'N/A';
+          
+          // Parse date string (format: dd/mm/yyyy)
+          const parts = dateStr.split('/');
+          if (parts.length !== 3) return 'N/A';
+          
+          const day = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed
+          const year = parseInt(parts[2], 10);
+          
+          if (isNaN(day) || isNaN(month) || isNaN(year)) return 'N/A';
+          
+          const date = new Date(year, month, day);
+          
+          // Validate date
+          if (date.getDate() !== day || date.getMonth() !== month || date.getFullYear() !== year) {
+            return 'N/A';
+          }
+          
+          const dayOfWeek = date.getDay();
+          const days = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+          return days[dayOfWeek] || 'N/A';
+        } catch {
+          return 'N/A';
+        }
+      };
+
+      // Helper function to process a check-in record
+      const processCheckInRecord = (
+        record: any,
+        dayStr: string,
+        caStr: string,
+        phienStr: string,
+        isRegistered: boolean
+      ) => {
+        let resultStr = 'Vắng';
+        let checkInTimeStr = 'N/A';
+        let photoUrl = '';
+        let locationStr = 'N/A';
+        let verifierName = 'N/A';
+        let verifiedAtStr = 'N/A';
+        let noteStr = 'N/A';
+        let lateReasonStr = 'N/A';
+        let cancelReasonStr = 'N/A';
+
+        if (record) {
+          checkInTimeStr = new Date(record.checkInTime).toLocaleString('vi-VN');
+          photoUrl = record.photoUrl || '';
+          locationStr = record.location?.address || (record.location?.lat && record.location?.lng 
+            ? `${record.location.lat}, ${record.location.lng}` 
+            : 'N/A');
+          
+          if (record.status === 'approved') {
+            resultStr = record.lateReason ? 'Trễ' : 'Đúng';
+          } else if (record.status === 'pending') {
+            resultStr = 'Chờ xác nhận';
+          } else if (record.status === 'rejected') {
+            resultStr = 'Bị từ chối';
+          }
+          
+          verifierName = getVerifierName(record.verifiedBy, record.verifiedByName);
+          if (isManualCheckInRecord(record)) {
+            verifierName += ' (Thủ công)';
+          }
+          verifiedAtStr = record.verifiedAt ? new Date(record.verifiedAt).toLocaleString('vi-VN') : 'N/A';
+          noteStr = record.verificationNote || 'N/A';
+          lateReasonStr = record.lateReason || 'N/A';
+          cancelReasonStr = record.cancelReason || 'N/A';
+        }
+
+        // Format photo URL - show link or N/A
+        let photoUrlDisplay = 'N/A';
+        if (photoUrl) {
+          // If photoUrl is a full URL, use it directly, otherwise construct full URL
+          if (photoUrl.startsWith('http://') || photoUrl.startsWith('https://')) {
+            photoUrlDisplay = photoUrl;
+          } else if (photoUrl.startsWith('/')) {
+            // Relative URL - construct full URL
+            photoUrlDisplay = `${window.location.origin}${photoUrl}`;
+          } else {
+            photoUrlDisplay = photoUrl;
+          }
+        }
+
+        // Get day of week
+        const thuStr = getDayOfWeek(dayStr);
+
+        return [
+          ++detailRowIndex,
+          thuStr,
+          dayStr,
+          caStr,
+          phienStr,
+          isRegistered ? 'Đã đăng ký' : 'Không đăng ký',
+          checkInTimeStr,
+          resultStr,
+          photoUrlDisplay,
+          locationStr.length > 30 ? locationStr.substring(0, 30) + '...' : locationStr,
+          verifierName,
+          verifiedAtStr,
+          noteStr.length > 20 ? noteStr.substring(0, 20) + '...' : noteStr,
+          lateReasonStr.length > 20 ? lateReasonStr.substring(0, 20) + '...' : lateReasonStr,
+          cancelReasonStr.length > 20 ? cancelReasonStr.substring(0, 20) + '...' : cancelReasonStr
+        ];
+      };
+
+      // Handle multiple_days activities
+      if (activity?.type === 'multiple_days' && parsedScheduleData.length > 0) {
+        // Sort schedule data by day number
+        const sortedSchedule = [...parsedScheduleData].sort((a, b) => a.day - b.day);
+        
+        sortedSchedule.forEach((dayData) => {
+          const dayDate = new Date(dayData.date);
+          const dayStr = dayDate.toLocaleDateString('vi-VN');
+          
+          // Sort slots by order: morning, afternoon, evening
+          const slotOrder: ('morning' | 'afternoon' | 'evening')[] = ['morning', 'afternoon', 'evening'];
+          const sortedSlots = [...dayData.slots].sort((a, b) => {
+            const aIndex = slotOrder.indexOf(a.slotKey);
+            const bIndex = slotOrder.indexOf(b.slotKey);
+            return aIndex - bIndex;
+          });
+
+          sortedSlots.forEach((slot) => {
+            const slotName = slot.name; // "Buổi Sáng", "Buổi Chiều", "Buổi Tối"
+            // Try multiple possible formats for timeSlot
+            const daySlotKey1 = `Ngày ${dayData.day} - ${slotName}`;
+            const daySlotKey2 = `Ngày ${dayData.day}-${slotName}`;
+            const daySlotKey3 = `Ngày${dayData.day} - ${slotName}`;
+            const daySlotKey4 = `Ngày${dayData.day}-${slotName}`;
+            
+            // Helper function to check if record matches any format
+            const matchesTimeSlot = (r: any) => {
+              const timeSlot = r.timeSlot || '';
+              return timeSlot === daySlotKey1 || 
+                     timeSlot === daySlotKey2 || 
+                     timeSlot === daySlotKey3 || 
+                     timeSlot === daySlotKey4 ||
+                     (timeSlot.includes(`Ngày ${dayData.day}`) && timeSlot.includes(slotName));
+            };
+
+            // Check if user registered for this slot
+            const isRegistered = hasRegisteredForSlot ? hasRegisteredForSlot(dayData.day, slot.slotKey) : true;
+
+            // Start check-in
+            const startRecord = (attendanceRecords || []).find(
+              (r) => matchesTimeSlot(r) && r.checkInType === 'start'
+            );
+            
+            detailData.push(processCheckInRecord(startRecord, dayStr, slotName, 'Đầu buổi', isRegistered));
+
+            // End check-in
+            const endRecord = (attendanceRecords || []).find(
+              (r) => matchesTimeSlot(r) && r.checkInType === 'end'
+            );
+            
+            detailData.push(processCheckInRecord(endRecord, dayStr, slotName, 'Cuối buổi', isRegistered));
+          });
+        });
+      } else if (activity?.timeSlots) {
+        // Handle single_day activities
+        const startDate = activity.date ? new Date(activity.date) : new Date();
+        const dayStr = startDate.toLocaleDateString('vi-VN');
+        
+        // Sort timeSlots by name to ensure consistent order
+        const sortedSlots = [...activity.timeSlots].sort((a, b) => a.name.localeCompare(b.name));
+        
+        sortedSlots.forEach((slot) => {
+          // Start check-in
+          const startRecord = (attendanceRecords || []).find(
+            (r) => r.timeSlot === slot.name && r.checkInType === 'start'
+          );
+          
+          detailData.push(processCheckInRecord(startRecord, dayStr, slot.name, 'Đầu buổi', true));
+
+          // End check-in
+          const endRecord = (attendanceRecords || []).find(
+            (r) => r.timeSlot === slot.name && r.checkInType === 'end'
+          );
+          
+          detailData.push(processCheckInRecord(endRecord, dayStr, slot.name, 'Cuối buổi', true));
+        });
+      }
+
+      // Add detail rows with hyperlinks for photo URLs
+      detailData.forEach((rowData, rowIndex) => {
+        const row = detailSheet.addRow(rowData);
+        row.font = { size: 10 };
+        row.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+        row.height = 20;
+        row.eachCell((cell: ExcelJS.Cell, colNumber: number) => {
+          applyBorder(cell);
+          
+          // Add hyperlink for photo URL column (column 9 - index 8, after adding Thứ column)
+          if (colNumber === 9 && rowData[8] && rowData[8] !== 'N/A' && typeof rowData[8] === 'string') {
+            const photoUrl = rowData[8] as string;
+            if (photoUrl.startsWith('http://') || photoUrl.startsWith('https://')) {
+              cell.value = {
+                text: photoUrl.length > 50 ? photoUrl.substring(0, 50) + '...' : photoUrl,
+                hyperlink: photoUrl
+              };
+              cell.font = { size: 10, color: { argb: 'FF0066CC' }, underline: true };
+            }
+          }
+        });
+      });
+
+      // Set column widths
+      detailSheet.getColumn(1).width = 8; // STT
+      detailSheet.getColumn(2).width = 12; // Thứ
+      detailSheet.getColumn(3).width = 15; // Ngày
+      detailSheet.getColumn(4).width = 15; // Ca
+      detailSheet.getColumn(5).width = 12; // Phiên
+      detailSheet.getColumn(6).width = 18; // Trạng thái đăng ký
+      detailSheet.getColumn(7).width = 20; // Thời gian điểm danh
+      detailSheet.getColumn(8).width = 18; // Kết quả điểm danh
+      detailSheet.getColumn(9).width = 50; // Link ảnh (tăng độ rộng để hiển thị link)
+      detailSheet.getColumn(10).width = 30; // Vị trí
+      detailSheet.getColumn(11).width = 20; // Người duyệt
+      detailSheet.getColumn(12).width = 20; // Thời gian duyệt
+      detailSheet.getColumn(13).width = 20; // Ghi chú
+      detailSheet.getColumn(14).width = 20; // Lý do trễ
+      detailSheet.getColumn(15).width = 20; // Lý do từ chối
+
+      // Generate and download file
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const activityName = activity?.name?.replace(/[^a-zA-Z0-9]/g, '_') || 'Hoat_dong';
+      const dateStr = new Date().toISOString().split('T')[0];
+      link.download = `${activityName}_Diem_danh_${dateStr}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+    } catch (error) {
+      console.error('Error exporting to Excel:', error);
+      alert('Có lỗi xảy ra khi xuất file Excel. Vui lòng thử lại.');
+    }
+  };
+
+  // Helper function to add Vietnamese font to jsPDF (same as officer page)
+  const addVietnameseFont = async (doc: any): Promise<string> => {
+    try {
+      try {
+        // @ts-ignore
+        const robotoNormalModule = await import('@/lib/fonts/roboto-normal');
+        const RobotoNormal: string | undefined = (robotoNormalModule as any).RobotoNormal;
+        
+        if (RobotoNormal && typeof RobotoNormal === 'string' && RobotoNormal !== 'PLACEHOLDER_BASE64_STRING_HERE' && RobotoNormal.length > 100) {
+          let base64String: string = RobotoNormal;
+          if (RobotoNormal.startsWith('data:font/ttf;base64,')) {
+            base64String = RobotoNormal.replace('data:font/ttf;base64,', '');
+          }
+          
+          try {
+            doc.addFileToVFS('Roboto-Regular.ttf', base64String);
+            doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
+            
+            const fontList = doc.getFontList();
+            if (fontList && fontList['Roboto']) {
+              console.log('✅ Roboto Regular font added successfully');
+            } else {
+              throw new Error('Font not registered in jsPDF');
+            }
+            
+            try {
+              // @ts-ignore
+              const robotoBoldModule = await import('@/lib/fonts/roboto-bold');
+              const RobotoBold: string | undefined = (robotoBoldModule as any).RobotoBold;
+              if (RobotoBold && typeof RobotoBold === 'string' && RobotoBold !== 'PLACEHOLDER_BASE64_STRING_HERE' && RobotoBold.length > 100) {
+                let boldBase64: string = RobotoBold;
+                if (RobotoBold.startsWith('data:font/ttf;base64,')) {
+                  boldBase64 = RobotoBold.replace('data:font/ttf;base64,', '');
+                }
+                doc.addFileToVFS('Roboto-Bold.ttf', boldBase64);
+                doc.addFont('Roboto-Bold.ttf', 'Roboto', 'bold');
+              } else {
+                doc.addFont('Roboto-Regular.ttf', 'Roboto', 'bold');
+              }
+            } catch (boldError) {
+              doc.addFont('Roboto-Regular.ttf', 'Roboto', 'bold');
+            }
+            
+            return 'Roboto';
+          } catch (addFontError: any) {
+            console.error('❌ Error adding Roboto font:', addFontError);
+          }
+        }
+      } catch (fontError) {
+        console.error('❌ Could not load custom Vietnamese font:', fontError);
+      }
+    } catch (error) {
+      console.error('❌ Error in addVietnameseFont:', error);
+    }
+    
+    return 'times';
+  };
+
+  // Export to PDF - Student's own attendance data
+  const exportToPDF = async () => {
+    try {
+      // @ts-ignore
+      const jsPDFModule = await import('jspdf');
+      const jsPDF = jsPDFModule.default || jsPDFModule;
+      // @ts-ignore
+      const autoTableModule = await import('jspdf-autotable');
+      const autoTable = autoTableModule.default || autoTableModule;
+
+      const doc = new jsPDF('landscape', 'mm', 'a4');
+      const fontName = await addVietnameseFont(doc);
+      
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 8;
+      let yPos = margin + 5;
+
+      // Set font
+      try {
+        doc.setFont(fontName, 'normal');
+      } catch (e) {
+        doc.setFont('times', 'normal');
+      }
+
+      // Title
+      doc.setFontSize(20);
+      doc.setFont(fontName, 'bold');
+      doc.text('BÁO CÁO ĐIỂM DANH CÁ NHÂN', pageWidth / 2, yPos, { align: 'center' });
+      yPos += 10;
+      
+      // Export date and time
+      const exportDateTime = new Date();
+      const exportDateStr = exportDateTime.toLocaleDateString('vi-VN', { 
+        weekday: 'long',
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      });
+      const exportTimeStr = exportDateTime.toLocaleTimeString('vi-VN', { 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit' 
+      });
+      
+      doc.setFontSize(11);
+      doc.setFont(fontName, 'normal');
+      doc.text(`Ngày xuất file: ${exportDateStr} - ${exportTimeStr}`, pageWidth / 2, yPos, { align: 'center' });
+      yPos += 10;
+
+      // Activity info
+      doc.setFontSize(13);
+      doc.setFont(fontName, 'normal');
+      if (activity) {
+        doc.text(`Hoạt động: ${activity.name || 'N/A'}`, margin, yPos);
+        yPos += 7;
+        if (activity.date) {
+          doc.text(`Ngày: ${activity.date}`, margin, yPos);
+          yPos += 7;
+        }
+        doc.text(`Địa điểm: ${activity.location || 'N/A'}`, margin, yPos);
+        yPos += 7;
+      }
+      doc.text(`Họ và tên: ${user?.name || 'N/A'}`, margin, yPos);
+      yPos += 7;
+      doc.text(`Email: ${user?.email || 'N/A'}`, margin, yPos);
+      yPos += 7;
+      doc.text(`MSSV: ${(user as any)?.studentId || 'N/A'}`, margin, yPos);
+      yPos += 12;
+
+      // Calculate statistics
+      let totalSlots = 0;
+      let completedSlots = 0;
+      let onTimeCount = 0;
+      let lateCount = 0;
+      let absentCount = 0;
+
+      if (activity?.type === 'multiple_days' && parsedScheduleData.length > 0) {
+        // For multiple_days: count all registered slots
+        const slotOrder: ('morning' | 'afternoon' | 'evening')[] = ['morning', 'afternoon', 'evening'];
+        
+        parsedScheduleData.forEach((dayData) => {
+          slotOrder.forEach(slotKey => {
+            // Only count if user has registered for this slot
+            if (!hasRegisteredForSlot(dayData.day, slotKey)) {
+              return;
+            }
+            
+            const slot = dayData.slots.find(s => s.slotKey === slotKey);
+            if (!slot) return;
+            
+            totalSlots++;
+            
+            const slotName = slot.name; // "Buổi Sáng", "Buổi Chiều", "Buổi Tối"
+            const daySlotKey1 = `Ngày ${dayData.day} - ${slotName}`;
+            const daySlotKey2 = `Ngày ${dayData.day}-${slotName}`;
+            const daySlotKey3 = `Ngày${dayData.day} - ${slotName}`;
+            const daySlotKey4 = `Ngày${dayData.day}-${slotName}`;
+            
+            const matchesTimeSlot = (r: any) => {
+              const timeSlot = r.timeSlot || '';
+              return timeSlot === daySlotKey1 || 
+                     timeSlot === daySlotKey2 || 
+                     timeSlot === daySlotKey3 || 
+                     timeSlot === daySlotKey4 ||
+                     (timeSlot.includes(`Ngày ${dayData.day}`) && timeSlot.includes(slotName));
+            };
+            
+            const startRecord = (attendanceRecords || []).find(
+              (r) => matchesTimeSlot(r) && r.checkInType === 'start' && (r.status === 'approved' || r.status === 'pending')
+            );
+            const endRecord = (attendanceRecords || []).find(
+              (r) => matchesTimeSlot(r) && r.checkInType === 'end' && (r.status === 'approved' || r.status === 'pending')
+            );
+
+            if (startRecord && endRecord) {
+              completedSlots++;
+              if (startRecord.lateReason) {
+                lateCount++;
+              } else {
+                onTimeCount++;
+              }
+            } else {
+              absentCount++;
+            }
+          });
+        });
+      } else if (activity?.timeSlots) {
+        // For single_day: use timeSlots
+        totalSlots = activity.timeSlots.length;
+        
+        activity.timeSlots.forEach((slot) => {
+          const startRecord = (attendanceRecords || []).find(
+            (r) => r.timeSlot === slot.name && r.checkInType === 'start' && (r.status === 'approved' || r.status === 'pending')
+          );
+          const endRecord = (attendanceRecords || []).find(
+            (r) => r.timeSlot === slot.name && r.checkInType === 'end' && (r.status === 'approved' || r.status === 'pending')
+          );
+
+          if (startRecord && endRecord) {
+            completedSlots++;
+            if (startRecord.lateReason) {
+              lateCount++;
+            } else {
+              onTimeCount++;
+            }
+          } else {
+            absentCount++;
+          }
+        });
+      }
+
+      const percentage = totalSlots > 0 ? Math.round((completedSlots / totalSlots) * 100) : 0;
+
+      // Summary table
+      doc.setFontSize(16);
+      doc.setFont(fontName, 'bold');
+      doc.text('TỔNG QUAN', margin, yPos);
+      yPos += 10;
+
+      const summaryData = [
+        ['Tỷ lệ hoàn thành', `${percentage}%`],
+        ['Số buổi đã tham gia', completedSlots.toString()],
+        ['Tổng số buổi cần tham gia', totalSlots.toString()],
+        ['Số buổi đúng giờ', onTimeCount.toString()],
+        ['Số buổi trễ', lateCount.toString()],
+        ['Số buổi vắng', absentCount.toString()]
+      ];
+
+      autoTable(doc, {
+        head: [['Chỉ số', 'Giá trị']],
+        body: summaryData,
+        startY: yPos,
+        margin: { left: margin, right: margin },
+        styles: { 
+          fontSize: 12, 
+          cellPadding: 5,
+          font: fontName,
+          fontStyle: 'normal'
+        },
+        headStyles: { 
+          fillColor: [232, 244, 248], 
+          textColor: [0, 0, 0], 
+          fontStyle: 'bold',
+          font: fontName,
+          fontSize: 12
+        },
+        columnStyles: {
+          0: { cellWidth: 80 },
+          1: { cellWidth: 60 }
+        }
+      });
+
+      yPos = (doc as any).lastAutoTable.finalY + 12;
+
+      // Detail table
+      doc.setFontSize(16);
+      doc.setFont(fontName, 'bold');
+      doc.text('NHẬT KÝ ĐIỂM DANH CHI TIẾT', margin, yPos);
+      yPos += 10;
+
+      const detailData: any[] = [];
+      let detailRowIndex = 0;
+
+      // Helper function to get day of week in Vietnamese for PDF
+      const getDayOfWeekPDF = (dateStr: string): string => {
+        try {
+          if (!dateStr || dateStr === 'N/A') return 'N/A';
+          
+          // Parse date string (format: dd/mm/yyyy)
+          const parts = dateStr.split('/');
+          if (parts.length !== 3) return 'N/A';
+          
+          const day = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed
+          const year = parseInt(parts[2], 10);
+          
+          if (isNaN(day) || isNaN(month) || isNaN(year)) return 'N/A';
+          
+          const date = new Date(year, month, day);
+          
+          // Validate date
+          if (date.getDate() !== day || date.getMonth() !== month || date.getFullYear() !== year) {
+            return 'N/A';
+          }
+          
+          const dayOfWeek = date.getDay();
+          const days = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+          return days[dayOfWeek] || 'N/A';
+        } catch {
+          return 'N/A';
+        }
+      };
+
+      // Helper function to process a check-in record for PDF
+      const processCheckInRecordPDF = (
+        record: any,
+        dayStr: string,
+        caStr: string,
+        phienStr: string,
+        isRegistered: boolean
+      ) => {
+        let resultStr = 'Vắng';
+        let checkInTimeStr = 'N/A';
+        let verifierName = 'N/A';
+        let photoUrlDisplay = 'N/A';
+        
+        if (record) {
+          checkInTimeStr = new Date(record.checkInTime).toLocaleString('vi-VN');
+          if (record.status === 'approved') {
+            resultStr = record.lateReason ? 'Trễ' : 'Đúng';
+          } else if (record.status === 'pending') {
+            resultStr = 'Chờ xác nhận';
+          } else if (record.status === 'rejected') {
+            resultStr = 'Bị từ chối';
+          }
+          verifierName = getVerifierName(record.verifiedBy, record.verifiedByName);
+          if (isManualCheckInRecord(record)) {
+            verifierName += ' (Thủ công)';
+          }
+          
+          // Format photo URL for PDF
+          if (record.photoUrl) {
+            const photoUrl = record.photoUrl;
+            if (photoUrl.startsWith('http://') || photoUrl.startsWith('https://')) {
+              photoUrlDisplay = photoUrl;
+            } else if (photoUrl.startsWith('/')) {
+              photoUrlDisplay = `${window.location.origin}${photoUrl}`;
+            } else {
+              photoUrlDisplay = photoUrl;
+            }
+            // Truncate if too long for PDF display
+            if (photoUrlDisplay.length > 60) {
+              photoUrlDisplay = photoUrlDisplay.substring(0, 60) + '...';
+            }
+          }
+        }
+
+        // Get day of week
+        const thuStr = getDayOfWeekPDF(dayStr);
+
+        return [
+          ++detailRowIndex,
+          thuStr,
+          dayStr,
+          caStr,
+          phienStr,
+          isRegistered ? 'Đã đăng ký' : 'Không đăng ký',
+          checkInTimeStr,
+          resultStr,
+          photoUrlDisplay,
+          record?.location?.address || 'N/A',
+          verifierName
+        ];
+      };
+
+      // Handle multiple_days activities
+      if (activity?.type === 'multiple_days' && parsedScheduleData.length > 0) {
+        // Sort schedule data by day number
+        const sortedSchedule = [...parsedScheduleData].sort((a, b) => a.day - b.day);
+        
+        sortedSchedule.forEach((dayData) => {
+          const dayDate = new Date(dayData.date);
+          const dayStr = dayDate.toLocaleDateString('vi-VN');
+          
+          // Sort slots by order: morning, afternoon, evening
+          const slotOrder: ('morning' | 'afternoon' | 'evening')[] = ['morning', 'afternoon', 'evening'];
+          const sortedSlots = [...dayData.slots].sort((a, b) => {
+            const aIndex = slotOrder.indexOf(a.slotKey);
+            const bIndex = slotOrder.indexOf(b.slotKey);
+            return aIndex - bIndex;
+          });
+
+          sortedSlots.forEach((slot) => {
+            const slotName = slot.name; // "Buổi Sáng", "Buổi Chiều", "Buổi Tối"
+            // Try multiple possible formats for timeSlot
+            const daySlotKey1 = `Ngày ${dayData.day} - ${slotName}`;
+            const daySlotKey2 = `Ngày ${dayData.day}-${slotName}`;
+            const daySlotKey3 = `Ngày${dayData.day} - ${slotName}`;
+            const daySlotKey4 = `Ngày${dayData.day}-${slotName}`;
+            
+            // Helper function to check if record matches any format
+            const matchesTimeSlot = (r: any) => {
+              const timeSlot = r.timeSlot || '';
+              return timeSlot === daySlotKey1 || 
+                     timeSlot === daySlotKey2 || 
+                     timeSlot === daySlotKey3 || 
+                     timeSlot === daySlotKey4 ||
+                     (timeSlot.includes(`Ngày ${dayData.day}`) && timeSlot.includes(slotName));
+            };
+
+            // Check if user registered for this slot
+            const isRegistered = hasRegisteredForSlot ? hasRegisteredForSlot(dayData.day, slot.slotKey) : true;
+
+            // Start check-in
+            const startRecord = (attendanceRecords || []).find(
+              (r) => matchesTimeSlot(r) && r.checkInType === 'start'
+            );
+            
+            detailData.push(processCheckInRecordPDF(startRecord, dayStr, slotName, 'Đầu buổi', isRegistered));
+
+            // End check-in
+            const endRecord = (attendanceRecords || []).find(
+              (r) => matchesTimeSlot(r) && r.checkInType === 'end'
+            );
+            
+            detailData.push(processCheckInRecordPDF(endRecord, dayStr, slotName, 'Cuối buổi', isRegistered));
+          });
+        });
+      } else if (activity?.timeSlots) {
+        // Handle single_day activities
+        const startDate = activity.date ? new Date(activity.date) : new Date();
+        const dayStr = startDate.toLocaleDateString('vi-VN');
+        
+        // Sort timeSlots by name to ensure consistent order
+        const sortedSlots = [...activity.timeSlots].sort((a, b) => a.name.localeCompare(b.name));
+        
+        sortedSlots.forEach((slot) => {
+          // Start check-in
+          const startRecord = (attendanceRecords || []).find(
+            (r) => r.timeSlot === slot.name && r.checkInType === 'start'
+          );
+          
+          detailData.push(processCheckInRecordPDF(startRecord, dayStr, slot.name, 'Đầu buổi', true));
+
+          // End check-in
+          const endRecord = (attendanceRecords || []).find(
+            (r) => r.timeSlot === slot.name && r.checkInType === 'end'
+          );
+          
+          detailData.push(processCheckInRecordPDF(endRecord, dayStr, slot.name, 'Cuối buổi', true));
+        });
+      }
+
+      // Calculate available width for table (landscape A4: 297mm - 2*margin)
+      const availableWidth = pageWidth - 2 * margin;
+      
+      autoTable(doc, {
+        head: [['STT', 'Thứ', 'Ngày', 'Ca', 'Phiên', 'Đăng ký', 'Thời gian', 'Kết quả', 'Link ảnh', 'Vị trí', 'Người duyệt']],
+        body: detailData,
+        startY: yPos,
+        margin: { left: margin, right: margin },
+        styles: { 
+          fontSize: 9, 
+          cellPadding: 3,
+          font: fontName,
+          fontStyle: 'normal'
+        },
+        headStyles: { 
+          fillColor: [232, 244, 248], 
+          textColor: [0, 0, 0], 
+          fontStyle: 'bold',
+          font: fontName,
+          fontSize: 9
+        },
+        columnStyles: {
+          0: { cellWidth: 10 }, // STT
+          1: { cellWidth: 16 }, // Thứ
+          2: { cellWidth: 18 }, // Ngày
+          3: { cellWidth: 18 }, // Ca
+          4: { cellWidth: 15 }, // Phiên
+          5: { cellWidth: 18 }, // Đăng ký
+          6: { cellWidth: 25 }, // Thời gian
+          7: { cellWidth: 18 }, // Kết quả
+          8: { cellWidth: 50 }, // Link ảnh
+          9: { cellWidth: 40 }, // Vị trí
+          10: { cellWidth: 25 } // Người duyệt
+        }
+      });
+
+      // Save PDF
+      const activityName = activity?.name?.replace(/[^a-zA-Z0-9]/g, '_') || 'Hoat_dong';
+      const dateStr = new Date().toISOString().split('T')[0];
+      doc.save(`${activityName}_Diem_danh_${dateStr}.pdf`);
+
+    } catch (error: any) {
+      console.error('Error exporting to PDF:', error);
+      if (error.message && error.message.includes('Cannot find module')) {
+        alert('Thư viện PDF chưa được cài đặt. Vui lòng chạy: npm install jspdf jspdf-autotable');
+      } else {
+        alert('Có lỗi xảy ra khi xuất PDF. Vui lòng thử lại.');
+      }
+    }
+  };
+
   // Tính toán trạng thái hoàn thành dựa trên attendance records
   // Phải đặt trước các early return để tuân thủ Rules of Hooks
   const isAllCompleted = useMemo(() => {
@@ -3316,80 +4248,152 @@ export default function StudentAttendancePage() {
                   : 0;
                 const hasParticipated = overallPercentage >= 70; // >= 70% is considered "participated"
                 
-                // Calculate circle progress (0-100%)
-                const circleRadius = 45;
-                const displayRadius = circleRadius * 0.9; // Slightly smaller for better fit
-                const circleCircumference = 2 * Math.PI * displayRadius;
-                const circleOffset = circleCircumference - (overallPercentage / 100) * circleCircumference;
-                
-                // Use blue gradient colors for better visibility - darker and bolder
+                // Prepare data for Recharts
                 const progressColor = hasParticipated 
-                  ? (isDarkMode ? '#2563eb' : '#1d4ed8') // blue-600/700 - darker
-                  : (isDarkMode ? '#3b82f6' : '#2563eb'); // blue-500/600 - darker
-                const bgColor = isDarkMode ? '#334155' : '#cbd5e1'; // slate-700/slate-300 - darker for contrast
+                  ? (isDarkMode ? '#10b981' : '#059669') 
+                  : (isDarkMode ? '#3b82f6' : '#2563eb');
+                const bgColor = isDarkMode ? '#1e293b' : '#f1f5f9';
+                
+                const radialBarData = [
+                  { name: 'Hoàn thành', value: overallPercentage, fill: progressColor },
+                  { name: 'Còn lại', value: 100 - overallPercentage, fill: bgColor }
+                ];
+                
+                const pieChartData = [
+                  { 
+                    name: 'Đã tham gia', 
+                    value: totalCompletedSlots, 
+                    fill: hasParticipated 
+                      ? (isDarkMode ? '#10b981' : '#059669') 
+                      : (isDarkMode ? '#3b82f6' : '#2563eb')
+                  },
+                  { 
+                    name: 'Vắng mặt', 
+                    value: totalRegisteredSlots - totalCompletedSlots, 
+                    fill: isDarkMode ? '#475569' : '#e2e8f0' 
+                  }
+                ];
                 
                 return (
-                  <div className={`mb-3 p-5 rounded-2xl border-2 shadow-lg transition-all duration-300 ${
+                  <div className={`mb-3 p-4 rounded-xl border-2 shadow-lg transition-all duration-300 ${
                     hasParticipated
                       ? isDarkMode 
-                        ? 'border-blue-500/50 bg-gradient-to-br from-blue-500/15 via-blue-600/10 to-blue-700/5' 
-                        : 'border-blue-400/60 bg-gradient-to-br from-blue-50 via-blue-100/80 to-indigo-50/60'
+                        ? 'border-green-500/40 bg-gradient-to-br from-slate-800/90 via-slate-800/95 to-slate-900' 
+                        : 'border-green-400/50 bg-gradient-to-br from-white via-slate-50 to-gray-50'
                       : isDarkMode 
-                        ? 'border-blue-400/40 bg-gradient-to-br from-blue-500/10 via-blue-600/5 to-blue-700/3' 
-                        : 'border-blue-300/50 bg-gradient-to-br from-blue-50/80 via-indigo-50/60 to-blue-100/40'
+                        ? 'border-blue-500/40 bg-gradient-to-br from-slate-800/90 via-slate-800/95 to-slate-900' 
+                        : 'border-blue-400/50 bg-gradient-to-br from-white via-slate-50 to-gray-50'
                   }`}>
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-5">
-                      {/* Circular Progress with Icon */}
-                      <div className="relative flex-shrink-0 w-[100px] h-[100px] sm:w-[110px] sm:h-[110px]">
-                        <svg width="100" height="100" className="transform -rotate-90 w-full h-full" viewBox="0 0 100 100">
-                          {/* Background circle - thicker and more visible */}
-                          <circle
-                            cx="50"
-                            cy="50"
-                            r={displayRadius}
-                            fill="none"
-                            stroke={bgColor}
-                            strokeWidth="14"
-                            className="opacity-50"
-                          />
-                          {/* Progress circle - much thicker and bolder */}
-                          <circle
-                            cx="50"
-                            cy="50"
-                            r={displayRadius}
-                            fill="none"
-                            stroke={progressColor}
-                            strokeWidth="16"
-                            strokeLinecap="round"
-                            strokeDasharray={circleCircumference}
-                            strokeDashoffset={circleOffset}
-                            className="transition-all duration-1000 ease-out"
-                            style={{
-                              filter: hasParticipated ? 'drop-shadow(0 0 8px rgba(37, 99, 235, 0.6))' : 'drop-shadow(0 0 6px rgba(59, 130, 246, 0.5))'
-                            }}
-                          />
-                        </svg>
-                        {/* Icon and Percentage in center */}
-                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <div className="flex flex-col md:flex-row items-center md:items-start gap-4">
+                      {/* Recharts RadialBarChart - Circular Progress */}
+                      <div className="relative flex-shrink-0 w-[180px] h-[180px] sm:w-[200px] sm:h-[200px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <RadialBarChart 
+                            cx="50%" 
+                            cy="50%" 
+                            innerRadius="70%" 
+                            outerRadius="95%" 
+                            barSize={15}
+                            data={radialBarData}
+                            startAngle={90}
+                            endAngle={-270}
+                          >
+                            <RadialBar
+                              dataKey="value"
+                              cornerRadius={8}
+                              animationBegin={0}
+                              animationDuration={1200}
+                            >
+                              {radialBarData.map((entry, index) => (
+                                <Cell key={`radial-cell-${index}`} fill={entry.fill} />
+                              ))}
+                            </RadialBar>
+                          </RadialBarChart>
+                        </ResponsiveContainer>
+                        {/* Center content */}
+                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                           {hasParticipated ? (
-                            <Award className={`w-5 h-5 sm:w-6 sm:h-6 mb-0.5 sm:mb-1 ${
-                              isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                            <Award className={`w-6 h-6 sm:w-7 sm:h-7 mb-1 ${
+                              isDarkMode ? 'text-green-400' : 'text-green-600'
                             }`} strokeWidth={2.5} />
                           ) : (
-                            <TrendingUp className={`w-5 h-5 sm:w-6 sm:h-6 mb-0.5 sm:mb-1 ${
+                            <TrendingUp className={`w-6 h-6 sm:w-7 sm:h-7 mb-1 ${
                               isDarkMode ? 'text-blue-400' : 'text-blue-600'
                             }`} strokeWidth={2.5} />
                           )}
-                          <span className={`text-xl sm:text-2xl font-black leading-tight ${
+                          <span className={`text-2xl sm:text-3xl font-black leading-tight ${
                             isDarkMode ? 'text-blue-300' : 'text-blue-700'
                           }`}>
                             {overallPercentage % 1 === 0 ? overallPercentage.toFixed(0) : overallPercentage.toFixed(1)}%
                           </span>
-                          <span className={`text-[9px] sm:text-[10px] font-semibold mt-0.5 ${
-                            isDarkMode ? 'text-blue-400/70' : 'text-blue-600/70'
+                          <span className={`text-[10px] sm:text-xs font-semibold mt-0.5 ${
+                            isDarkMode ? 'text-blue-400/80' : 'text-blue-600/80'
                           }`}>
-                            / 100%
+                            Hoàn thành
                           </span>
+                        </div>
+                      </div>
+                      
+                      {/* Pie Chart for detailed breakdown */}
+                      <div className="flex-1 min-w-0 w-full md:w-auto flex flex-col items-center md:items-start">
+                        <h4 className={`text-xs font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                          Chi tiết điểm danh
+                        </h4>
+                        <div className="w-[160px] h-[160px] sm:w-[180px] sm:h-[180px]">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={pieChartData}
+                                cx="50%"
+                                cy="50%"
+                                labelLine={false}
+                                label={(props: any) => {
+                                  const percent = props.percent || 0;
+                                  const percentageValue = (percent * 100).toFixed(1);
+                                  // Chỉ hiển thị label nếu phần >= 5% để tránh overlap
+                                  if (percent < 0.05) return null;
+                                  return (
+                                    <text 
+                                      x={props.x} 
+                                      y={props.y} 
+                                      fill={isDarkMode ? '#ffffff' : '#1e293b'}
+                                      textAnchor="middle"
+                                      dominantBaseline="central"
+                                      fontSize="12"
+                                      fontWeight="bold"
+                                    >
+                                      {percentageValue}%
+                                    </text>
+                                  );
+                                }}
+                                outerRadius={65}
+                                fill="#8884d8"
+                                dataKey="value"
+                                animationBegin={0}
+                                animationDuration={1200}
+                              >
+                                {pieChartData.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={entry.fill} />
+                                ))}
+                              </Pie>
+                              <Legend 
+                                verticalAlign="bottom" 
+                                height={50}
+                                iconType="circle"
+                                wrapperStyle={{ fontSize: '11px' }}
+                                formatter={(value, entry: any) => {
+                                  const data = pieChartData.find(d => d.name === value);
+                                  const total = pieChartData.reduce((sum, d) => sum + d.value, 0);
+                                  const percentage = data && total > 0 ? ((data.value / total) * 100).toFixed(1) : '0';
+                                  return (
+                                    <span className={isDarkMode ? 'text-white' : 'text-gray-900'}>
+                                      {value}: <strong>{percentage}%</strong>
+                                    </span>
+                                  );
+                                }}
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
                         </div>
                       </div>
                       
@@ -3408,6 +4412,34 @@ export default function StudentAttendancePage() {
                           }`}>
                             Tổng quan tham gia hoạt động
                           </h3>
+                        </div>
+                        
+                        {/* Export Buttons */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={exportToExcel}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                              isDarkMode
+                                ? 'bg-green-600/20 text-green-300 hover:bg-green-600/30 border border-green-500/30'
+                                : 'bg-green-50 text-green-700 hover:bg-green-100 border border-green-200'
+                            }`}
+                            title="Xuất Excel"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5" />
+                            <span>Excel</span>
+                          </button>
+                          <button
+                            onClick={exportToPDF}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                              isDarkMode
+                                ? 'bg-red-600/20 text-red-300 hover:bg-red-600/30 border border-red-500/30'
+                                : 'bg-red-50 text-red-700 hover:bg-red-100 border border-red-200'
+                            }`}
+                            title="Xuất PDF"
+                          >
+                            <FileDown className="w-3.5 h-3.5" />
+                            <span>PDF</span>
+                          </button>
                         </div>
                         
                         <div className={`flex items-center gap-2.5 mb-3 px-3 py-2 rounded-xl ${

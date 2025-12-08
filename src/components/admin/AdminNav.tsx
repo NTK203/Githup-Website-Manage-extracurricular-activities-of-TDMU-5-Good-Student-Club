@@ -706,6 +706,16 @@ export default function AdminNav() {
               {isSidebarOpen && <span className={`ml-2 text-sm ${isDarkMode ? 'text-white' : 'text-white'}`}>Báo Cáo Thống Kê</span>}
             </a>
 
+            {/* Báo Cáo Thống Kê Cán Bộ */}
+            <a
+              href="/admin/officers/reports"
+              className={`${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-white hover:bg-blue-700'} ${isSidebarOpen ? 'justify-start px-3' : 'justify-center px-2'} py-2 rounded-lg text-sm font-medium flex items-center transition-all duration-200`}
+              title="Báo Cáo Thống Kê Cán Bộ"
+            >
+              <Users size={16} className={isDarkMode ? 'text-white' : 'text-white'} strokeWidth={1.5} />
+              {isSidebarOpen && <span className={`ml-2 text-sm ${isDarkMode ? 'text-white' : 'text-white'}`}>Thống Kê Cán Bộ</span>}
+            </a>
+
             {/* Bản tin - News */}
             <a
               href="/admin/news"

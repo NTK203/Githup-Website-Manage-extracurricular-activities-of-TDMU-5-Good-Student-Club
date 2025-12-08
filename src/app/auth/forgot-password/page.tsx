@@ -43,7 +43,7 @@ export default function ForgotPasswordPage() {
       });
 
       const data = await response.json();
-
+      
       if (data.success) {
         setSuccess(data.message);
         // In development, show reset link

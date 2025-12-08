@@ -151,8 +151,8 @@ const timeSlotSchema = new Schema<ITimeSlot>({
   },
   activities: {
     type: String,
-    trim: true,
-    maxlength: [1000, 'Mô tả hoạt động không được quá 1000 ký tự']
+    trim: true
+    // No length limit - users can enter unlimited text
   },
   detailedLocation: {
     type: String,
@@ -549,8 +549,8 @@ const activitySchema = new Schema<IActivity>({
       },
       activities: {
         type: String,
-        trim: true,
-        maxlength: [1000, 'Mô tả hoạt động không được quá 1000 ký tự']
+        trim: true
+        // No length limit - users can enter unlimited text
       }
     }],
     validate: {

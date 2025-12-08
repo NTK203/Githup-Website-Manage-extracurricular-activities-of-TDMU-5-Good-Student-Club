@@ -56,6 +56,18 @@ export async function POST(request: NextRequest) {
       status: { $in: ['published', 'ongoing'] } // Only check active activities
     }).select('_id name type schedule participants date timeSlots');
 
+    console.log('🔍 CHECK OVERLAP - Current activity:', {
+      activityId: activityId,
+      type: currentActivity.type,
+      day: day,
+      slot: slot,
+      hasSchedule: !!currentActivity.schedule,
+      hasDate: !!currentActivity.date,
+      hasTimeSlots: !!currentActivity.timeSlots
+    });
+
+    console.log('🔍 CHECK OVERLAP - Found user activities:', userActivities.length);
+
     // Check for overlapping slots
     const overlappingActivities: Array<{ 
       activityName: string; 
@@ -79,6 +91,24 @@ export async function POST(request: NextRequest) {
       }
     }
     
+    // Get the actual date for the selected day in current activity (calculate once outside the loop)
+    let currentDayDate: Date | null = null;
+    if (currentActivity.type === 'multiple_days' && currentActivity.schedule) {
+      const currentScheduleDay = currentActivity.schedule.find((s: any) => {
+        const scheduleDayNum = s.day || (currentActivity.schedule.indexOf(s) + 1);
+        return scheduleDayNum === day;
+      });
+      if (currentScheduleDay && currentScheduleDay.date) {
+        currentDayDate = new Date(currentScheduleDay.date);
+        currentDayDate.setHours(0, 0, 0, 0);
+      }
+    } else if (currentActivity.type === 'single_day' && currentActivity.date) {
+      currentDayDate = new Date(currentActivity.date);
+      currentDayDate.setHours(0, 0, 0, 0);
+    }
+
+    console.log('🔍 CHECK OVERLAP - Current day date:', currentDayDate ? currentDayDate.toISOString() : 'null');
+
     for (const otherActivity of userActivities) {
       // Find user's participant record in this activity
       const otherParticipant = otherActivity.participants.find((p: any) => {
@@ -98,19 +128,6 @@ export async function POST(request: NextRequest) {
 
       // Check if other activity is multiple_days
       if (otherActivity.type === 'multiple_days' && otherParticipant.registeredDaySlots && Array.isArray(otherParticipant.registeredDaySlots)) {
-        // Get the actual date for the selected day in current activity
-        let currentDayDate: Date | null = null;
-        if (currentActivity.type === 'multiple_days' && currentActivity.schedule) {
-          const currentScheduleDay = currentActivity.schedule.find((s: any) => {
-            const scheduleDayNum = s.day || (currentActivity.schedule.indexOf(s) + 1);
-            return scheduleDayNum === day;
-          });
-          if (currentScheduleDay && currentScheduleDay.date) {
-            currentDayDate = new Date(currentScheduleDay.date);
-            currentDayDate.setHours(0, 0, 0, 0);
-          }
-        }
-        
         // Check if the daySlot overlaps by comparing actual dates, not day numbers
         for (const otherDaySlot of otherParticipant.registeredDaySlots) {
           // Check if same slot (morning/afternoon/evening)
@@ -173,79 +190,152 @@ export async function POST(request: NextRequest) {
         const otherActivityDate = new Date(otherActivity.date);
         otherActivityDate.setHours(0, 0, 0, 0);
 
-        // Find the corresponding day in current activity's schedule
-        if (currentActivity.type === 'multiple_days' && currentActivity.schedule) {
-          const scheduleDay = currentActivity.schedule.find((s: any) => {
-            const scheduleDayNum = s.day || (currentActivity.schedule.indexOf(s) + 1);
-            return scheduleDayNum === day;
-          });
+        // currentDayDate is already calculated above
+        // If dates match, check if time slots overlap
+        if (currentDayDate && currentDayDate.getTime() === otherActivityDate.getTime()) {
+          // For single_day, check which slots the user has registered
+          const otherRegisteredSlots = otherParticipant.registeredDaySlots && Array.isArray(otherParticipant.registeredDaySlots) && otherParticipant.registeredDaySlots.length > 0
+            ? otherParticipant.registeredDaySlots.map((ds: any) => ds.slot)
+            : [];
+          
+          // If user has registered this slot in the single_day activity, OR if no registeredDaySlots (backward compatibility), check time overlap
+          if (otherRegisteredSlots.length === 0 || otherRegisteredSlots.includes(slot)) {
+            // Check the actual time slots to be more precise
+            if (currentActivity.timeSlots && otherActivity.timeSlots) {
+              const slotName = slot === 'morning' ? 'Buổi Sáng' : 
+                              slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+              const currentSlot = currentActivity.timeSlots.find((ts: any) => {
+                return ts.name === slotName && ts.isActive;
+              });
+              const otherSlot = otherActivity.timeSlots.find((ts: any) => {
+                return ts.name === slotName && ts.isActive;
+              });
 
-          if (scheduleDay) {
-            const scheduleDate = new Date(scheduleDay.date);
-            scheduleDate.setHours(0, 0, 0, 0);
+              if (currentSlot && otherSlot) {
+                // Parse times
+                const currentStart = currentSlot.startTime.split(':').map(Number);
+                const currentEnd = currentSlot.endTime.split(':').map(Number);
+                const otherStart = otherSlot.startTime.split(':').map(Number);
+                const otherEnd = otherSlot.endTime.split(':').map(Number);
 
-            // If dates match, check if time slots overlap
-            if (scheduleDate.getTime() === otherActivityDate.getTime()) {
-              // Check the actual time slots to be more precise
-              if (currentActivity.timeSlots && otherActivity.timeSlots) {
-                const currentSlot = currentActivity.timeSlots.find((ts: any) => {
-                  const slotName = slot === 'morning' ? 'Buổi Sáng' : 
-                                  slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
-                  return ts.name === slotName && ts.isActive;
-                });
+                const currentStartMinutes = currentStart[0] * 60 + currentStart[1];
+                const currentEndMinutes = currentEnd[0] * 60 + currentEnd[1];
+                const otherStartMinutes = otherStart[0] * 60 + otherStart[1];
+                const otherEndMinutes = otherEnd[0] * 60 + otherEnd[1];
 
-                if (currentSlot) {
-                  // Check if any time slot in other activity overlaps with current slot
-                  const hasTimeOverlap = otherActivity.timeSlots.some((otherSlot: any) => {
-                    if (!otherSlot.isActive) return false;
-                    
-                    // Parse times
-                    const currentStart = currentSlot.startTime.split(':').map(Number);
-                    const currentEnd = currentSlot.endTime.split(':').map(Number);
-                    const otherStart = otherSlot.startTime.split(':').map(Number);
-                    const otherEnd = otherSlot.endTime.split(':').map(Number);
+                // Check if time ranges overlap
+                const hasTimeOverlap = !(currentEndMinutes <= otherStartMinutes || currentStartMinutes >= otherEndMinutes);
 
-                    const currentStartMinutes = currentStart[0] * 60 + currentStart[1];
-                    const currentEndMinutes = currentEnd[0] * 60 + currentEnd[1];
-                    const otherStartMinutes = otherStart[0] * 60 + otherStart[1];
-                    const otherEndMinutes = otherEnd[0] * 60 + otherEnd[1];
-
-                    // Check if time ranges overlap
-                    return !(currentEndMinutes <= otherStartMinutes || currentStartMinutes >= otherEndMinutes);
+                if (hasTimeOverlap) {
+                  overlappingActivities.push({
+                    activityName: otherActivity.name,
+                    day: currentActivity.type === 'single_day' ? 1 : day,
+                    slot: slot,
+                    date: otherActivity.date,
+                    startTime: otherSlot.startTime,
+                    endTime: otherSlot.endTime
                   });
-
-                  if (hasTimeOverlap) {
-                    // Get the overlapping slot's time
-                    const overlappingSlot = otherActivity.timeSlots.find((os: any) => os.isActive && 
-                      !(currentEndMinutes <= (os.startTime.split(':').map(Number)[0] * 60 + os.startTime.split(':').map(Number)[1]) || 
-                        currentStartMinutes >= (os.endTime.split(':').map(Number)[0] * 60 + os.endTime.split(':').map(Number)[1])));
-                    
-                    overlappingActivities.push({
-                      activityName: otherActivity.name,
-                      day: day,
-                      slot: slot,
-                      date: otherActivity.date,
-                      startTime: overlappingSlot ? overlappingSlot.startTime : currentSlotStartTime,
-                      endTime: overlappingSlot ? overlappingSlot.endTime : currentSlotEndTime
-                    });
-                  }
                 }
               } else {
-                // If we can't check time slots, consider it overlapping if date matches
+                // If we can't find specific slots, consider it overlapping if date and slot match
                 overlappingActivities.push({
                   activityName: otherActivity.name,
-                  day: day,
+                  day: currentActivity.type === 'single_day' ? 1 : day,
                   slot: slot,
                   date: otherActivity.date,
                   startTime: currentSlotStartTime,
                   endTime: currentSlotEndTime
                 });
               }
+            } else {
+              // If we can't check time slots, consider it overlapping if date and slot match
+              overlappingActivities.push({
+                activityName: otherActivity.name,
+                day: currentActivity.type === 'single_day' ? 1 : day,
+                slot: slot,
+                date: otherActivity.date,
+                startTime: currentSlotStartTime,
+                endTime: currentSlotEndTime
+              });
+            }
+          }
+        }
+      }
+      
+      // Also check if current activity is single_day and other is multiple_days
+      // Note: currentDayDate is already calculated above, so we can use it here
+      if (currentActivity.type === 'single_day' && otherActivity.type === 'multiple_days' && otherParticipant.registeredDaySlots && Array.isArray(otherParticipant.registeredDaySlots) && otherParticipant.registeredDaySlots.length > 0) {
+        // Check if any registered day slot in other activity matches current activity's date
+        for (const otherDaySlot of otherParticipant.registeredDaySlots) {
+          if (otherDaySlot.slot !== slot) continue;
+          
+          // Get the actual date for this daySlot in other activity
+          let otherDayDate: Date | null = null;
+          if (otherActivity.schedule) {
+            const otherScheduleDay = otherActivity.schedule.find((s: any) => {
+              const scheduleDayNum = s.day || (otherActivity.schedule.indexOf(s) + 1);
+              return scheduleDayNum === otherDaySlot.day;
+            });
+            if (otherScheduleDay && otherScheduleDay.date) {
+              otherDayDate = new Date(otherScheduleDay.date);
+              otherDayDate.setHours(0, 0, 0, 0);
+            }
+          }
+          
+          // If dates match (using currentDayDate which is already calculated), check time overlap
+          if (otherDayDate && currentDayDate && currentDayDate.getTime() === otherDayDate.getTime()) {
+            if (currentActivity.timeSlots && otherActivity.timeSlots) {
+              const slotName = slot === 'morning' ? 'Buổi Sáng' : 
+                              slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+              const currentSlot = currentActivity.timeSlots.find((ts: any) => {
+                return ts.name === slotName && ts.isActive;
+              });
+              
+              if (currentSlot) {
+                const otherSlot = otherActivity.timeSlots.find((ts: any) => {
+                  return ts.name === slotName && ts.isActive;
+                });
+                
+                if (otherSlot) {
+                  // Check time overlap
+                  const currentStart = currentSlot.startTime.split(':').map(Number);
+                  const currentEnd = currentSlot.endTime.split(':').map(Number);
+                  const otherStart = otherSlot.startTime.split(':').map(Number);
+                  const otherEnd = otherSlot.endTime.split(':').map(Number);
+                  
+                  const currentStartMinutes = currentStart[0] * 60 + currentStart[1];
+                  const currentEndMinutes = currentEnd[0] * 60 + currentEnd[1];
+                  const otherStartMinutes = otherStart[0] * 60 + otherStart[1];
+                  const otherEndMinutes = otherEnd[0] * 60 + otherEnd[1];
+                  
+                  const hasTimeOverlap = !(currentEndMinutes <= otherStartMinutes || currentStartMinutes >= otherEndMinutes);
+                  
+                  if (hasTimeOverlap) {
+                    let dayDate: string | undefined = otherDayDate.toISOString().split('T')[0];
+                    
+                    overlappingActivities.push({
+                      activityName: otherActivity.name,
+                      day: otherDaySlot.day,
+                      slot: slot,
+                      date: dayDate,
+                      startTime: otherSlot.startTime,
+                      endTime: otherSlot.endTime
+                    });
+                    break;
+                  }
+                }
+              }
             }
           }
         }
       }
     }
+
+    console.log('🔍 CHECK OVERLAP - Result:', {
+      hasOverlap: overlappingActivities.length > 0,
+      overlappingActivitiesCount: overlappingActivities.length,
+      overlappingActivities: overlappingActivities
+    });
 
     return NextResponse.json({
       success: true,

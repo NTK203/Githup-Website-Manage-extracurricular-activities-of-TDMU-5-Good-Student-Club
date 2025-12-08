@@ -6,6 +6,8 @@ import { useDarkMode } from '@/hooks/useDarkMode';
 import AdminNav from '@/components/admin/AdminNav';
 import Footer from '@/components/common/Footer';
 import ProtectedRoute from '@/components/common/ProtectedRoute';
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
+import { BarChart3, Users, Activity, Star, FileText, TrendingUp, GraduationCap, BookOpen, Calendar, Target, Download, Clock, CheckCircle2 } from 'lucide-react';
 
 interface DashboardStats {
   totalStudents: {
@@ -60,6 +62,14 @@ interface ActivityStats {
     multi_day: number;
   };
   byMonth: Array<{
+    month: string;
+    count: number;
+  }>;
+  participantsByType: {
+    single_day: number;
+    multi_day: number;
+  };
+  byCreatedMonth: Array<{
     month: string;
     count: number;
   }>;
@@ -274,11 +284,44 @@ export default function ReportsPage() {
             .sort((a, b) => a.month.localeCompare(b.month))
             .slice(-12); // Last 12 months
 
+          // Calculate participants by type
+          let singleDayParticipants = 0;
+          let multiDayParticipants = 0;
+          
+          activities.forEach((activity: any) => {
+            const participantCount = activity.participants?.length || 0;
+            if (activity.type === 'single_day') {
+              singleDayParticipants += participantCount;
+            } else if (activity.type === 'multi_day') {
+              multiDayParticipants += participantCount;
+            }
+          });
+
+          // Group by created month (thời gian tạo hoạt động)
+          const createdMonthMap = new Map<string, number>();
+          activities.forEach((activity: any) => {
+            if (activity.createdAt) {
+              const date = new Date(activity.createdAt);
+              const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+              createdMonthMap.set(monthKey, (createdMonthMap.get(monthKey) || 0) + 1);
+            }
+          });
+
+          const byCreatedMonth = Array.from(createdMonthMap.entries())
+            .map(([month, count]) => ({ month, count }))
+            .sort((a, b) => a.month.localeCompare(b.month))
+            .slice(-12); // Last 12 months
+
           setActivityStats({
             total: activities.length,
             byStatus,
             byType,
-            byMonth
+            byMonth,
+            participantsByType: {
+              single_day: singleDayParticipants,
+              multi_day: multiDayParticipants
+            },
+            byCreatedMonth
           });
         }
       }
@@ -391,35 +434,48 @@ export default function ReportsPage() {
         <AdminNav />
         
         <main 
-          className="flex-1 transition-all duration-300 px-4 sm:px-6 lg:px-8 py-6 sm:py-8 overflow-x-hidden min-w-0"
+          className="flex-1 transition-all duration-300 px-3 sm:px-4 py-3 sm:py-4 overflow-x-hidden min-w-0"
           style={{
             marginLeft: isDesktop ? (isSidebarOpen ? '288px' : '80px') : '0',
             width: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%',
             maxWidth: isDesktop ? `calc(100% - ${isSidebarOpen ? '288px' : '80px'})` : '100%'
           }}
         >
-          {/* Header */}
-          <div className="mb-6 sm:mb-8">
+          {/* Hero Header with Gradient */}
+          <div className={`mb-5 rounded-xl p-5 shadow-lg ${
+            isDarkMode 
+              ? 'bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 border border-purple-700/30' 
+              : 'bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 border border-purple-300'
+          }`}>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
-                <h1 className={`text-2xl sm:text-3xl font-bold mb-2 transition-colors duration-200 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                  📊 Báo Cáo Thống Kê
+                <div className="flex items-center gap-2 mb-2">
+                  <div className={`p-2 rounded-lg ${
+                    isDarkMode ? 'bg-white/10 backdrop-blur-sm' : 'bg-white/20 backdrop-blur-sm'
+                  }`}>
+                    <BarChart3 size={24} className="text-white" />
+                  </div>
+                  <div>
+                    <h1 className="text-xl sm:text-2xl font-bold text-white mb-0.5">
+                      Báo Cáo Tổng Hợp Hệ Thống
                 </h1>
-                <p className={`text-sm sm:text-base transition-colors duration-200 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                  Xem và phân tích dữ liệu tổng hợp của hệ thống
+                    <p className="text-xs text-white/80">
+                      Phân tích toàn diện dữ liệu sinh viên và hoạt động
                 </p>
+                  </div>
+                </div>
               </div>
               
-              {/* Date Range Selector & Export Button */}
-              <div className="flex flex-col sm:flex-row gap-3">
+              {/* Controls */}
+              <div className="flex flex-col sm:flex-row gap-2">
                 <select
                   value={dateRange}
                   onChange={(e) => setDateRange(e.target.value as typeof dateRange)}
-                  className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all duration-200 ${
+                  className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all duration-200 ${
                     isDarkMode 
-                      ? 'bg-gray-800 border-gray-600 text-white hover:bg-gray-700' 
-                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
-                  } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                      ? 'bg-white/10 border-white/20 text-white hover:bg-white/20 backdrop-blur-sm' 
+                      : 'bg-white/90 border-white/30 text-gray-800 hover:bg-white'
+                  } focus:outline-none focus:ring-2 focus:ring-white/30`}
                 >
                   <option value="week">Tuần này</option>
                   <option value="month">Tháng này</option>
@@ -430,521 +486,455 @@ export default function ReportsPage() {
                 
                 <button
                   onClick={handleExportReport}
-                  className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all duration-200 flex items-center justify-center space-x-2 ${
-                    isDarkMode
-                      ? 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white'
-                      : 'bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white'
-                  } hover:scale-105 shadow-lg hover:shadow-xl`}
+                  className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 flex items-center justify-center space-x-1.5 bg-white text-indigo-600 hover:bg-white/90 shadow-md hover:shadow-lg"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <span>Xuất báo cáo</span>
+                  <Download size={14} />
+                  <span>Xuất Báo Cáo</span>
                 </button>
               </div>
             </div>
           </div>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-              <p className="text-red-800 dark:text-red-300">{error}</p>
+            <div className={`mb-6 p-5 rounded-xl border-2 shadow-lg ${
+              isDarkMode ? 'bg-red-900/30 border-red-600/50' : 'bg-red-50 border-red-300'
+            }`}>
+              <p className={`text-sm font-semibold ${isDarkMode ? 'text-red-200' : 'text-red-800'}`}>{error}</p>
             </div>
           )}
 
-          {/* Dashboard Stats Overview */}
+          {/* Dashboard Stats Overview - Compact Cards */}
           {dashboardStats && (
-            <div className="mb-8">
-              <h2 className={`text-xl font-bold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                📈 Tổng Quan Hệ Thống
-              </h2>
-              
-              {/* Stats Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                {/* Total Students */}
-                <div className={`p-6 rounded-xl shadow-lg transition-all duration-300 hover:scale-105 ${
-                  isDarkMode ? 'bg-gradient-to-br from-blue-900/50 to-blue-800/50 border border-blue-700/50' : 'bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200'
+            <section className={`mb-5 p-4 rounded-lg shadow-md ${
+              isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-white border border-gray-200'
+            }`}>
+              <div className="flex items-center gap-2 mb-3">
+                <div className={`p-1.5 rounded-lg ${
+                  isDarkMode ? 'bg-indigo-500/20' : 'bg-indigo-100'
                 }`}>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                  <TrendingUp size={16} className={isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} />
+                </div>
+                <h2 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  Tổng Quan Hệ Thống
+              </h2>
+              </div>
+              
+              {/* Compact Stats Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* Total Students */}
+                <div className={`p-3 rounded-lg shadow-sm border transition-all duration-200 ${
+                  isDarkMode 
+                    ? 'bg-gray-800/50 border-gray-700 hover:bg-gray-800' 
+                    : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
                       isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
                     }`}>
-                      <span className="text-2xl">👥</span>
+                      <Users size={16} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} />
                     </div>
-                    <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                      dashboardStats.totalStudents.changeType === 'increase'
-                        ? isDarkMode ? 'bg-green-900/30 text-green-300' : 'bg-green-100 text-green-700'
-                        : isDarkMode ? 'bg-red-900/30 text-red-300' : 'bg-red-100 text-red-700'
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                      dashboardStats?.totalStudents?.changeType === 'increase'
+                        ? isDarkMode ? 'bg-green-600/30 text-green-300' : 'bg-green-100 text-green-700'
+                        : isDarkMode ? 'bg-red-600/30 text-red-300' : 'bg-red-100 text-red-700'
                     }`}>
-                      {dashboardStats.totalStudents.change}
+                      {dashboardStats?.totalStudents?.change || '0'}
                     </span>
                   </div>
-                  <h3 className={`text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                  <h3 className={`text-[11px] font-medium mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                     Tổng Sinh Viên
                   </h3>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    {dashboardStats.totalStudents.value}
+                  <p className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    {dashboardStats?.totalStudents?.value || '0'}
                   </p>
                 </div>
 
                 {/* Ongoing Activities */}
-                <div className={`p-6 rounded-xl shadow-lg transition-all duration-300 hover:scale-105 ${
-                  isDarkMode ? 'bg-gradient-to-br from-purple-900/50 to-purple-800/50 border border-purple-700/50' : 'bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200'
+                <div className={`p-3 rounded-lg shadow-sm border transition-all duration-200 ${
+                  isDarkMode 
+                    ? 'bg-gray-800/50 border-gray-700 hover:bg-gray-800' 
+                    : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
                 }`}>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
                       isDarkMode ? 'bg-purple-500/20' : 'bg-purple-100'
                     }`}>
-                      <span className="text-2xl">🔄</span>
+                      <Activity size={16} className={isDarkMode ? 'text-purple-400' : 'text-purple-600'} />
                     </div>
-                    <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                      dashboardStats.ongoingActivities.changeType === 'increase'
-                        ? isDarkMode ? 'bg-green-900/30 text-green-300' : 'bg-green-100 text-green-700'
-                        : isDarkMode ? 'bg-red-900/30 text-red-300' : 'bg-red-100 text-red-700'
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                      dashboardStats?.ongoingActivities?.changeType === 'increase'
+                        ? isDarkMode ? 'bg-green-600/30 text-green-300' : 'bg-green-100 text-green-700'
+                        : isDarkMode ? 'bg-red-600/30 text-red-300' : 'bg-red-100 text-red-700'
                     }`}>
-                      {dashboardStats.ongoingActivities.change}
+                      {dashboardStats?.ongoingActivities?.change || '0'}
                     </span>
                   </div>
-                  <h3 className={`text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                  <h3 className={`text-[11px] font-medium mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                     Hoạt Động Đang Diễn Ra
                   </h3>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    {dashboardStats.ongoingActivities.value}
+                  <p className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    {dashboardStats?.ongoingActivities?.value || '0'}
                   </p>
                 </div>
 
                 {/* Average Score */}
-                <div className={`p-6 rounded-xl shadow-lg transition-all duration-300 hover:scale-105 ${
-                  isDarkMode ? 'bg-gradient-to-br from-green-900/50 to-green-800/50 border border-green-700/50' : 'bg-gradient-to-br from-green-50 to-green-100 border border-green-200'
+                <div className={`p-3 rounded-lg shadow-sm border transition-all duration-200 ${
+                  isDarkMode 
+                    ? 'bg-gray-800/50 border-gray-700 hover:bg-gray-800' 
+                    : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
                 }`}>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                      isDarkMode ? 'bg-green-500/20' : 'bg-green-100'
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                      isDarkMode ? 'bg-emerald-500/20' : 'bg-emerald-100'
                     }`}>
-                      <span className="text-2xl">⭐</span>
+                      <Star size={16} className={isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} />
                     </div>
-                    <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                      dashboardStats.averageScore.changeType === 'increase'
-                        ? isDarkMode ? 'bg-green-900/30 text-green-300' : 'bg-green-100 text-green-700'
-                        : isDarkMode ? 'bg-red-900/30 text-red-300' : 'bg-red-100 text-red-700'
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                      dashboardStats?.averageScore?.changeType === 'increase'
+                        ? isDarkMode ? 'bg-green-600/30 text-green-300' : 'bg-green-100 text-green-700'
+                        : isDarkMode ? 'bg-red-600/30 text-red-300' : 'bg-red-100 text-red-700'
                     }`}>
-                      {dashboardStats.averageScore.change}
+                      {dashboardStats?.averageScore?.change || '0'}
                     </span>
                   </div>
-                  <h3 className={`text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                  <h3 className={`text-[11px] font-medium mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                     Điểm Trung Bình
                   </h3>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    {dashboardStats.averageScore.value}
+                  <p className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    {dashboardStats?.averageScore?.value || '0'}
                   </p>
                 </div>
 
                 {/* Pending Reports */}
-                <div className={`p-6 rounded-xl shadow-lg transition-all duration-300 hover:scale-105 ${
-                  isDarkMode ? 'bg-gradient-to-br from-orange-900/50 to-orange-800/50 border border-orange-700/50' : 'bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200'
+                <div className={`p-3 rounded-lg shadow-sm border transition-all duration-200 ${
+                  isDarkMode 
+                    ? 'bg-gray-800/50 border-gray-700 hover:bg-gray-800' 
+                    : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
                 }`}>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                      isDarkMode ? 'bg-orange-500/20' : 'bg-orange-100'
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                      isDarkMode ? 'bg-amber-500/20' : 'bg-amber-100'
                     }`}>
-                      <span className="text-2xl">📋</span>
+                      <FileText size={16} className={isDarkMode ? 'text-amber-400' : 'text-amber-600'} />
                     </div>
-                    <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                      dashboardStats.pendingReports.changeType === 'increase'
-                        ? isDarkMode ? 'bg-green-900/30 text-green-300' : 'bg-green-100 text-green-700'
-                        : isDarkMode ? 'bg-red-900/30 text-red-300' : 'bg-red-100 text-red-700'
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                      dashboardStats?.pendingReports?.changeType === 'increase'
+                        ? isDarkMode ? 'bg-green-600/30 text-green-300' : 'bg-green-100 text-green-700'
+                        : isDarkMode ? 'bg-red-600/30 text-red-300' : 'bg-red-100 text-red-700'
                     }`}>
-                      {dashboardStats.pendingReports.change}
+                      {dashboardStats?.pendingReports?.change || '0'}
                     </span>
                   </div>
-                  <h3 className={`text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                  <h3 className={`text-[11px] font-medium mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                     Báo Cáo Chờ Xử Lý
                   </h3>
-                  <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    {dashboardStats.pendingReports.value}
+                  <p className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    {dashboardStats?.pendingReports?.value || '0'}
                   </p>
                 </div>
               </div>
-            </div>
+            </section>
           )}
 
-          {/* User Statistics */}
+          {/* User Statistics - Compact Section */}
           {userStats && (
-            <div className="mb-8">
-              <h2 className={`text-xl font-bold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                👥 Thống Kê Thành Viên
+            <section className={`mb-5 p-4 rounded-lg shadow-md ${
+              isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-white border border-gray-200'
+            }`}>
+              <div className="flex items-center gap-2 mb-3">
+                <div className={`p-1.5 rounded-lg ${
+                  isDarkMode ? 'bg-teal-500/20' : 'bg-teal-100'
+                }`}>
+                  <Users size={16} className={isDarkMode ? 'text-teal-400' : 'text-teal-600'} />
+                </div>
+                <div>
+                  <h2 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    Thống Kê Thành Viên
               </h2>
-              <div className={`p-6 rounded-xl shadow-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'}`}>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                </div>
+              </div>
+              <div className={`p-3 rounded-lg shadow-sm ${isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-gray-50 border border-gray-200'}`}>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
                   {/* Total Users */}
-                  <div className="text-center">
-                    <div className={`w-16 h-16 rounded-full mx-auto mb-3 flex items-center justify-center ${
+                  <div className={`text-center p-3 rounded-lg ${
+                    isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-white border border-gray-200'
+                  }`}>
+                    <div className={`w-10 h-10 rounded-lg mx-auto mb-2 flex items-center justify-center ${
                       isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
                     }`}>
-                      <span className="text-2xl">👤</span>
+                      <Users size={18} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} />
                     </div>
-                    <p className={`text-3xl font-bold mb-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    <p className={`text-xl font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                       {userStats.totalUsers.toLocaleString('vi-VN')}
                     </p>
-                    <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                       Tổng Người Dùng
                     </p>
                   </div>
 
                   {/* Club Members */}
-                  <div className="text-center">
-                    <div className={`w-16 h-16 rounded-full mx-auto mb-3 flex items-center justify-center ${
+                  <div className={`text-center p-3 rounded-lg ${
+                    isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-white border border-gray-200'
+                  }`}>
+                    <div className={`w-10 h-10 rounded-lg mx-auto mb-2 flex items-center justify-center ${
                       isDarkMode ? 'bg-purple-500/20' : 'bg-purple-100'
                     }`}>
-                      <span className="text-2xl">🎯</span>
+                      <Target size={18} className={isDarkMode ? 'text-purple-400' : 'text-purple-600'} />
                     </div>
-                    <p className={`text-3xl font-bold mb-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    <p className={`text-xl font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                       {userStats.totalClubMembers.toLocaleString('vi-VN')}
                     </p>
-                    <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    <p className={`text-xs mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                       Thành Viên CLB
                     </p>
-                    <p className={`text-xs mt-1 ${isDarkMode ? 'text-purple-300' : 'text-purple-600'}`}>
+                    <p className={`text-[10px] ${isDarkMode ? 'text-purple-300' : 'text-purple-600'}`}>
                       {calculatePercentage(userStats.totalClubMembers, userStats.totalUsers)}% tổng số
                     </p>
                   </div>
 
                   {/* Non-Club Members */}
-                  <div className="text-center">
-                    <div className={`w-16 h-16 rounded-full mx-auto mb-3 flex items-center justify-center ${
+                  <div className={`text-center p-3 rounded-lg ${
+                    isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-white border border-gray-200'
+                  }`}>
+                    <div className={`w-10 h-10 rounded-lg mx-auto mb-2 flex items-center justify-center ${
                       isDarkMode ? 'bg-gray-500/20' : 'bg-gray-100'
                     }`}>
-                      <span className="text-2xl">👥</span>
+                      <GraduationCap size={18} className={isDarkMode ? 'text-gray-300' : 'text-gray-600'} />
                     </div>
-                    <p className={`text-3xl font-bold mb-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    <p className={`text-xl font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                       {userStats.totalNonClubMembers.toLocaleString('vi-VN')}
                     </p>
-                    <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    <p className={`text-xs mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                       Sinh Viên Thường
                     </p>
-                    <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                       {calculatePercentage(userStats.totalNonClubMembers, userStats.totalUsers)}% tổng số
                     </p>
                   </div>
 
                   {/* Management Staff */}
-                  <div className="text-center">
-                    <div className={`w-16 h-16 rounded-full mx-auto mb-3 flex items-center justify-center ${
-                      isDarkMode ? 'bg-green-500/20' : 'bg-green-100'
+                  <div className={`text-center p-3 rounded-lg ${
+                    isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-white border border-gray-200'
                     }`}>
-                      <span className="text-2xl">👔</span>
+                    <div className={`w-10 h-10 rounded-lg mx-auto mb-2 flex items-center justify-center ${
+                      isDarkMode ? 'bg-emerald-500/20' : 'bg-emerald-100'
+                    }`}>
+                      <CheckCircle2 size={18} className={isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} />
                     </div>
-                    <p className={`text-3xl font-bold mb-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    <p className={`text-xl font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                       {userStats.totalManagementStaff.toLocaleString('vi-VN')}
                     </p>
-                    <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    <p className={`text-xs mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                       Ban Quản Lý
                     </p>
-                    <p className={`text-xs mt-1 ${isDarkMode ? 'text-green-300' : 'text-green-600'}`}>
+                    <p className={`text-[10px] ${isDarkMode ? 'text-emerald-300' : 'text-emerald-600'}`}>
                       {calculatePercentage(userStats.totalManagementStaff, userStats.totalUsers)}% tổng số
                     </p>
                   </div>
                 </div>
 
-                {/* User Distribution Chart - Pie Chart */}
-                <div className="mt-8">
-                  <h3 className={`text-lg font-semibold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    Phân Bố Thành Viên (Biểu Đồ Tròn)
+                {/* User Distribution Chart - Pie Chart using Recharts */}
+                <div className="mt-3">
+                  <h3 className={`text-sm font-semibold mb-3 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    Phân Bố Thành Viên
                   </h3>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Pie Chart */}
-                    <div className="flex items-center justify-center">
-                      <div className="relative w-64 h-64">
-                        <svg className="w-full h-full transform -rotate-90" viewBox="0 0 200 200">
-                          <circle
-                            cx="100"
-                            cy="100"
-                            r="80"
-                            fill="none"
-                            stroke={isDarkMode ? '#374151' : '#e5e7eb'}
-                            strokeWidth="40"
-                          />
-                          {/* Club Members */}
-                          {userStats.totalClubMembers > 0 && (
-                            <circle
-                              cx="100"
-                              cy="100"
-                              r="80"
-                              fill="none"
-                              stroke="#9333ea"
-                              strokeWidth="40"
-                              strokeDasharray={`${2 * Math.PI * 80 * calculatePercentage(userStats.totalClubMembers, userStats.totalUsers) / 100} ${2 * Math.PI * 80}`}
-                              strokeDashoffset="0"
-                              className="transition-all duration-1000"
-                            />
-                          )}
-                          {/* Non-Club Members */}
-                          {userStats.totalNonClubMembers > 0 && (
-                            <circle
-                              cx="100"
-                              cy="100"
-                              r="80"
-                              fill="none"
-                              stroke="#6b7280"
-                              strokeWidth="40"
-                              strokeDasharray={`${2 * Math.PI * 80 * calculatePercentage(userStats.totalNonClubMembers, userStats.totalUsers) / 100} ${2 * Math.PI * 80}`}
-                              strokeDashoffset={`-${2 * Math.PI * 80 * calculatePercentage(userStats.totalClubMembers, userStats.totalUsers) / 100}`}
-                              className="transition-all duration-1000"
-                            />
-                          )}
-                        </svg>
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="text-center">
-                            <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                              {userStats.totalUsers.toLocaleString('vi-VN')}
-                            </p>
-                            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                              Tổng số
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Legend */}
-                    <div className="flex flex-col justify-center space-y-4">
-                      {/* Club Members */}
-                      <div className="flex items-center space-x-3">
-                        <div className="w-4 h-4 rounded-full bg-gradient-to-r from-purple-500 to-purple-600"></div>
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                              Thành Viên CLB
-                            </span>
-                            <span className={`text-sm font-bold ${isDarkMode ? 'text-purple-300' : 'text-purple-600'}`}>
-                              {userStats.totalClubMembers} ({calculatePercentage(userStats.totalClubMembers, userStats.totalUsers)}%)
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Non-Club Members */}
-                      <div className="flex items-center space-x-3">
-                        <div className="w-4 h-4 rounded-full bg-gradient-to-r from-gray-400 to-gray-500"></div>
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                              Sinh Viên Thường
-                            </span>
-                            <span className={`text-sm font-bold ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                              {userStats.totalNonClubMembers} ({calculatePercentage(userStats.totalNonClubMembers, userStats.totalUsers)}%)
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Management Staff - Info only (not in pie chart) */}
-                      <div className={`mt-4 p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/50 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
-                        <div className="flex items-center space-x-3">
-                          <div className="w-4 h-4 rounded-full bg-gradient-to-r from-green-500 to-green-600"></div>
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between">
-                              <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                Ban Quản Lý
-                                <span className={`ml-2 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                  (trong Thành Viên CLB)
-                                </span>
-                              </span>
-                              <span className={`text-sm font-bold ${isDarkMode ? 'text-green-300' : 'text-green-600'}`}>
-                                {userStats.totalManagementStaff}
-                              </span>
-                            </div>
-                            <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                              {calculatePercentage(userStats.totalManagementStaff, userStats.totalClubMembers)}% trong Thành Viên CLB
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                  <div className="w-full h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: 'Thành Viên CLB', value: userStats.totalClubMembers },
+                            { name: 'Sinh Viên Thường', value: userStats.totalNonClubMembers }
+                          ].filter(item => item.value > 0)}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={(entry: any) => {
+                            const percent = (Number(entry.value) / Number(userStats.totalUsers)) * 100;
+                            return percent >= 5 ? `${percent.toFixed(1)}%` : '';
+                          }}
+                          outerRadius={80}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          <Cell fill="#9333ea" />
+                          <Cell fill="#6b7280" />
+                        </Pie>
+                        <Tooltip 
+                          contentStyle={{
+                            backgroundColor: isDarkMode ? '#1f2937' : '#ffffff',
+                            border: isDarkMode ? '1px solid #374151' : '1px solid #e5e7eb',
+                            borderRadius: '8px',
+                            color: isDarkMode ? '#ffffff' : '#111827'
+                          }}
+                          formatter={(value: number, name: string, props: any) => {
+                            const percentage = ((Number(value) / Number(userStats.totalUsers)) * 100).toFixed(1);
+                            return [`${value} (${percentage}%)`, name];
+                          }}
+                        />
+                        <Legend 
+                          wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#111827', fontSize: '11px' }}
+                          formatter={(value: string) => {
+                            const entry = [
+                              { name: 'Thành Viên CLB', value: userStats.totalClubMembers },
+                              { name: 'Sinh Viên Thường', value: userStats.totalNonClubMembers }
+                            ].find(e => e.name === value);
+                            const percentage = entry ? ((entry.value / userStats.totalUsers) * 100).toFixed(1) : '0';
+                            return `${value} (${entry?.value || 0} - ${percentage}%)`;
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
 
                 {/* Statistics by Class and Faculty */}
                 {(userStats.byClass && userStats.byClass.length > 0) || (userStats.byFaculty && userStats.byFaculty.length > 0) ? (
-                  <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* By Class - Bar Chart */}
+                  <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    {/* By Class - Bar Chart using Recharts */}
                     {userStats.byClass && userStats.byClass.length > 0 && (
-                      <div className={`p-6 rounded-xl shadow-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'} overflow-hidden`}>
-                        <h3 className={`text-lg font-semibold mb-6 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                          📚 Phân Bố Theo Lớp (Top 10) - Biểu Đồ Cột
+                      <div className={`p-3 rounded-lg shadow-sm border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'}`}>
+                        <div className="flex items-center gap-2 mb-3">
+                          <BookOpen size={14} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} />
+                          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                            Phân Bố Theo Lớp (Top 10)
                         </h3>
-                        <div className="w-full overflow-x-auto">
-                          <div className="relative pl-8 min-w-[400px]">
-                            {/* Y-axis labels */}
-                            <div className="absolute left-0 top-0 h-80 flex flex-col justify-between text-xs pr-2">
-                              {(() => {
-                                const maxCount = Math.max(...userStats.byClass.map(c => c.count), 1);
-                                const steps = 5;
-                                const stepValue = Math.ceil(maxCount / steps);
-                                return Array.from({ length: steps + 1 }, (_, i) => {
-                                  const value = (steps - i) * stepValue;
-                                  return (
-                                    <div key={i} className={`text-right ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                      {value}
                                     </div>
-                                  );
-                                });
-                              })()}
-                            </div>
-                            
-                            {/* Chart Container */}
-                            <div className="relative h-80 flex items-end gap-2">
-                              {userStats.byClass.map((item, index) => {
-                                const maxCount = Math.max(...userStats.byClass.map(c => c.count), 1);
-                                const height = maxCount > 0 ? (item.count / maxCount) * 100 : 0;
-                                
-                                return (
-                                  <div key={item.className || index} className="flex-1 min-w-[40px] flex flex-col items-center group">
-                                    {/* Bar */}
-                                    <div 
-                                      className={`w-full rounded-t-lg bg-gradient-to-t from-blue-600 via-purple-500 to-pink-500 transition-all duration-500 hover:from-blue-500 hover:via-purple-400 hover:to-pink-400 cursor-pointer relative group/bar shadow-md hover:shadow-lg`}
-                                      style={{ height: `${height}%`, minHeight: item.count > 0 ? '8px' : '0' }}
-                                      title={`${item.className || 'Chưa có lớp'}: ${item.count} sinh viên`}
-                                    >
-                                      {/* Value Label on Hover */}
-                                      <div className={`absolute -top-10 left-1/2 transform -translate-x-1/2 opacity-0 group-hover/bar:opacity-100 transition-opacity duration-200 ${isDarkMode ? 'bg-gray-700 text-white' : 'bg-gray-900 text-white'} px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shadow-lg z-10`}>
-                                        <div className="text-center">
-                                          <div className="font-bold">{item.count}</div>
-                                          <div className="text-[10px] opacity-90">sinh viên</div>
-                                        </div>
-                                        {/* Arrow */}
-                                        <div className={`absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-full ${isDarkMode ? 'border-t-gray-700' : 'border-t-gray-900'} border-4 border-transparent`}></div>
-                                      </div>
-                                    </div>
-                                    {/* Class Label */}
-                                    <div className={`mt-3 text-xs font-medium text-center ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} truncate w-full px-1`} title={item.className || 'Chưa có lớp'}>
-                                      {item.className || 'Chưa có lớp'}
-                                    </div>
-                                    {/* Count Label */}
-                                    <div className={`mt-1 text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                      {item.count}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            
-                            {/* X-axis label */}
-                            <div className={`mt-4 text-center text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                              Lớp
-                            </div>
-                          </div>
+                        <div className="w-full h-64">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart 
+                              data={userStats.byClass.map(item => ({
+                                name: item.className || 'Chưa có',
+                                value: item.count
+                              }))}
+                              margin={{ top: 5, right: 5, left: 5, bottom: 40 }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#374151' : '#e5e7eb'} />
+                              <XAxis 
+                                dataKey="name" 
+                                angle={-45}
+                                textAnchor="end"
+                                height={50}
+                                interval={0}
+                                tick={{ fill: isDarkMode ? '#9ca3af' : '#6b7280', fontSize: 10 }}
+                                dx={-5}
+                                dy={5}
+                              />
+                              <YAxis 
+                                tick={{ fill: isDarkMode ? '#9ca3af' : '#6b7280', fontSize: 10 }}
+                                width={40}
+                              />
+                              <Tooltip 
+                                contentStyle={{
+                                  backgroundColor: isDarkMode ? '#1f2937' : '#ffffff',
+                                  border: isDarkMode ? '1px solid #374151' : '1px solid #e5e7eb',
+                                  borderRadius: '8px',
+                                  color: isDarkMode ? '#ffffff' : '#111827'
+                                }}
+                                formatter={(value: number) => [`${value} sinh viên`, 'Số lượng']}
+                              />
+                              <Bar dataKey="value" fill="#8884d8" radius={[4, 4, 0, 0]}>
+                                {userStats.byClass.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={`hsl(${(index * 137.5) % 360}, 70%, 50%)`} />
+                                ))}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
                         </div>
                       </div>
                     )}
 
-                    {/* By Faculty - Bar Chart */}
+                    {/* By Faculty - Bar Chart using Recharts */}
                     {userStats.byFaculty && userStats.byFaculty.length > 0 && (
-                      <div className={`p-6 rounded-xl shadow-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'} overflow-hidden`}>
-                        <h3 className={`text-lg font-semibold mb-6 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                          🎓 Phân Bố Theo Khoa/Viện - Biểu Đồ Cột
-                        </h3>
-                        <div className="w-full overflow-x-auto">
-                          <div className="relative pl-8 min-w-[400px]">
-                            {/* Y-axis labels */}
-                            <div className="absolute left-0 top-0 h-80 flex flex-col justify-between text-xs pr-2">
-                              {(() => {
-                                const maxCount = Math.max(...userStats.byFaculty.map(f => f.count), 1);
-                                const steps = 5;
-                                const stepValue = Math.ceil(maxCount / steps);
-                                return Array.from({ length: steps + 1 }, (_, i) => {
-                                  const value = (steps - i) * stepValue;
-                                  return (
-                                    <div key={i} className={`text-right ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                      {value}
-                                    </div>
-                                  );
-                                });
-                              })()}
-                            </div>
-                            
-                            {/* Chart Container */}
-                            <div className="relative h-80 flex items-end gap-2">
-                              {userStats.byFaculty.map((item, index) => {
-                                const maxCount = Math.max(...userStats.byFaculty.map(f => f.count), 1);
-                                const height = maxCount > 0 ? (item.count / maxCount) * 100 : 0;
-                                const totalPercentage = calculatePercentage(item.count, userStats.totalUsers);
-                                
-                                return (
-                                  <div key={item.facultyName || index} className="flex-1 min-w-[40px] flex flex-col items-center group">
-                                    {/* Bar */}
-                                    <div 
-                                      className={`w-full rounded-t-lg bg-gradient-to-t from-purple-600 via-pink-500 to-red-500 transition-all duration-500 hover:from-purple-500 hover:via-pink-400 hover:to-red-400 cursor-pointer relative group/bar shadow-md hover:shadow-lg`}
-                                      style={{ height: `${height}%`, minHeight: item.count > 0 ? '8px' : '0' }}
-                                      title={`${item.facultyName || 'Chưa có khoa/viện'}: ${item.count} sinh viên (${totalPercentage}%)`}
-                                    >
-                                      {/* Value Label on Hover */}
-                                      <div className={`absolute -top-12 left-1/2 transform -translate-x-1/2 opacity-0 group-hover/bar:opacity-100 transition-opacity duration-200 ${isDarkMode ? 'bg-gray-700 text-white' : 'bg-gray-900 text-white'} px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shadow-lg z-10`}>
-                                        <div className="text-center">
-                                          <div className="font-bold">{item.count}</div>
-                                          <div className="text-[10px] opacity-90">{totalPercentage}% tổng số</div>
-                                        </div>
-                                        {/* Arrow */}
-                                        <div className={`absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-full ${isDarkMode ? 'border-t-gray-700' : 'border-t-gray-900'} border-4 border-transparent`}></div>
-                                      </div>
-                                    </div>
-                                    {/* Faculty Label */}
-                                    <div className={`mt-3 text-xs font-medium text-center ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} truncate w-full px-1`} title={item.facultyName || 'Chưa có khoa/viện'}>
-                                      {item.facultyName ? (item.facultyName.length > 12 ? item.facultyName.substring(0, 12) + '...' : item.facultyName) : 'Chưa có khoa/viện'}
-                                    </div>
-                                    {/* Count Label */}
-                                    <div className={`mt-1 text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                      {item.count}
-                                    </div>
-                                    {/* Percentage Label */}
-                                    <div className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                      {totalPercentage}%
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            
-                            {/* X-axis label */}
-                            <div className={`mt-4 text-center text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                              Khoa/Viện
-                            </div>
-                          </div>
+                      <div className={`p-3 rounded-lg shadow-sm border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'}`}>
+                        <div className="flex items-center gap-2 mb-3">
+                          <GraduationCap size={14} className={isDarkMode ? 'text-teal-400' : 'text-teal-600'} />
+                          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                            Phân Bố Theo Khoa/Viện
+                          </h3>
+                        </div>
+                        <div className="w-full h-64">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart 
+                              data={userStats.byFaculty.map(item => ({
+                                name: item.facultyName || 'Chưa có',
+                                value: item.count,
+                                percentage: calculatePercentage(item.count, userStats.totalUsers)
+                              }))}
+                              margin={{ top: 5, right: 5, left: 5, bottom: 40 }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#374151' : '#e5e7eb'} />
+                              <XAxis 
+                                dataKey="name" 
+                                angle={-45}
+                                textAnchor="end"
+                                height={50}
+                                interval={0}
+                                tick={{ fill: isDarkMode ? '#9ca3af' : '#6b7280', fontSize: 10 }}
+                                dx={-5}
+                                dy={5}
+                              />
+                              <YAxis 
+                                tick={{ fill: isDarkMode ? '#9ca3af' : '#6b7280', fontSize: 10 }}
+                                width={40}
+                              />
+                              <Tooltip 
+                                contentStyle={{
+                                  backgroundColor: isDarkMode ? '#1f2937' : '#ffffff',
+                                  border: isDarkMode ? '1px solid #374151' : '1px solid #e5e7eb',
+                                  borderRadius: '8px',
+                                  color: isDarkMode ? '#ffffff' : '#111827'
+                                }}
+                                formatter={(value: number, name: string, props: any) => [
+                                  `${value} sinh viên (${props.payload.percentage}%)`,
+                                  'Số lượng'
+                                ]}
+                              />
+                              <Bar dataKey="value" fill="#8884d8" radius={[4, 4, 0, 0]}>
+                                {userStats.byFaculty.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={`hsl(${(index * 60) % 360}, 70%, 50%)`} />
+                                ))}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
                         </div>
                       </div>
                     )}
                   </div>
                 ) : null}
               </div>
-            </div>
+            </section>
           )}
 
-          {/* Activity Statistics */}
+          {/* Activity Statistics - Compact Section */}
           {activityStats && (
-            <div className="mb-8">
-              <h2 className={`text-xl font-bold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                📅 Thống Kê Hoạt Động
+            <section className={`mb-5 p-4 rounded-lg shadow-md ${
+              isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-white border border-gray-200'
+            }`}>
+              <div className="flex items-center gap-2 mb-3">
+                <div className={`p-1.5 rounded-lg ${
+                  isDarkMode ? 'bg-violet-500/20' : 'bg-violet-100'
+                }`}>
+                  <Calendar size={16} className={isDarkMode ? 'text-violet-400' : 'text-violet-600'} />
+                </div>
+                <h2 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  Thống Kê Hoạt Động
               </h2>
+              </div>
               
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                {/* Activity Status Distribution - Doughnut Chart */}
-                <div className={`p-6 rounded-xl shadow-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'}`}>
-                  <h3 className={`text-lg font-semibold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    Phân Bố Theo Trạng Thái (Biểu Đồ Doughnut)
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
+                {/* Activity Status Distribution - Pie Chart using Recharts */}
+                <div className={`p-3 rounded-lg shadow-sm border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'}`}>
+                  <h3 className={`text-sm font-semibold mb-3 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    Phân Bố Theo Trạng Thái
                   </h3>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Doughnut Chart */}
-                    <div className="flex items-center justify-center">
-                      <div className="relative w-56 h-56">
-                        <svg className="w-full h-full transform -rotate-90" viewBox="0 0 200 200">
-                          <circle
-                            cx="100"
-                            cy="100"
-                            r="70"
-                            fill="none"
-                            stroke={isDarkMode ? '#374151' : '#e5e7eb'}
-                            strokeWidth="30"
-                          />
-                          {(() => {
+                  <div className="w-full h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={Object.entries(activityStats.byStatus)
+                            .filter(([_, count]) => count > 0)
+                            .map(([status, count]) => {
                             const statusLabels: { [key: string]: string } = {
                               draft: 'Nháp',
                               published: 'Đã xuất bản',
@@ -953,67 +943,27 @@ export default function ReportsPage() {
                               cancelled: 'Đã hủy',
                               postponed: 'Tạm hoãn'
                             };
-                            const statusColors: { [key: string]: string } = {
-                              draft: '#eab308',
-                              published: '#22c55e',
-                              ongoing: '#3b82f6',
-                              completed: '#a855f7',
-                              cancelled: '#ef4444',
-                              postponed: '#f97316'
-                            };
-                            
-                            let offset = 0;
-                            const circumference = 2 * Math.PI * 70;
-                            
-                            return Object.entries(activityStats.byStatus)
+                              return {
+                                name: statusLabels[status] || status,
+                                value: count,
+                                status: status,
+                                percentage: calculatePercentage(count, activityStats.total)
+                              };
+                            })}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={(entry: any) => {
+                            const percent = typeof entry.percentage === 'number' ? entry.percentage : parseFloat(entry.percentage) || 0;
+                            return percent >= 5 ? `${percent.toFixed(1)}%` : '';
+                          }}
+                          outerRadius={100}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {Object.entries(activityStats.byStatus)
                               .filter(([_, count]) => count > 0)
-                              .map(([status, count], index) => {
-                                const percentage = calculatePercentage(count, activityStats.total);
-                                const dashLength = (circumference * percentage) / 100;
-                                const currentOffset = offset;
-                                offset -= dashLength;
-                                
-                                return (
-                                  <circle
-                                    key={status}
-                                    cx="100"
-                                    cy="100"
-                                    r="70"
-                                    fill="none"
-                                    stroke={statusColors[status]}
-                                    strokeWidth="30"
-                                    strokeDasharray={`${dashLength} ${circumference}`}
-                                    strokeDashoffset={currentOffset}
-                                    className="transition-all duration-1000"
-                                  />
-                                );
-                              });
-                          })()}
-                        </svg>
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="text-center">
-                            <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                              {activityStats.total}
-                            </p>
-                            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                              Tổng số
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Legend */}
-                    <div className="flex flex-col justify-center space-y-3">
-                      {Object.entries(activityStats.byStatus).map(([status, count]) => {
-                        const statusLabels: { [key: string]: string } = {
-                          draft: 'Nháp',
-                          published: 'Đã xuất bản',
-                          ongoing: 'Đang diễn ra',
-                          completed: 'Đã hoàn thành',
-                          cancelled: 'Đã hủy',
-                          postponed: 'Tạm hoãn'
-                        };
+                            .map(([status]) => {
                         const statusColors: { [key: string]: string } = {
                           draft: '#eab308',
                           published: '#22c55e',
@@ -1022,245 +972,337 @@ export default function ReportsPage() {
                           cancelled: '#ef4444',
                           postponed: '#f97316'
                         };
-                        const percentage = calculatePercentage(count, activityStats.total);
-                        
-                        return (
-                          <div key={status} className="flex items-center space-x-3">
-                            <div 
-                              className="w-4 h-4 rounded-full" 
-                              style={{ backgroundColor: statusColors[status] }}
-                            ></div>
-                            <div className="flex-1">
-                              <div className="flex items-center justify-between">
-                                <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                  {statusLabels[status]}
-                                </span>
-                                <span className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                  {count} ({percentage}%)
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                              return <Cell key={`cell-${status}`} fill={statusColors[status] || '#8884d8'} />;
+                            })}
+                        </Pie>
+                        <Tooltip 
+                          contentStyle={{
+                            backgroundColor: isDarkMode ? '#1f2937' : '#ffffff',
+                            border: isDarkMode ? '1px solid #374151' : '1px solid #e5e7eb',
+                            borderRadius: '8px',
+                            color: isDarkMode ? '#ffffff' : '#111827'
+                          }}
+                          formatter={(value: number, name: string, props: any) => [
+                            `${value} hoạt động (${props.payload.percentage}%)`,
+                            props.payload.name
+                          ]}
+                        />
+                        <Legend 
+                          wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#111827', fontSize: '11px' }}
+                          formatter={(value: string, entry: any) => {
+                            const percentage = entry.payload?.percentage || 0;
+                            return `${value} (${entry.payload?.value || 0} - ${percentage}%)`;
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
 
-                {/* Activity Type Distribution - Pie Chart */}
-                <div className={`p-6 rounded-xl shadow-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'}`}>
-                  <h3 className={`text-lg font-semibold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    Phân Bố Theo Loại (Biểu Đồ Tròn)
+                {/* Activity Type Distribution - Pie Chart using Recharts */}
+                <div className={`p-3 rounded-lg shadow-sm border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'}`}>
+                  <h3 className={`text-sm font-semibold mb-3 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    Phân Bố Theo Loại
                   </h3>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Pie Chart */}
-                    <div className="flex items-center justify-center">
-                      <div className="relative w-56 h-56">
-                        <svg className="w-full h-full transform -rotate-90" viewBox="0 0 200 200">
-                          <circle
-                            cx="100"
-                            cy="100"
-                            r="70"
-                            fill="none"
-                            stroke={isDarkMode ? '#374151' : '#e5e7eb'}
-                            strokeWidth="30"
-                          />
-                          {/* Single Day */}
-                          <circle
-                            cx="100"
-                            cy="100"
-                            r="70"
-                            fill="none"
-                            stroke="#3b82f6"
-                            strokeWidth="30"
-                            strokeDasharray={`${2 * Math.PI * 70 * calculatePercentage(activityStats.byType.single_day, activityStats.total) / 100} ${2 * Math.PI * 70}`}
-                            strokeDashoffset="0"
-                            className="transition-all duration-1000"
-                          />
-                          {/* Multi Day */}
-                          <circle
-                            cx="100"
-                            cy="100"
-                            r="70"
-                            fill="none"
-                            stroke="#a855f7"
-                            strokeWidth="30"
-                            strokeDasharray={`${2 * Math.PI * 70 * calculatePercentage(activityStats.byType.multi_day, activityStats.total) / 100} ${2 * Math.PI * 70}`}
-                            strokeDashoffset={`-${2 * Math.PI * 70 * calculatePercentage(activityStats.byType.single_day, activityStats.total) / 100}`}
-                            className="transition-all duration-1000"
-                          />
-                        </svg>
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="text-center">
-                            <p className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                              {activityStats.total}
-                            </p>
-                            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                              Tổng số
-                            </p>
-                          </div>
+                  <div className="w-full h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: 'Hoạt Động 1 Ngày', value: activityStats.byType.single_day },
+                            { name: 'Hoạt Động Nhiều Ngày', value: activityStats.byType.multi_day }
+                          ].filter(item => item.value > 0)}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={(entry: any) => {
+                            const percent = (Number(entry.value) / Number(activityStats.total)) * 100;
+                            return percent >= 5 ? `${percent.toFixed(1)}%` : '';
+                          }}
+                          outerRadius={70}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          <Cell fill="#3b82f6" />
+                          <Cell fill="#a855f7" />
+                        </Pie>
+                        <Tooltip 
+                          contentStyle={{
+                            backgroundColor: isDarkMode ? '#1f2937' : '#ffffff',
+                            border: isDarkMode ? '1px solid #374151' : '1px solid #e5e7eb',
+                            borderRadius: '8px',
+                            color: isDarkMode ? '#ffffff' : '#111827'
+                          }}
+                          formatter={(value: number, name: string) => {
+                            const percentage = ((Number(value) / Number(activityStats.total)) * 100).toFixed(1);
+                            return [`${value} (${percentage}%)`, name];
+                          }}
+                        />
+                        <Legend 
+                          wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#111827', fontSize: '11px' }}
+                          formatter={(value: string, entry: any) => {
+                            const percentage = entry.payload ? ((entry.payload.value / activityStats.total) * 100).toFixed(1) : '0';
+                            return `${value} (${entry.payload?.value || 0} - ${percentage}%)`;
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
                         </div>
                       </div>
                     </div>
 
-                    {/* Legend & Info */}
-                    <div className="flex flex-col justify-center space-y-4">
-                      {/* Single Day */}
-                      <div className="flex items-center space-x-3">
-                        <div className="w-4 h-4 rounded-full bg-gradient-to-r from-blue-500 to-blue-600"></div>
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                              Hoạt Động 1 Ngày
-                            </span>
-                            <span className={`text-sm font-bold ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
-                              {activityStats.byType.single_day} ({calculatePercentage(activityStats.byType.single_day, activityStats.total)}%)
-                            </span>
+              {/* Activity Timeline Charts */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
+                {/* Activities Created by Month - Bar Chart */}
+                {activityStats.byCreatedMonth && activityStats.byCreatedMonth.length > 0 && (
+                  <div className={`p-3 rounded-lg shadow-sm border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'}`}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Calendar size={14} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} />
+                      <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                        Hoạt Động Được Tạo Theo Tháng
+                      </h3>
                           </div>
+                    <div className="w-full h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={activityStats.byCreatedMonth.map(item => {
+                          const [year, month] = item.month.split('-');
+                          const monthName = new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('vi-VN', { month: 'short' });
+                          const yearShort = year.slice(-2);
+                          return {
+                            name: `${monthName}/${yearShort}`,
+                            value: item.count,
+                            fullName: item.month
+                          };
+                        })}>
+                          <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#374151' : '#e5e7eb'} />
+                          <XAxis 
+                            dataKey="name" 
+                            tick={{ fill: isDarkMode ? '#9ca3af' : '#6b7280', fontSize: 10 }}
+                          />
+                          <YAxis 
+                            tick={{ fill: isDarkMode ? '#9ca3af' : '#6b7280', fontSize: 10 }}
+                          />
+                          <Tooltip 
+                            contentStyle={{
+                              backgroundColor: isDarkMode ? '#1f2937' : '#ffffff',
+                              border: isDarkMode ? '1px solid #374151' : '1px solid #e5e7eb',
+                              borderRadius: '8px',
+                              color: isDarkMode ? '#ffffff' : '#111827'
+                            }}
+                            formatter={(value: number) => [`${value} hoạt động`, 'Số lượng']}
+                          />
+                          <Bar dataKey="value" fill="#8884d8" radius={[4, 4, 0, 0]}>
+                            {activityStats.byCreatedMonth.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={`hsl(${(index * 30) % 360}, 70%, 50%)`} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
                         </div>
                       </div>
+                )}
 
-                      {/* Multi Day */}
-                      <div className="flex items-center space-x-3">
-                        <div className="w-4 h-4 rounded-full bg-gradient-to-r from-purple-500 to-purple-600"></div>
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                              Hoạt Động Nhiều Ngày
-                            </span>
-                            <span className={`text-sm font-bold ${isDarkMode ? 'text-purple-300' : 'text-purple-600'}`}>
-                              {activityStats.byType.multi_day} ({calculatePercentage(activityStats.byType.multi_day, activityStats.total)}%)
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Total Activities */}
-                      <div className={`mt-4 p-4 rounded-lg ${isDarkMode ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
-                        <div className="flex items-center justify-between">
-                          <span className={`text-base font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                            Tổng Số Hoạt Động
-                          </span>
-                          <span className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                            {activityStats.total}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Activity Timeline Chart - Bar Chart */}
-              {activityStats.byMonth.length > 0 && (
-                <div className={`p-6 rounded-xl shadow-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'}`}>
-                  <h3 className={`text-lg font-semibold mb-6 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    Biểu Đồ Hoạt Động Theo Tháng (12 Tháng Gần Nhất)
+                {/* Activity Trend Line Chart */}
+                {activityStats.byCreatedMonth && activityStats.byCreatedMonth.length > 0 && (
+                  <div className={`p-3 rounded-lg shadow-sm border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'}`}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <TrendingUp size={14} className={isDarkMode ? 'text-green-400' : 'text-green-600'} />
+                      <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                        Xu Hướng Hoạt Động Được Tạo
                   </h3>
-                  <div className="relative pl-8">
-                    {/* Y-axis labels */}
-                    <div className="absolute left-0 top-0 h-64 flex flex-col justify-between text-xs pr-2">
-                      {(() => {
-                        const maxCount = Math.max(...activityStats.byMonth.map(m => m.count), 1);
-                        const steps = 5;
-                        const stepValue = Math.ceil(maxCount / steps);
-                        return Array.from({ length: steps + 1 }, (_, i) => {
-                          const value = (steps - i) * stepValue;
-                          return (
-                            <div key={i} className={`text-right ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                              {value}
                             </div>
-                          );
-                        });
-                      })()}
-                    </div>
-                    
-                    {/* Chart Container */}
-                    <div className="relative h-64 flex items-end justify-between gap-2">
-                      {activityStats.byMonth.map((item, index) => {
-                        const maxCount = Math.max(...activityStats.byMonth.map(m => m.count), 1);
-                        const height = maxCount > 0 ? (item.count / maxCount) * 100 : 0;
+                    <div className="w-full h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={activityStats.byCreatedMonth.map(item => {
                         const [year, month] = item.month.split('-');
                         const monthName = new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('vi-VN', { month: 'short' });
                         const yearShort = year.slice(-2);
-                        
-                        return (
-                          <div key={item.month} className="flex-1 flex flex-col items-center group">
-                            {/* Bar */}
-                            <div 
-                              className={`w-full rounded-t-lg bg-gradient-to-t from-blue-600 via-purple-500 to-pink-500 transition-all duration-500 hover:from-blue-500 hover:via-purple-400 hover:to-pink-400 cursor-pointer relative group/bar shadow-md hover:shadow-lg`}
-                              style={{ height: `${height}%`, minHeight: item.count > 0 ? '8px' : '0' }}
-                              title={`${monthName}/${yearShort}: ${item.count} hoạt động`}
-                            >
-                              {/* Value Label on Hover */}
-                              <div className={`absolute -top-10 left-1/2 transform -translate-x-1/2 opacity-0 group-hover/bar:opacity-100 transition-opacity duration-200 ${isDarkMode ? 'bg-gray-700 text-white' : 'bg-gray-900 text-white'} px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shadow-lg z-10`}>
-                                <div className="text-center">
-                                  <div className="font-bold">{item.count}</div>
-                                  <div className="text-[10px] opacity-90">hoạt động</div>
+                          return {
+                            name: `${monthName}/${yearShort}`,
+                            value: item.count,
+                            fullName: item.month
+                          };
+                        })}>
+                          <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#374151' : '#e5e7eb'} />
+                          <XAxis 
+                            dataKey="name" 
+                            tick={{ fill: isDarkMode ? '#9ca3af' : '#6b7280', fontSize: 10 }}
+                          />
+                          <YAxis 
+                            tick={{ fill: isDarkMode ? '#9ca3af' : '#6b7280', fontSize: 10 }}
+                          />
+                          <Tooltip 
+                            contentStyle={{
+                              backgroundColor: isDarkMode ? '#1f2937' : '#ffffff',
+                              border: isDarkMode ? '1px solid #374151' : '1px solid #e5e7eb',
+                              borderRadius: '8px',
+                              color: isDarkMode ? '#ffffff' : '#111827'
+                            }}
+                            formatter={(value: number) => [`${value} hoạt động`, 'Số lượng']}
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="value" 
+                            stroke="#3b82f6" 
+                            strokeWidth={2}
+                            dot={{ fill: '#3b82f6', r: 4 }}
+                            activeDot={{ r: 6 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
                                 </div>
-                                {/* Arrow */}
-                                <div className={`absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-full ${isDarkMode ? 'border-t-gray-700' : 'border-t-gray-900'} border-4 border-transparent`}></div>
                               </div>
+                )}
                             </div>
-                            {/* Month Label */}
-                            <div className={`mt-3 text-xs font-medium text-center ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                              {monthName}
+
+              {/* Participants by Activity Type */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                {/* Participants by Type - Bar Chart */}
+                <div className={`p-3 rounded-lg shadow-sm border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'}`}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Users size={14} className={isDarkMode ? 'text-purple-400' : 'text-purple-600'} />
+                    <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                      Số Người Tham Gia Theo Loại
+                    </h3>
                             </div>
-                            {/* Year Label */}
-                            <div className={`text-[10px] ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-                              {yearShort}
+                  <div className="w-full h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={[
+                        { name: 'Hoạt Động 1 Ngày', value: activityStats.participantsByType.single_day },
+                        { name: 'Hoạt Động Nhiều Ngày', value: activityStats.participantsByType.multi_day }
+                      ]}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#374151' : '#e5e7eb'} />
+                        <XAxis 
+                          dataKey="name" 
+                          tick={{ fill: isDarkMode ? '#9ca3af' : '#6b7280', fontSize: 11 }}
+                        />
+                        <YAxis 
+                          tick={{ fill: isDarkMode ? '#9ca3af' : '#6b7280', fontSize: 10 }}
+                        />
+                        <Tooltip 
+                          contentStyle={{
+                            backgroundColor: isDarkMode ? '#1f2937' : '#ffffff',
+                            border: isDarkMode ? '1px solid #374151' : '1px solid #e5e7eb',
+                            borderRadius: '8px',
+                            color: isDarkMode ? '#ffffff' : '#111827'
+                          }}
+                          formatter={(value: number) => [`${value} người`, 'Số người tham gia']}
+                        />
+                        <Bar dataKey="value" fill="#8884d8" radius={[4, 4, 0, 0]}>
+                          <Cell fill="#3b82f6" />
+                          <Cell fill="#a855f7" />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
                             </div>
-                            {/* Count Label */}
-                            <div className={`mt-1 text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                              {item.count}
-                            </div>
-                          </div>
-                        );
-                      })}
                     </div>
                     
-                    {/* X-axis label */}
-                    <div className={`mt-4 text-center text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Tháng
+                {/* Participants by Type - Pie Chart */}
+                <div className={`p-3 rounded-lg shadow-sm border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'}`}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Target size={14} className={isDarkMode ? 'text-orange-400' : 'text-orange-600'} />
+                    <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                      Tỷ Lệ Người Tham Gia Theo Loại
+                    </h3>
                     </div>
+                  <div className="w-full h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: 'Hoạt Động 1 Ngày', value: activityStats.participantsByType.single_day },
+                            { name: 'Hoạt Động Nhiều Ngày', value: activityStats.participantsByType.multi_day }
+                          ].filter(item => item.value > 0)}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={(entry: any) => {
+                            const total = activityStats.participantsByType.single_day + activityStats.participantsByType.multi_day;
+                            const percent = total > 0 ? (Number(entry.value) / Number(total)) * 100 : 0;
+                            return percent >= 5 ? `${percent.toFixed(1)}%` : '';
+                          }}
+                          outerRadius={80}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          <Cell fill="#3b82f6" />
+                          <Cell fill="#a855f7" />
+                        </Pie>
+                        <Tooltip 
+                          contentStyle={{
+                            backgroundColor: isDarkMode ? '#1f2937' : '#ffffff',
+                            border: isDarkMode ? '1px solid #374151' : '1px solid #e5e7eb',
+                            borderRadius: '8px',
+                            color: isDarkMode ? '#ffffff' : '#111827'
+                          }}
+                          formatter={(value: number, name: string) => {
+                            const total = activityStats.participantsByType.single_day + activityStats.participantsByType.multi_day;
+                            const percentage = total > 0 ? ((Number(value) / Number(total)) * 100).toFixed(1) : '0';
+                            return [`${value} người (${percentage}%)`, name];
+                          }}
+                        />
+                        <Legend 
+                          wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#111827', fontSize: '11px' }}
+                          formatter={(value: string, entry: any) => {
+                            const total = activityStats.participantsByType.single_day + activityStats.participantsByType.multi_day;
+                            const percentage = entry.payload ? ((entry.payload.value / total) * 100).toFixed(1) : '0';
+                            return `${value} (${entry.payload?.value || 0} - ${percentage}%)`;
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
-              )}
             </div>
+            </section>
           )}
 
-          {/* Summary Section */}
-          <div className={`p-6 rounded-xl shadow-lg ${isDarkMode ? 'bg-gradient-to-br from-gray-800 to-gray-900 border border-gray-700' : 'bg-gradient-to-br from-blue-50 to-purple-50 border border-blue-200'}`}>
-            <h3 className={`text-lg font-semibold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-              📋 Tóm Tắt Báo Cáo
+          {/* Summary Section - Compact Footer */}
+          <section className={`p-4 rounded-lg shadow-md ${
+            isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-white border border-gray-200'
+          }`}>
+            <div className="flex items-center gap-2 mb-3">
+              <FileText size={16} className={isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} />
+              <h3 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                Tóm Tắt Báo Cáo
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-gray-700/50' : 'bg-white/80'}`}>
-                <p className={`text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/30 border border-gray-700' : 'bg-gray-50 border border-gray-200'}`}>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <Clock size={14} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} />
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                   Thời Gian Báo Cáo
                 </p>
-                <p className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                </div>
+                <p className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                   {getDateRangeLabel()}
                 </p>
               </div>
-              <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-gray-700/50' : 'bg-white/80'}`}>
-                <p className={`text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+              <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/30 border border-gray-700' : 'bg-gray-50 border border-gray-200'}`}>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <Calendar size={14} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} />
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                   Ngày Tạo Báo Cáo
                 </p>
-                <p className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                </div>
+                <p className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                   {new Date().toLocaleDateString('vi-VN')}
                 </p>
               </div>
-              <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-gray-700/50' : 'bg-white/80'}`}>
-                <p className={`text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+              <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/30 border border-gray-700' : 'bg-gray-50 border border-gray-200'}`}>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <BarChart3 size={14} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} />
+                  <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                   Tổng Số Dữ Liệu
                 </p>
-                <p className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                </div>
+                <p className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                   {((userStats?.totalUsers || 0) + (activityStats?.total || 0)).toLocaleString('vi-VN')} mục
                 </p>
               </div>
             </div>
-          </div>
+          </section>
         </main>
 
         <Footer isDarkMode={isDarkMode} />

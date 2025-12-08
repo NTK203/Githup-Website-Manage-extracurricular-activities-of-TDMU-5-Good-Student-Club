@@ -211,11 +211,21 @@ export async function GET(
       // Check if has any approved attendance
       const hasApprovedAttendance = attendances.some((a: any) => a.status === 'approved');
       
+      // Get studentId from populated userId or from participant
+      let studentId: string | undefined = undefined;
+      const attendanceDocForUser = attendanceDocs.find((doc: any) => 
+        doc.userId._id.toString() === userId
+      );
+      if (attendanceDocForUser && attendanceDocForUser.userId && typeof attendanceDocForUser.userId === 'object') {
+        studentId = attendanceDocForUser.userId.studentId;
+      }
+      
       return {
         userId: p.userId,
         name: p.name,
         email: p.email,
         role: p.role,
+        studentId: studentId || p.studentId, // Include studentId
         checkedIn: hasApprovedAttendance,
         checkedInAt: attendances.length > 0 ? attendances[0].checkInTime : null,
         attendances: attendances,
@@ -227,8 +237,126 @@ export async function GET(
     const totalParticipants = approvedParticipants.length;
     const checkedInCount = participantsWithAttendance.filter((p: any) => p.checkedIn).length;
     const notCheckedInCount = totalParticipants - checkedInCount;
-    const attendanceRate = totalParticipants > 0 
-      ? Math.round((checkedInCount / totalParticipants) * 100) 
+
+    // Helper function to check if participant is registered for a slot
+    const isParticipantRegisteredForSlot = (participant: any, day: number | undefined, slotName: string): boolean => {
+      if (!participant.registeredDaySlots || participant.registeredDaySlots.length === 0) {
+        // If no registeredDaySlots, assume registered for all (backward compatibility)
+        return true;
+      }
+
+      // Map slot names for matching
+      const slotNameMap: { [key: string]: string } = {
+        'Buổi Sáng': 'morning',
+        'Buổi Chiều': 'afternoon',
+        'Buổi Tối': 'evening',
+        'morning': 'morning',
+        'afternoon': 'afternoon',
+        'evening': 'evening'
+      };
+
+      // Extract slot name from timeSlot format (e.g., "Ngày 1 - Buổi Sáng" -> "Buổi Sáng")
+      let normalizedSlotName = slotName;
+      if (slotName.includes('Ngày') && slotName.includes(' - ')) {
+        const parts = slotName.split(' - ');
+        if (parts.length > 1) {
+          normalizedSlotName = parts.slice(1).join(' - ').trim();
+        }
+      }
+
+      const slotKey = slotNameMap[normalizedSlotName] || normalizedSlotName.toLowerCase();
+
+      // For single_day activities, day is undefined - check if registered for any day with this slot
+      if (day === undefined) {
+        return participant.registeredDaySlots.some((ds: any) => {
+          const registeredSlotKey = slotNameMap[ds.slot] || ds.slot?.toLowerCase();
+          return registeredSlotKey === slotKey;
+        });
+      }
+
+      // For multiple_days activities, check specific day and slot
+      return participant.registeredDaySlots.some((ds: any) => {
+        const registeredSlotKey = slotNameMap[ds.slot] || ds.slot?.toLowerCase();
+        return ds.day === day && registeredSlotKey === slotKey;
+      });
+    };
+
+    // Calculate attendance rate based on registered slots
+    let totalRegisteredSlots = 0;
+    let totalAttendedSlots = 0;
+
+    if (activity.type === 'single_day' && activity.timeSlots) {
+      const activeSlots = activity.timeSlots.filter((s: any) => s.isActive);
+      
+      participantsWithAttendance.forEach((participant: any) => {
+        activeSlots.forEach((slot: any) => {
+          // Check if participant registered for this slot
+          const isRegistered = isParticipantRegisteredForSlot(participant, undefined, slot.name);
+          
+          if (isRegistered) {
+            totalRegisteredSlots++;
+            
+            // Check if participant has at least one approved check-in for this slot
+            const startAttendance = participant.attendances?.find((a: any) => 
+              a.timeSlot === slot.name && a.checkInType === 'start'
+            );
+            const endAttendance = participant.attendances?.find((a: any) => 
+              a.timeSlot === slot.name && a.checkInType === 'end'
+            );
+            
+            if (startAttendance?.status === 'approved' || endAttendance?.status === 'approved') {
+              totalAttendedSlots++;
+            }
+          }
+        });
+      });
+    } else if (activity.type === 'multiple_days' && activity.schedule) {
+      const dayTimeSlots = activity.timeSlots?.filter((s: any) => s.isActive) || [];
+      const slotsToUse = dayTimeSlots.length > 0 ? dayTimeSlots : [
+        { name: 'Buổi Sáng', id: 'morning', startTime: '08:00', endTime: '11:30', isActive: true },
+        { name: 'Buổi Chiều', id: 'afternoon', startTime: '13:00', endTime: '17:00', isActive: true },
+        { name: 'Buổi Tối', id: 'evening', startTime: '18:00', endTime: '21:00', isActive: true }
+      ];
+
+      activity.schedule.forEach((scheduleDay: any) => {
+        const dayNumber = scheduleDay.day;
+        const dayDateString = scheduleDay.date;
+
+        slotsToUse.forEach((slot: any) => {
+          participantsWithAttendance.forEach((participant: any) => {
+            // Check if participant registered for this day and slot
+            const isRegistered = isParticipantRegisteredForSlot(participant, dayNumber, slot.name);
+            
+            if (isRegistered) {
+              totalRegisteredSlots++;
+              
+              // Check if participant has at least one approved check-in for this slot
+              // Match timeSlot format: "Ngày X - Buổi Y"
+              const timeSlotFormat = `Ngày ${dayNumber} - ${slot.name}`;
+              const startAttendance = participant.attendances?.find((a: any) => {
+                // Handle both "Ngày X - Buổi Y" format and just "Buổi Y" format
+                const matchesFormat = a.timeSlot === timeSlotFormat || 
+                  (a.timeSlot === slot.name && a.dayNumber === dayNumber);
+                return matchesFormat && a.checkInType === 'start';
+              });
+              const endAttendance = participant.attendances?.find((a: any) => {
+                const matchesFormat = a.timeSlot === timeSlotFormat || 
+                  (a.timeSlot === slot.name && a.dayNumber === dayNumber);
+                return matchesFormat && a.checkInType === 'end';
+              });
+              
+              if (startAttendance?.status === 'approved' || endAttendance?.status === 'approved') {
+                totalAttendedSlots++;
+              }
+            }
+          });
+        });
+      });
+    }
+
+    // Calculate attendance rate based on slots
+    const attendanceRate = totalRegisteredSlots > 0 
+      ? Math.round((totalAttendedSlots / totalRegisteredSlots) * 100) 
       : 0;
 
     return NextResponse.json({

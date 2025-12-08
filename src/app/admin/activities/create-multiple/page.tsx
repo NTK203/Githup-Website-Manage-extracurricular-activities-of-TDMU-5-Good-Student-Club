@@ -43,7 +43,8 @@ import {
   ZoomIn,
   ZoomOut,
   Plus,
-  Minus
+  Minus,
+  Search
 } from 'lucide-react';
 
 const OpenStreetMapPicker = dynamic(() => import('@/components/common/OpenStreetMapPicker'), {
@@ -85,7 +86,7 @@ export default function CreateMultipleDaysActivityPage() {
 
   // Check if this is edit mode
   const activityId = params.id as string;
-  const isEditMode = activityId && activityId !== 'new';
+  const isEditMode = Boolean(activityId && activityId !== 'new' && activityId.trim() !== '');
   
   console.log('CreateMultipleDaysActivityPage - activityId:', activityId);
   console.log('CreateMultipleDaysActivityPage - isEditMode:', isEditMode);
@@ -97,6 +98,9 @@ export default function CreateMultipleDaysActivityPage() {
   const [submitError, setSubmitError] = useState('');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  
+  // Check if activity has already started (to disable date editing)
+  const [isActivityStarted, setIsActivityStarted] = useState(false);
 
   const [form, setForm] = useState({
     name: '',
@@ -112,6 +116,9 @@ export default function CreateMultipleDaysActivityPage() {
     imageUrl: '',
     overview: ''
   });
+
+  // State for description font size
+  const [descriptionFontSize, setDescriptionFontSize] = useState(14); // Default 14px
 
   const [locationData, setLocationData] = useState<LocationData | null>(null);
   const [globalDetailedLocation, setGlobalDetailedLocation] = useState<string>('');
@@ -159,6 +166,23 @@ export default function CreateMultipleDaysActivityPage() {
   const [loadingParticipants, setLoadingParticipants] = useState(false);
   const [selectedPersonId, setSelectedPersonId] = useState<string>('');
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+
+  // Add participant modal states
+  const [showAddParticipantModal, setShowAddParticipantModal] = useState(false);
+  const [availableStudents, setAvailableStudents] = useState<Array<{
+    _id: string;
+    name: string;
+    email: string;
+    studentId: string;
+    faculty?: string;
+    role: string;
+    isClubMember?: boolean;
+  }>>([]);
+  const [searchStudentTerm, setSearchStudentTerm] = useState('');
+  const [loadingStudents, setLoadingStudents] = useState(false);
+  const [studentsCurrentPage, setStudentsCurrentPage] = useState(1);
+  const [studentsTotalPages, setStudentsTotalPages] = useState(1);
+  const [addingParticipant, setAddingParticipant] = useState(false);
 
   // Weekly sessions (Mon-Sun), each day has 3 sessions like single-day
   type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
@@ -290,6 +314,78 @@ export default function CreateMultipleDaysActivityPage() {
       return getDaySummary(firstDate);
     }
     return { total: 3, active: 0 };
+  };
+
+  // Helper function to calculate character count for a given date (for display only, no limit)
+  const getDayCharacterCount = (date: string): { length: number; maxLength: number; isOverLimit: boolean } => {
+    const maxLength = Infinity; // No limit
+    const slots = weeklyPlan[date] || [];
+    const activeLines = slots
+      .filter(s => s && s.isActive)
+      .map(s => {
+        const parts: string[] = [];
+        parts.push(`${s.name} (${s.startTime}-${s.endTime})`);
+        if (s.activities && s.activities.trim()) {
+          parts.push(`- ${s.activities.trim()}`);
+        }
+        if (s.detailedLocation && s.detailedLocation.trim()) {
+          parts.push(`- Địa điểm chi tiết: ${s.detailedLocation.trim()}`);
+        }
+        if (s.locationAddress) {
+          const coords =
+            typeof s.locationLat === 'number' && typeof s.locationLng === 'number'
+              ? ` (${s.locationLat.toFixed(5)}, ${s.locationLng.toFixed(5)})`
+              : '';
+          const radiusText =
+            typeof s.locationRadius === 'number' ? ` - Bán kính: ${s.locationRadius}m` : '';
+          parts.push(`- Địa điểm map: ${s.locationAddress}${coords}${radiusText}`);
+        }
+        return parts.join(' ');
+      });
+    
+    // Add location information based on mode
+    const dayLocationLines: string[] = [];
+    
+    if (isPerDayMode) {
+      const dayKey = getDayKeyFromDate(date);
+      const dayLocation = dailyLocations[dayKey];
+      const dayDetailedLocation = perDayDetailedLocation[dayKey];
+      
+      if (dayLocation && dayLocation.address) {
+        const coords = dayLocation.lat && dayLocation.lng
+          ? ` (${dayLocation.lat.toFixed(5)}, ${dayLocation.lng.toFixed(5)})`
+          : '';
+        const radiusText = dayLocation.radius ? ` - Bán kính: ${dayLocation.radius}m` : '';
+        dayLocationLines.push(`Địa điểm map: ${dayLocation.address}${coords}${radiusText}`);
+      }
+      if (dayDetailedLocation && dayDetailedLocation.trim()) {
+        dayLocationLines.push(`Địa điểm chi tiết: ${dayDetailedLocation.trim()}`);
+      }
+    } else if (isPerSlotMode) {
+      const dayKey = getDayKeyFromDate(date);
+      const slotLocations = weeklySlotLocations[dayKey] || [];
+      slotLocations.forEach(slotLoc => {
+        if (slotLoc.location && slotLoc.location.address) {
+          const coords = slotLoc.location.lat && slotLoc.location.lng
+            ? ` (${slotLoc.location.lat.toFixed(5)}, ${slotLoc.location.lng.toFixed(5)})`
+            : '';
+          const radiusText = slotLoc.radius ? ` - Bán kính: ${slotLoc.radius}m` : '';
+          dayLocationLines.push(`${slotLoc.timeSlot === 'morning' ? 'Buổi Sáng' : slotLoc.timeSlot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối'}: Địa điểm map: ${slotLoc.location.address}${coords}${radiusText}`);
+        }
+      });
+    }
+    
+    // Also include freeText from daySchedules (if exists)
+    const freeText = daySchedules[date] || '';
+    const allLines = [...activeLines, ...dayLocationLines, freeText].filter(Boolean);
+    const activitiesText = allLines.join('\n');
+    const activitiesLength = activitiesText.length;
+    
+    return {
+      length: activitiesLength,
+      maxLength: maxLength,
+      isOverLimit: false // No limit, so never over limit
+    };
   };
   const getDayKeyFromDate = (dateStr: string): DayKey => {
     const d = new Date(`${dateStr}T00:00:00.000Z`);
@@ -1057,6 +1153,271 @@ export default function CreateMultipleDaysActivityPage() {
     loadParticipants();
   }, [isEditMode, activityId]);
 
+  // Function to fetch available students (CLUB_STUDENT and STUDENT)
+  const fetchAvailableStudents = useCallback(async (search: string = '', page: number = 1) => {
+    setLoadingStudents(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setLoadingStudents(false);
+        return;
+      }
+
+      // Get CLUB_STUDENT
+      const clubStudentParams = new URLSearchParams({
+        page: page.toString(),
+        limit: '10'
+      });
+      if (search) {
+        clubStudentParams.append('search', search);
+      }
+      clubStudentParams.append('role', 'CLUB_STUDENT');
+      
+      // Get STUDENT
+      const studentParams = new URLSearchParams({
+        page: page.toString(),
+        limit: '10'
+      });
+      if (search) {
+        studentParams.append('search', search);
+      }
+      studentParams.append('role', 'STUDENT');
+      
+      const [clubStudentRes, studentRes] = await Promise.all([
+        fetch(`/api/users?${clubStudentParams}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }),
+        fetch(`/api/users?${studentParams}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+      ]);
+
+      const [clubStudentData, studentData] = await Promise.all([
+        clubStudentRes.json(),
+        studentRes.json()
+      ]);
+
+      const allStudents = [
+        ...(clubStudentData.success ? clubStudentData.data.users : []),
+        ...(studentData.success ? studentData.data.users : [])
+      ];
+
+      // Remove duplicates
+      const uniqueStudents = Array.from(
+        new Map(allStudents.map((s: any) => [s._id, s])).values()
+      );
+
+      setAvailableStudents(uniqueStudents);
+      const totalFromClub = clubStudentData.success ? clubStudentData.data.pagination.totalCount : 0;
+      const totalFromStudent = studentData.success ? studentData.data.pagination.totalCount : 0;
+      setStudentsTotalPages(Math.ceil((totalFromClub + totalFromStudent) / 10));
+    } catch (error) {
+      console.error('Error fetching students:', error);
+    } finally {
+      setLoadingStudents(false);
+    }
+  }, []);
+
+  // Function to add participant to activity (for edit mode)
+  const handleAddParticipantToActivity = async (student: any) => {
+    if (!activityId || activityId === 'new') {
+      alert('Vui lòng lưu hoạt động trước khi thêm thành viên');
+      return;
+    }
+
+    // Edit mode: add via API
+    setAddingParticipant(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        alert('Chưa đăng nhập');
+        return;
+      }
+
+      // Check if already registered
+      const isAlreadyAdded = activityMembers.some(m => m.userId === student._id);
+      if (isAlreadyAdded) {
+        alert('Thành viên này đã có trong danh sách tham gia');
+        setAddingParticipant(false);
+        return;
+      }
+
+      const response = await fetch(`/api/activities/${activityId}/register`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          userId: student._id,
+          name: student.name,
+          email: student.email,
+          role: 'Người Tham Gia',
+          isAdminAdd: true // Flag to indicate admin is adding
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        // Reload participants
+        const loadResponse = await fetch(`/api/activities/${activityId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (loadResponse.ok) {
+          const loadData = await loadResponse.json();
+          if (loadData.success && loadData.data.activity) {
+            const participants = loadData.data.activity.participants || [];
+            const mappedMembers: ActivityMember[] = participants.map((p: any) => {
+              const userId = typeof p.userId === 'object' && p.userId !== null
+                ? p.userId._id || p.userId
+                : p.userId;
+              const name = p.name || 
+                (typeof p.userId === 'object' && p.userId !== null && 'name' in p.userId 
+                  ? String(p.userId.name) 
+                  : 'Chưa có tên');
+              const email = p.email || 
+                (typeof p.userId === 'object' && p.userId !== null && 'email' in p.userId 
+                  ? String(p.userId.email) 
+                  : '');
+              const studentId = p.studentId || 
+                (typeof p.userId === 'object' && p.userId !== null && 'studentId' in p.userId 
+                  ? String(p.userId.studentId) 
+                  : undefined);
+              let role: MemberRole = 'member';
+              if (p.role === 'Trưởng Nhóm') {
+                role = 'leader';
+              } else if (p.role === 'Phó Trưởng Nhóm') {
+                role = 'deputy';
+              }
+              return {
+                userId: String(userId),
+                name,
+                email,
+                studentId,
+                role,
+                approvalStatus: p.approvalStatus || 'pending'
+              };
+            });
+            setActivityMembers(mappedMembers);
+          }
+        }
+        
+        alert(`Đã thêm ${student.name} vào hoạt động`);
+        setShowAddParticipantModal(false);
+        setSearchStudentTerm('');
+      } else {
+        alert(data.message || 'Có lỗi xảy ra khi thêm thành viên');
+      }
+    } catch (error: any) {
+      console.error('Error adding participant:', error);
+      alert('Có lỗi xảy ra: ' + (error.message || 'Unknown error'));
+    } finally {
+      setAddingParticipant(false);
+    }
+  };
+
+  // Function to remove participant from activity (for edit mode)
+  const handleRemoveParticipant = async (userId: string, memberName: string) => {
+    if (!activityId || activityId === 'new') {
+      alert('Vui lòng lưu hoạt động trước khi xóa thành viên');
+      return;
+    }
+
+    if (!confirm(`Bạn có chắc chắn muốn xóa ${memberName} khỏi hoạt động?`)) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        alert('Chưa đăng nhập');
+        return;
+      }
+
+      const response = await fetch(`/api/activities/${activityId}/participants`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          userId: userId,
+          permanent: true // Permanently remove from activity
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        // Reload participants to update the list
+        const loadResponse = await fetch(`/api/activities/${activityId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (loadResponse.ok) {
+          const loadData = await loadResponse.json();
+          if (loadData.success && loadData.data.activity) {
+            const participants = loadData.data.activity.participants || [];
+            const mappedMembers: ActivityMember[] = participants.map((p: any) => {
+              const userId = typeof p.userId === 'object' && p.userId !== null
+                ? p.userId._id || p.userId
+                : p.userId;
+              const name = p.name || 
+                (typeof p.userId === 'object' && p.userId !== null && 'name' in p.userId 
+                  ? String(p.userId.name) 
+                  : 'Chưa có tên');
+              const email = p.email || 
+                (typeof p.userId === 'object' && p.userId !== null && 'email' in p.userId 
+                  ? String(p.userId.email) 
+                  : '');
+              const studentId = p.studentId || 
+                (typeof p.userId === 'object' && p.userId !== null && 'studentId' in p.userId 
+                  ? String(p.userId.studentId) 
+                  : undefined);
+              let role: MemberRole = 'member';
+              if (p.role === 'Trưởng Nhóm') {
+                role = 'leader';
+              } else if (p.role === 'Phó Trưởng Nhóm') {
+                role = 'deputy';
+              }
+              return {
+                userId: String(userId),
+                name,
+                email,
+                studentId,
+                role,
+                approvalStatus: p.approvalStatus || 'pending'
+              };
+            });
+            setActivityMembers(mappedMembers);
+          }
+        }
+        
+        alert(`Đã xóa ${memberName} khỏi hoạt động`);
+      } else {
+        alert(data.message || 'Có lỗi xảy ra khi xóa thành viên');
+      }
+    } catch (error: any) {
+      console.error('Error removing participant:', error);
+      alert('Có lỗi xảy ra: ' + (error.message || 'Unknown error'));
+    }
+  };
+
+  // Load students when modal opens
+  useEffect(() => {
+    if (showAddParticipantModal) {
+      fetchAvailableStudents(searchStudentTerm, studentsCurrentPage);
+    }
+  }, [showAddParticipantModal, searchStudentTerm, studentsCurrentPage, fetchAvailableStudents]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     
@@ -1126,6 +1487,25 @@ export default function CreateMultipleDaysActivityPage() {
     });
   };
 
+  // Hàm tính zoom để fit ảnh vào container
+  const calculateFitZoom = useCallback(async (imageUrl: string, containerWidth: number, containerHeight: number): Promise<number> => {
+    const img = await createImage(imageUrl);
+    const imageAspect = img.width / img.height;
+    const containerAspect = containerWidth / containerHeight;
+    
+    let fitZoom = 1;
+    if (imageAspect > containerAspect) {
+      // Ảnh rộng hơn container
+      fitZoom = containerWidth / img.width;
+    } else {
+      // Ảnh cao hơn container
+      fitZoom = containerHeight / img.height;
+    }
+    
+    // Thêm padding nhỏ để ảnh không sát viền
+    return Math.min(fitZoom * 0.9, 1);
+  }, []);
+
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1139,11 +1519,15 @@ export default function CreateMultipleDaysActivityPage() {
     }
     setSelectedImage(file);
     const reader = new FileReader();
-    reader.onload = (evt) => {
-      setImagePreview(evt.target?.result as string);
+    reader.onload = async (evt) => {
+      const imageUrl = evt.target?.result as string;
+      setImagePreview(imageUrl);
       setShowCropModal(true);
       setCrop({ x: 0, y: 0 });
-      setZoom(1);
+      
+      // Tính zoom tự động để fit ảnh (container khoảng 800x500)
+      const fitZoom = await calculateFitZoom(imageUrl, 800, 500);
+      setZoom(Math.max(fitZoom, 0.3)); // Tối thiểu 0.3x để có thể zoom out
     };
     reader.readAsDataURL(file);
   };
@@ -1334,11 +1718,24 @@ export default function CreateMultipleDaysActivityPage() {
       
       if (result.success && result.data.activity) {
         const activity = result.data.activity;
+        
+        // Check if activity has already started
+        const startDateStr = activity.startDate ? new Date(activity.startDate).toISOString().split('T')[0] : '';
+        if (startDateStr) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const startDateObj = new Date(startDateStr);
+          startDateObj.setHours(0, 0, 0, 0);
+          setIsActivityStarted(startDateObj <= today);
+        } else {
+          setIsActivityStarted(false);
+        }
+        
         // Fill form data
         setForm({
           name: activity.name || '',
           description: activity.description || '',
-          startDate: activity.startDate ? new Date(activity.startDate).toISOString().split('T')[0] : '',
+          startDate: startDateStr,
           endDate: activity.endDate ? new Date(activity.endDate).toISOString().split('T')[0] : '',
           location: activity.location || '',
           maxParticipants: activity.maxParticipants?.toString() || '',
@@ -1406,6 +1803,24 @@ export default function CreateMultipleDaysActivityPage() {
           // Parse schedule to extract weekly plan
           // Schedule format: Array<{ day: number; date: Date; activities: string }>
           const newWeeklyPlan: WeeklyPlan = {};
+          
+          // First, initialize all dates in range with default slots
+          // This ensures all dates exist even if they're not in the schedule
+          if (form.startDate && form.endDate) {
+            const start = new Date(`${form.startDate}T00:00:00.000Z`);
+            const end = new Date(`${form.endDate}T00:00:00.000Z`);
+            const cursor = new Date(start);
+            while (cursor <= end) {
+              const y = cursor.getUTCFullYear();
+              const m = String(cursor.getUTCMonth() + 1).padStart(2, '0');
+              const d = String(cursor.getUTCDate()).padStart(2, '0');
+              const dateStr = `${y}-${m}-${d}`;
+              if (!newWeeklyPlan[dateStr]) {
+                newWeeklyPlan[dateStr] = JSON.parse(JSON.stringify(defaultWeeklySlots));
+              }
+              cursor.setUTCDate(cursor.getUTCDate() + 1);
+            }
+          }
 
           // Parse schedule activities to extract time slot info
           activity.schedule.forEach((scheduleItem: any) => {
@@ -1585,7 +2000,39 @@ export default function CreateMultipleDaysActivityPage() {
             });
           });
 
+          // Ensure all dates in range are initialized (in case some dates weren't in schedule)
+          // This is important to prevent missing dates from being reset to default
+          if (form.startDate && form.endDate) {
+            const start = new Date(`${form.startDate}T00:00:00.000Z`);
+            const end = new Date(`${form.endDate}T00:00:00.000Z`);
+            const cursor = new Date(start);
+            while (cursor <= end) {
+              const y = cursor.getUTCFullYear();
+              const m = String(cursor.getUTCMonth() + 1).padStart(2, '0');
+              const d = String(cursor.getUTCDate()).padStart(2, '0');
+              const dateStr = `${y}-${m}-${d}`;
+              // Only initialize if date doesn't exist (preserve parsed data)
+              if (!newWeeklyPlan[dateStr]) {
+                newWeeklyPlan[dateStr] = JSON.parse(JSON.stringify(defaultWeeklySlots));
+              }
+              cursor.setUTCDate(cursor.getUTCDate() + 1);
+            }
+          }
+
+          // Debug: Log parsed weeklyPlan to check if Monday (thứ 2) is being parsed correctly
+          console.log('📅 Parsed weeklyPlan:', Object.keys(newWeeklyPlan).map(date => {
+            const slots = newWeeklyPlan[date];
+            const dayKey = getDayKeyFromDate(date);
+            return {
+              date,
+              dayKey,
+              activeSlots: slots.filter(s => s.isActive).map(s => s.name)
+            };
+          }));
+          
           setWeeklyPlan(newWeeklyPlan);
+          // Mark data as loaded immediately after setting weeklyPlan to prevent useEffect from resetting it
+          setIsDataLoaded(true);
 
           // Load location data based on mode
           if (detectedLocationMode === 'perSlot') {
@@ -1767,6 +2214,8 @@ export default function CreateMultipleDaysActivityPage() {
   }, [form.startDate, form.endDate]);
 
   const [daySchedules, setDaySchedules] = useState<Record<string, string>>({});
+  const [isDataLoaded, setIsDataLoaded] = useState(false); // Track if activity data has been loaded
+  
   useEffect(() => {
     // Ensure schedule keys exist for all dates in range
     setDaySchedules(prev => {
@@ -1781,12 +2230,16 @@ export default function CreateMultipleDaysActivityPage() {
       return next;
     });
     // Initialize weeklyPlan for all dates in range
+    // Only initialize if data hasn't been loaded yet (to avoid overwriting loaded data)
     setWeeklyPlan(prev => {
       const next = { ...prev };
       datesInRange.forEach(date => {
+        // Only initialize if date doesn't exist
         if (!(date in next)) {
           next[date] = JSON.parse(JSON.stringify(defaultWeeklySlots));
         }
+        // If date exists, preserve it (don't overwrite) - this is critical for edit mode
+        // The existing data from loadActivityData should not be overwritten
       });
       // Remove dates no longer in range
       Object.keys(next).forEach(k => {
@@ -1794,7 +2247,7 @@ export default function CreateMultipleDaysActivityPage() {
       });
       return next;
     });
-  }, [datesInRange]);
+  }, [datesInRange, isDataLoaded]);
 
   // Nhóm các ngày theo tuần
   const weeks = useMemo(() => {
@@ -2493,95 +2946,7 @@ export default function CreateMultipleDaysActivityPage() {
       }
 
       // Build schedule payload using weekly sessions (Mon-Sun) + free text
-      // First, validate activities length for each day
-      const scheduleValidationErrors: Array<{ date: string; length: number; maxLength: number }> = [];
-      datesInRange.forEach((d) => {
-        const slots = weeklyPlan[d] || [];
-        const activeLines = slots
-          .filter(s => s && s.isActive)
-          .map(s => {
-            const parts: string[] = [];
-            parts.push(`${s.name} (${s.startTime}-${s.endTime})`);
-            if (s.activities && s.activities.trim()) {
-              parts.push(`- ${s.activities.trim()}`);
-            }
-            if (s.detailedLocation && s.detailedLocation.trim()) {
-              parts.push(`- Địa điểm chi tiết: ${s.detailedLocation.trim()}`);
-            }
-            if (s.locationAddress) {
-              const coords =
-                typeof s.locationLat === 'number' && typeof s.locationLng === 'number'
-                  ? ` (${s.locationLat.toFixed(5)}, ${s.locationLng.toFixed(5)})`
-                  : '';
-              const radiusText =
-                typeof s.locationRadius === 'number' ? ` - Bán kính: ${s.locationRadius}m` : '';
-              parts.push(`- Địa điểm map: ${s.locationAddress}${coords}${radiusText}`);
-            }
-            return parts.join(' ');
-          });
-        
-        // Add location information based on mode
-        const dayLocationLines: string[] = [];
-        
-        if (isPerDayMode) {
-          const dayKey = getDayKeyFromDate(d);
-          const dayLocation = dailyLocations[dayKey];
-          const dayDetailedLocation = perDayDetailedLocation[dayKey];
-          
-          if (dayLocation && dayLocation.address) {
-            const coords = dayLocation.lat && dayLocation.lng
-              ? ` (${dayLocation.lat.toFixed(5)}, ${dayLocation.lng.toFixed(5)})`
-              : '';
-            const radiusText = dayLocation.radius ? ` - Bán kính: ${dayLocation.radius}m` : '';
-            dayLocationLines.push(`Địa điểm map: ${dayLocation.address}${coords}${radiusText}`);
-          }
-          if (dayDetailedLocation && dayDetailedLocation.trim()) {
-            dayLocationLines.push(`Địa điểm chi tiết: ${dayDetailedLocation.trim()}`);
-          }
-        } else if (isPerSlotMode) {
-          const dayKey = getDayKeyFromDate(d);
-          const slotLocations = weeklySlotLocations[dayKey] || [];
-          slotLocations.forEach(slotLoc => {
-            if (slotLoc.location && slotLoc.location.address) {
-              const coords = slotLoc.location.lat && slotLoc.location.lng
-                ? ` (${slotLoc.location.lat.toFixed(5)}, ${slotLoc.location.lng.toFixed(5)})`
-                : '';
-              const radiusText = slotLoc.radius ? ` - Bán kính: ${slotLoc.radius}m` : '';
-              dayLocationLines.push(`${slotLoc.timeSlot === 'morning' ? 'Buổi Sáng' : slotLoc.timeSlot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối'}: Địa điểm map: ${slotLoc.location.address}${coords}${radiusText}`);
-            }
-          });
-        }
-        
-        // Also include freeText from daySchedules (if exists)
-        const freeText = daySchedules[d] || '';
-        const allLines = [...activeLines, ...dayLocationLines, freeText].filter(Boolean);
-        const activitiesText = allLines.join('\n');
-        const activitiesLength = activitiesText.length;
-        const maxLength = 1000;
-        
-        if (activitiesLength > maxLength) {
-          scheduleValidationErrors.push({
-            date: d,
-            length: activitiesLength,
-            maxLength: maxLength
-          });
-        }
-      });
-      
-      // If there are validation errors, show them and prevent submit
-      if (scheduleValidationErrors.length > 0) {
-        const errorMessages = scheduleValidationErrors.map(err => {
-          const dateObj = new Date(err.date);
-          const formattedDate = dateObj.toLocaleDateString('vi-VN', { 
-            weekday: 'long', 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-          });
-          return `${formattedDate} (${err.length}/${err.maxLength} ký tự)`;
-        });
-        throw new Error(`Mô tả hoạt động vượt quá ${scheduleValidationErrors[0].maxLength} ký tự ở các ngày sau:\n${errorMessages.map(msg => `• ${msg}`).join('\n')}\n\nVui lòng rút ngắn nội dung hoặc chia nhỏ thông tin.`);
-      }
+      // Note: No character limit validation - users can enter unlimited text
       
       const schedule: Array<{ day: number; date: string | Date; activities: string }> = datesInRange.map((d, idx) => {
         const slots = weeklyPlan[d] || [];
@@ -2650,9 +3015,6 @@ export default function CreateMultipleDaysActivityPage() {
           activities
         };
       });
-
-      // Validation for activities length is already done above (before building schedule)
-      // No need to validate again here
 
       const locationLabel = isPerSlotMode
         ? 'Địa điểm theo buổi'
@@ -2888,41 +3250,13 @@ export default function CreateMultipleDaysActivityPage() {
                   ) : (
                     <div className="relative">
                       {!!(imagePreview || form.imageUrl) && (
-                        <div className="relative group">
-                          <img 
-                            src={imagePreview || form.imageUrl} 
-                            alt="Preview" 
-                            className="w-full object-cover transition-all duration-300"
-                            style={{ height: `${imageHeight}px` }}
-                          />
-                          {/* Control panel - Đơn giản */}
-                          <div className={`absolute bottom-3 right-3 p-2 rounded-lg shadow-lg z-20 ${
-                            isDarkMode 
-                              ? 'bg-gray-900/90 backdrop-blur-sm' 
-                              : 'bg-white/90 backdrop-blur-sm'
-                          }`}>
-                            <div className="flex items-center gap-2 min-w-[150px]">
-                              <ZoomIn size={14} strokeWidth={2} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} />
-                              <input
-                                type="range"
-                                min="100"
-                                max="600"
-                                step="10"
-                                value={imageHeight}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  setImageHeight(Number(e.target.value));
-                                }}
-                                className={`flex-1 h-1.5 rounded-lg appearance-none cursor-pointer ${
-                                  isDarkMode 
-                                    ? 'bg-gray-700 accent-blue-500' 
-                                    : 'bg-gray-200 accent-blue-600'
-                                }`}
-                              />
-                              <span className={`text-[10px] font-medium min-w-[3rem] text-center ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                {imageHeight}px
-                              </span>
-                            </div>
+                        <div className="relative group w-full flex items-center justify-center py-4">
+                          <div className="relative max-w-2xl w-full overflow-hidden rounded-lg shadow-md bg-gray-100">
+                            <img 
+                              src={imagePreview || form.imageUrl} 
+                              alt="Preview" 
+                              className="w-full h-auto max-h-[400px] object-contain transition-all duration-300"
+                            />
                           </div>
                         </div>
                       )}
@@ -2938,12 +3272,20 @@ export default function CreateMultipleDaysActivityPage() {
                         <div className="flex items-center gap-2">
                           <button 
                             type="button" 
-                            onClick={(e) => {
+                            onClick={async (e) => {
                               e.stopPropagation();
                               setShowCropModal(true);
                               setCrop({ x: 0, y: 0 });
-                              setZoom(1);
                               setCroppedAreaPixels(null);
+                              
+                              // Tính zoom tự động để fit ảnh
+                              const imageUrl = imagePreview || form.imageUrl;
+                              if (imageUrl) {
+                                const fitZoom = await calculateFitZoom(imageUrl, 800, 500);
+                                setZoom(Math.max(fitZoom, 0.3));
+                              } else {
+                                setZoom(1);
+                              }
                             }} 
                             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
                               isDarkMode 
@@ -3119,10 +3461,10 @@ export default function CreateMultipleDaysActivityPage() {
                     </div>
                   </div>
 
-                  <div className={fieldTileClass}>
+                  <div className={`${fieldTileClass} ${isActivityStarted ? 'opacity-60' : ''}`}>
                     <div className="flex items-center gap-2 mb-2">
                       <Calendar size={16} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} strokeWidth={1.5} />
-                      <span className={fieldTitleClass}>
+                      <span className={`${fieldTitleClass} ${isActivityStarted ? 'opacity-70' : ''}`}>
                         Ngày bắt đầu
                         <span className={requiredMarkClass}>*</span>
                       </span>
@@ -3134,15 +3476,27 @@ export default function CreateMultipleDaysActivityPage() {
                       onChange={handleChange}
                       required
                       min={getTodayDate()}
-                      className={fieldInputClass}
+                      disabled={isActivityStarted}
+                      className={`${fieldInputClass} ${
+                        isActivityStarted
+                          ? isDarkMode
+                            ? 'bg-gray-700/30 border-gray-600/30 text-gray-500 cursor-not-allowed'
+                            : 'bg-gray-100 border-gray-300 text-gray-400 cursor-not-allowed'
+                          : ''
+                      }`}
                     />
-                    <p className={`mt-1.5 ${helperTextClass}`}>Lịch tuần dựa trên khoảng ngày này.</p>
+                    <p className={`mt-1.5 ${helperTextClass}`}>
+                      {isActivityStarted 
+                        ? '🔒 Hoạt động đã bắt đầu, không thể thay đổi ngày bắt đầu'
+                        : 'Lịch tuần dựa trên khoảng ngày này.'
+                      }
+                    </p>
                   </div>
 
-                  <div className={fieldTileClass}>
+                  <div className={`${fieldTileClass} ${isActivityStarted ? 'opacity-60' : ''}`}>
                     <div className="flex items-center gap-2 mb-2">
                       <Clock size={16} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} strokeWidth={1.5} />
-                      <span className={fieldTitleClass}>
+                      <span className={`${fieldTitleClass} ${isActivityStarted ? 'opacity-70' : ''}`}>
                         Ngày kết thúc
                         <span className={requiredMarkClass}>*</span>
                       </span>
@@ -3154,9 +3508,21 @@ export default function CreateMultipleDaysActivityPage() {
                       onChange={handleChange}
                       required
                       min={form.startDate || getTodayDate()}
-                      className={fieldInputClass}
+                      disabled={isActivityStarted}
+                      className={`${fieldInputClass} ${
+                        isActivityStarted
+                          ? isDarkMode
+                            ? 'bg-gray-700/30 border-gray-600/30 text-gray-500 cursor-not-allowed'
+                            : 'bg-gray-100 border-gray-300 text-gray-400 cursor-not-allowed'
+                          : ''
+                      }`}
                     />
-                    <p className={`mt-1.5 ${helperTextClass}`}>Không được trước ngày bắt đầu.</p>
+                    <p className={`mt-1.5 ${helperTextClass}`}>
+                      {isActivityStarted 
+                        ? '🔒 Hoạt động đã bắt đầu, không thể thay đổi ngày kết thúc'
+                        : 'Không được trước ngày bắt đầu.'
+                      }
+                    </p>
                   </div>
 
                   <div className={fieldTileClass}>
@@ -3214,12 +3580,47 @@ export default function CreateMultipleDaysActivityPage() {
                   </div>
 
                   <div className={`${fieldTileClass} md:col-span-2 xl:col-span-3`}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <FileText size={16} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} strokeWidth={1.5} />
-                      <span className={fieldTitleClass}>
-                        Mô tả hoạt động
-                        <span className={requiredMarkClass}>*</span>
-                      </span>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <FileText size={16} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} strokeWidth={1.5} />
+                        <span className={fieldTitleClass}>
+                          Mô tả hoạt động
+                          <span className={requiredMarkClass}>*</span>
+                        </span>
+                      </div>
+                      {/* Font size controls */}
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Kích thước:</span>
+                        <div className="flex items-center gap-1 border rounded-lg overflow-hidden" style={{ borderColor: isDarkMode ? 'rgba(75, 85, 99, 0.5)' : 'rgba(209, 213, 219, 1)' }}>
+                          <button
+                            type="button"
+                            onClick={() => setDescriptionFontSize(prev => Math.max(10, prev - 2))}
+                            className={`px-2 py-1 ${isDarkMode ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-600'} transition-colors`}
+                            title="Giảm kích thước"
+                          >
+                            <Minus size={14} strokeWidth={2} />
+                          </button>
+                          <span className={`px-2 py-1 text-xs font-medium min-w-[3rem] text-center ${isDarkMode ? 'text-gray-300 bg-gray-800' : 'text-gray-700 bg-gray-50'}`}>
+                            {descriptionFontSize}px
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setDescriptionFontSize(prev => Math.min(24, prev + 2))}
+                            className={`px-2 py-1 ${isDarkMode ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-600'} transition-colors`}
+                            title="Tăng kích thước"
+                          >
+                            <Plus size={14} strokeWidth={2} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDescriptionFontSize(14)}
+                            className={`px-2 py-1 text-[10px] font-medium ${isDarkMode ? 'hover:bg-gray-700 text-gray-400 border-l border-gray-600' : 'hover:bg-gray-100 text-gray-500 border-l border-gray-300'} transition-colors`}
+                            title="Đặt lại mặc định"
+                          >
+                            Reset
+                          </button>
+                        </div>
+                      </div>
                     </div>
                     <textarea
                       name="description"
@@ -3227,10 +3628,11 @@ export default function CreateMultipleDaysActivityPage() {
                       onChange={handleChange}
                       required
                       rows={4}
+                      style={{ fontSize: `${descriptionFontSize}px` }}
                       className={`${fieldInputClass} min-h-[110px] resize-y`}
                       placeholder="Tóm tắt mục tiêu, đối tượng và nội dung chính cho hoạt động..."
                     />
-                    <p className={`mt-2 ${helperTextClass}`}>Nên mô tả 2-3 câu để rõ phạm vi hoạt động.</p>
+                    <p className={`mt-2 ${helperTextClass}`}>Nên mô tả 2-3 câu để rõ phạm vi hoạt động. Không giới hạn số ký tự.</p>
                   </div>
                 </div>
               </div>
@@ -3496,9 +3898,11 @@ export default function CreateMultipleDaysActivityPage() {
                       <h3 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                         {dayKeyToLabel[selectedDayKey]}
                           </h3>
-                      <p className={`text-[11px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                        {selectedDaySummary.active}/{selectedDaySummary.total} buổi đang bật
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className={`text-[11px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                          {selectedDaySummary.active}/{selectedDaySummary.total} buổi đang bật
+                        </p>
+                      </div>
                         </div>
                     <div className="flex items-center gap-1.5">
                       <button
@@ -3663,13 +4067,18 @@ export default function CreateMultipleDaysActivityPage() {
                                   </div>
                                 </div>
                                 <div>
-                                <label className={`block mb-0.5 text-[11px] font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Mô tả hoạt động</label>
+                                <label className={`block mb-0.5 text-[11px] font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                  Mô tả hoạt động
+                                  <span className={`ml-1 text-[10px] font-normal ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                    (không giới hạn)
+                                  </span>
+                                </label>
                                   <textarea
                                     value={slot.activities}
                                     onChange={(e) => selectedDate && updateWeeklySlot(selectedDate, slot.id, 'activities', e.target.value)}
-                                    rows={2}
-                                  className={`w-full px-2 py-1.5 rounded border text-xs resize-none ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
-                                  placeholder="Nhập nội dung..."
+                                    rows={3}
+                                    className={`w-full px-2 py-1.5 rounded border text-xs resize-y min-h-[60px] ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                                    placeholder="Nhập nội dung mô tả hoạt động (không giới hạn số ký tự)..."
                                   />
                                 </div>
                               {/* Địa điểm chi tiết (text) - Luôn hiển thị khi buổi bật */}
@@ -4436,19 +4845,40 @@ export default function CreateMultipleDaysActivityPage() {
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <label className={`text-xs font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                        Danh sách người đăng ký
+                        Danh sách người đăng ký ({activityMembers.length})
                       </label>
                       <p className={`text-[10px] mt-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                        Hiển thị những người đã đăng ký tham gia hoạt động
+                        {isEditMode ? 'Quản lý danh sách thành viên tham gia hoạt động' : 'Hiển thị những người đã đăng ký tham gia hoạt động'}
                       </p>
                     </div>
-                    {loadingParticipants ? (
-                      <Loader size={16} className="animate-spin" />
-                    ) : (
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full ${isDarkMode ? 'bg-blue-500/20 text-blue-200' : 'bg-blue-100 text-blue-700'}`}>
-                        {activityMembers.length} người đăng ký
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {loadingParticipants ? (
+                        <Loader size={16} className="animate-spin" />
+                      ) : (
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full ${isDarkMode ? 'bg-blue-500/20 text-blue-200' : 'bg-blue-100 text-blue-700'}`}>
+                          {activityMembers.length} người đăng ký
+                        </span>
+                      )}
+                      {isEditMode && activityId && activityId !== 'new' && activityId.trim() !== '' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddParticipantModal(true);
+                            setSearchStudentTerm('');
+                            setStudentsCurrentPage(1);
+                            fetchAvailableStudents('', 1);
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 flex items-center space-x-1.5 ${
+                            isDarkMode
+                              ? 'bg-blue-600 text-white hover:bg-blue-700'
+                              : 'bg-blue-500 text-white hover:bg-blue-600'
+                          }`}
+                        >
+                          <Plus size={14} strokeWidth={2} />
+                          <span>Thêm thành viên</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Danh sách người đã đăng ký */}
@@ -4513,6 +4943,20 @@ export default function CreateMultipleDaysActivityPage() {
                                   {member.approvalStatus === 'approved' ? 'Đã duyệt' : member.approvalStatus === 'rejected' ? 'Từ chối' : 'Chờ duyệt'}
                                 </span>
                               )}
+                              {isEditMode && activityId && activityId !== 'new' && activityId.trim() !== '' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveParticipant(member.userId, member.name)}
+                                  className={`p-1.5 rounded-lg transition-all hover:scale-110 ${
+                                    isDarkMode
+                                      ? 'text-red-400 hover:bg-red-500/20 hover:text-red-300'
+                                      : 'text-red-600 hover:bg-red-50 hover:text-red-700'
+                                  }`}
+                                  title="Xóa thành viên"
+                                >
+                                  <XCircle size={16} strokeWidth={2} />
+                                </button>
+                              )}
                             </div>
                           </div>
                         );
@@ -4562,14 +5006,226 @@ export default function CreateMultipleDaysActivityPage() {
           </div>
         </main>
         <Footer />
+
+        {/* Add Participant Modal */}
+        {showAddParticipantModal && (
+          <div 
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[10000] flex items-center justify-center p-4"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setShowAddParticipantModal(false);
+              }
+            }}
+          >
+            <div className={`w-full max-w-2xl max-h-[90vh] rounded-xl shadow-2xl overflow-hidden flex flex-col relative z-[10001] ${
+              isDarkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'
+            }`}>
+              {/* Header */}
+              <div className={`px-6 py-4 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                      Thêm thành viên vào hoạt động
+                    </h3>
+                    <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Tìm kiếm và chọn CLUB_STUDENT hoặc STUDENT để thêm vào danh sách tham gia
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowAddParticipantModal(false)}
+                    className={`p-2 rounded-lg transition-colors ${
+                      isDarkMode ? 'hover:bg-gray-700 text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-900'
+                    }`}
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                {/* Search */}
+                <div className="mt-4">
+                  <div className="relative">
+                    <Search className={`absolute left-3 top-1/2 transform -translate-y-1/2 ${
+                      isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                    }`} size={18} />
+                    <input
+                      type="text"
+                      placeholder="Tìm kiếm theo tên, email, mã số sinh viên..."
+                      value={searchStudentTerm}
+                      onChange={(e) => {
+                        setSearchStudentTerm(e.target.value);
+                        setStudentsCurrentPage(1);
+                        fetchAvailableStudents(e.target.value, 1);
+                      }}
+                      className={`w-full pl-10 pr-4 py-2 rounded-lg border ${
+                        isDarkMode
+                          ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
+                          : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
+                      }`}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-6">
+                {loadingStudents ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader className="animate-spin text-blue-500" size={32} />
+                  </div>
+                ) : availableStudents.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Users className={`mx-auto mb-3 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} size={48} />
+                    <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      {searchStudentTerm ? 'Không tìm thấy kết quả' : 'Không có thành viên nào'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {availableStudents.map((student) => {
+                      const isAlreadyAdded = activityMembers.some(m => m.userId === student._id);
+                      return (
+                        <div
+                          key={student._id}
+                          className={`p-3 rounded-lg border transition-all ${
+                            isDarkMode
+                              ? isAlreadyAdded
+                                ? 'bg-gray-700/50 border-gray-600 opacity-60 cursor-not-allowed'
+                                : 'bg-gray-700/30 border-gray-600 hover:bg-gray-700/50'
+                              : isAlreadyAdded
+                                ? 'bg-gray-50 border-gray-300 opacity-60 cursor-not-allowed'
+                                : 'bg-white border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-3 flex-1 min-w-0">
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                                isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
+                              }`}>
+                                <span className={`text-sm font-bold ${
+                                  isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                                }`}>
+                                  {student.name.charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-sm font-semibold truncate ${
+                                  isDarkMode ? 'text-white' : 'text-gray-900'
+                                }`}>
+                                  {student.name}
+                                </p>
+                                <p className={`text-xs truncate ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  {student.email}
+                                </p>
+                                <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                                  {student.studentId} • {student.faculty || 'Chưa có khoa/viện'}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center space-x-3 ml-4">
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                student.role === 'CLUB_STUDENT'
+                                  ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                                  : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                              }`}>
+                                {student.role === 'CLUB_STUDENT' ? 'Thành viên CLB' : 'Sinh viên'}
+                              </span>
+                              {isAlreadyAdded ? (
+                                <span className={`px-3 py-1.5 rounded-lg text-xs font-medium ${
+                                  isDarkMode
+                                    ? 'bg-gray-600 text-gray-300'
+                                    : 'bg-gray-200 text-gray-600'
+                                }`}>
+                                  Đã thêm
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => handleAddParticipantToActivity(student)}
+                                  disabled={addingParticipant}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                                    isDarkMode
+                                      ? 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50'
+                                      : 'bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50'
+                                  }`}
+                                >
+                                  {addingParticipant ? (
+                                    <Loader className="animate-spin" size={14} />
+                                  ) : (
+                                    'Thêm'
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer - Pagination */}
+              {studentsTotalPages > 1 && (
+                <div className={`px-6 py-4 border-t flex items-center justify-between ${
+                  isDarkMode ? 'border-gray-700' : 'border-gray-200'
+                }`}>
+                  <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Trang {studentsCurrentPage} / {studentsTotalPages}
+                  </p>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => {
+                        if (studentsCurrentPage > 1) {
+                          setStudentsCurrentPage(studentsCurrentPage - 1);
+                          fetchAvailableStudents(searchStudentTerm, studentsCurrentPage - 1);
+                        }
+                      }}
+                      disabled={studentsCurrentPage === 1 || loadingStudents}
+                      className={`px-3 py-1.5 rounded-lg text-sm transition-all ${
+                        isDarkMode
+                          ? studentsCurrentPage === 1 || loadingStudents
+                            ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                            : 'bg-gray-700 text-white hover:bg-gray-600'
+                          : studentsCurrentPage === 1 || loadingStudents
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (studentsCurrentPage < studentsTotalPages) {
+                          setStudentsCurrentPage(studentsCurrentPage + 1);
+                          fetchAvailableStudents(searchStudentTerm, studentsCurrentPage + 1);
+                        }
+                      }}
+                      disabled={studentsCurrentPage === studentsTotalPages || loadingStudents}
+                      className={`px-3 py-1.5 rounded-lg text-sm transition-all ${
+                        isDarkMode
+                          ? studentsCurrentPage === studentsTotalPages || loadingStudents
+                            ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                            : 'bg-gray-700 text-white hover:bg-gray-600'
+                          : studentsCurrentPage === studentsTotalPages || loadingStudents
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Modal Crop Ảnh */}
       {showCropModal && imagePreview && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[10000] p-4">
           <div className={`relative w-full max-w-3xl rounded-lg ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}>
             {/* Crop Area */}
-            <div className="relative w-full" style={{ height: '400px' }}>
+            <div className="relative w-full" style={{ height: '500px' }}>
               <Cropper
                 image={imagePreview}
                 crop={crop}
@@ -4578,6 +5234,10 @@ export default function CreateMultipleDaysActivityPage() {
                 onZoomChange={setZoom}
                 onCropComplete={onCropComplete}
                 cropShape="rect"
+                aspect={undefined}
+                restrictPosition={false}
+                minZoom={0.1}
+                maxZoom={5}
                 style={{
                   containerStyle: {
                     width: '100%',
@@ -4593,7 +5253,25 @@ export default function CreateMultipleDaysActivityPage() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setZoom(prev => Math.max(1, prev - 0.2))}
+                  onClick={async () => {
+                    if (imagePreview) {
+                      const fitZoom = await calculateFitZoom(imagePreview, 800, 500);
+                      setZoom(Math.max(fitZoom, 0.3));
+                      setCrop({ x: 0, y: 0 });
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                    isDarkMode 
+                      ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 border border-blue-500/30' 
+                      : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200'
+                  }`}
+                  title="Fit to screen"
+                >
+                  Fit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setZoom(prev => Math.max(0.1, prev - 0.2))}
                   className={`p-2 rounded-lg transition ${
                     isDarkMode 
                       ? 'bg-gray-800 hover:bg-gray-700 text-gray-300' 
@@ -4608,7 +5286,7 @@ export default function CreateMultipleDaysActivityPage() {
                 </span>
                 <button
                   type="button"
-                  onClick={() => setZoom(prev => Math.min(3, prev + 0.2))}
+                  onClick={() => setZoom(prev => Math.min(5, prev + 0.2))}
                   className={`p-2 rounded-lg transition ${
                     isDarkMode 
                       ? 'bg-gray-800 hover:bg-gray-700 text-gray-300' 
@@ -4655,7 +5333,7 @@ export default function CreateMultipleDaysActivityPage() {
       )}
 
       {showSuccessModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10000] p-4">
           <div className={`relative w-full max-w-sm rounded-xl shadow-2xl bg-white ${isDarkMode ? 'border-2 border-gray-600' : 'border-2 border-gray-300'}`}>
             <div className="flex items-center justify-center p-4 border-b-2 border-gray-300">
               <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white border-2 border-gray-300">

@@ -118,6 +118,7 @@ export default function OfficerActivityDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isRegistered, setIsRegistered] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
   const [approvalStatus, setApprovalStatus] = useState<'pending' | 'approved' | 'rejected' | undefined>(undefined);
   const [checkedIn, setCheckedIn] = useState(false);
   const [locationPickerKey, setLocationPickerKey] = useState(0);
@@ -1151,13 +1152,13 @@ export default function OfficerActivityDetailPage() {
               </div>
             )}
 
-            {/* Số buổi */}
+            {/* Số buổi / Số ngày */}
             {activity.numberOfSessions !== undefined && activity.numberOfSessions > 0 && (
               <div key="number-of-sessions-card" className={`flex-1 min-w-[140px] rounded-lg border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
                 <div className="p-2.5 flex flex-col items-center text-center h-full">
                   <BookOpen size={18} className="text-purple-500 mb-1.5" strokeWidth={2} />
                   <p className={`text-[10px] font-medium mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                    Số buổi
+                    {activity.type === 'multiple_days' ? 'Số ngày' : 'Số buổi'}
                   </p>
                   <p className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                     {activity.numberOfSessions}
@@ -1496,14 +1497,39 @@ export default function OfficerActivityDetailPage() {
             </div>
 
             {/* Time Slot Cards - Hiển thị các buổi của ngày được chọn - Layout Grid Đẹp Mắt */}
+            {!selectedDaySlot && (
+              <div className={`text-center py-6 rounded-lg border-2 ${isDarkMode ? 'border-gray-600 bg-gray-800/50' : 'border-gray-300 bg-gray-50'}`}>
+                <Calendar size={24} className={`mx-auto mb-3 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
+                <p className={`text-base font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Chọn một ngày để xem lịch trình hoạt động
+                </p>
+                <p className={`text-sm mt-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                  Nhấn vào một ngày ở trên để xem các buổi hoạt động của ngày đó
+                </p>
+              </div>
+            )}
             {selectedDaySlot && (() => {
               const dayData = parsedScheduleData.find(d => d.day === selectedDaySlot.day);
               if (!dayData) return null;
 
+              // Chỉ hiển thị các buổi thực sự có trong ngày này
+              const availableSlots = dayData.slots.filter(s => s.slotKey);
+              if (availableSlots.length === 0) {
+                return (
+                  <div className={`text-center py-6 rounded-lg border-2 ${isDarkMode ? 'border-gray-600 bg-gray-800/50' : 'border-gray-300 bg-gray-50'}`}>
+                    <Calendar size={24} className={`mx-auto mb-3 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
+                    <p className={`text-base font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                      Ngày này chưa có lịch trình hoạt động
+                    </p>
+                  </div>
+                );
+              }
+
               return (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-stretch">
-                  {['morning', 'afternoon', 'evening'].map((slotKey) => {
-                    const slot = dayData.slots.find(s => s.slotKey === slotKey);
+                  {availableSlots.map((slotItem) => {
+                    const slotKey = slotItem.slotKey;
+                    const slot = slotItem;
                     const slotName = slotKey === 'morning' ? 'Buổi Sáng' : slotKey === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
                     const SlotIcon = slotKey === 'morning' ? Sunrise : slotKey === 'afternoon' ? Sun : Moon;
 
@@ -1591,10 +1617,23 @@ export default function OfficerActivityDetailPage() {
                     return (
                       <div
                         key={slotKey}
+                        onClick={() => {
+                          if (isActive) {
+                            setSelectedDaySlot({ day: dayData.day, slot: slotKey as 'morning' | 'afternoon' | 'evening' });
+                            setTimeout(() => {
+                              const mapSection = document.getElementById('map-section');
+                              if (mapSection) {
+                                mapSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                              }
+                            }, 100);
+                          }
+                        }}
                         className={`rounded-xl border-2 p-4 transition-all duration-300 ${styles.border} ${
                           isDarkMode ? 'bg-gray-800' : 'bg-white'
                         } ${
                           !isActive ? 'opacity-60' : ''
+                        } ${
+                          isActive ? 'cursor-pointer hover:shadow-lg' : 'cursor-default'
                         } flex flex-col h-full`}
                       >
                         {/* Slot Header - Enhanced */}
@@ -2079,6 +2118,20 @@ export default function OfficerActivityDetailPage() {
                         }]}
                         isDarkMode={isDarkMode}
                       />
+                    );
+                  } else {
+                    // Hiển thị thông báo khi không có địa điểm
+                    const slotName = selectedDaySlot.slot === 'morning' ? 'Buổi Sáng' : selectedDaySlot.slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+                    return (
+                      <div className={`text-center py-8 rounded-lg border-2 ${isDarkMode ? 'border-gray-600 bg-gray-800/50' : 'border-gray-300 bg-gray-50'}`}>
+                        <MapPin size={32} className={`mx-auto mb-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
+                        <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                          Chưa có thông tin địa điểm
+                        </p>
+                        <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                          {slotName} - Ngày {selectedDaySlot.day}
+                        </p>
+                      </div>
                     );
                   }
                 }
