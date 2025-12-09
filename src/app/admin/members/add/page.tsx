@@ -4,12 +4,6 @@ import { Loader } from 'lucide-react';
 // Force dynamic rendering for this route - prevent static generation
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
-export const dynamicParams = true;
-
-// Prevent static generation by returning empty array
-export function generateStaticParams() {
-  return [];
-}
 
 // Dynamically import client component with no SSR
 const AddMemberClient = dynamic(() => import('./AddMemberClient'), {
