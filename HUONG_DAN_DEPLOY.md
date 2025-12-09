@@ -266,6 +266,35 @@ npm start
 - Kiểm tra tên biến chính xác (case-sensitive)
 - Restart deployment sau khi thêm env variables
 
+### Lỗi "A Git Repository cannot be connected to more than 10 Projects"
+**Nguyên nhân:** Vercel giới hạn một Git repository chỉ có thể kết nối với tối đa 10 projects.
+
+**Giải pháp:**
+1. **Xóa projects cũ (Khuyên dùng):**
+   - Vào Vercel Dashboard → Settings → Delete Project
+   - Xóa các projects không dùng đến
+   - Kết nối lại repository
+
+2. **Tạo repository mới:**
+   ```bash
+   git remote remove origin
+   git remote add origin https://github.com/username/new-repo-name.git
+   git push -u origin main
+   ```
+   Sau đó kết nối repository mới với Vercel
+
+3. **Deploy bằng Vercel CLI (không cần kết nối Git):**
+   ```bash
+   npm i -g vercel
+   cd your-project
+   vercel
+   ```
+   Làm theo hướng dẫn trong terminal
+
+4. **Fork repository:**
+   - Fork repository trên GitHub
+   - Kết nối fork với Vercel
+
 ---
 
 Chúc bạn deploy thành công! 🎉
