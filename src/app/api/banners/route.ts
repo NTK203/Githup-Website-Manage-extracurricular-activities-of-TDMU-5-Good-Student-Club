@@ -6,7 +6,36 @@ import Banner from '@/models/Banner';
 // GET /api/banners - Lấy danh sách banner
 export async function GET(request: NextRequest) {
   try {
-    await dbConnect();
+    // Connect to database
+    try {
+      console.log('🔌 Attempting to connect to database...');
+      await dbConnect();
+      console.log('✅ Database connection established');
+    } catch (dbError) {
+      console.error('❌ Database connection error:', dbError);
+      const errorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+      
+      // Check if MONGODB_URI is configured
+      if (!process.env.MONGODB_URI) {
+        console.error('⚠️ MONGODB_URI is not configured');
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Database connection failed: MONGODB_URI not configured'
+          },
+          { status: 500 }
+        );
+      }
+      
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Database connection failed',
+          message: 'Database connection failed'
+        },
+        { status: 500 }
+      );
+    }
 
     const searchParams = request.nextUrl.searchParams;
     const activeOnly = searchParams.get('activeOnly') === 'true';
@@ -57,7 +86,36 @@ export async function GET(request: NextRequest) {
 // POST /api/banners - Tạo banner mới
 export async function POST(request: NextRequest) {
   try {
-    await dbConnect();
+    // Connect to database
+    try {
+      console.log('🔌 Attempting to connect to database...');
+      await dbConnect();
+      console.log('✅ Database connection established');
+    } catch (dbError) {
+      console.error('❌ Database connection error:', dbError);
+      const errorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+      
+      // Check if MONGODB_URI is configured
+      if (!process.env.MONGODB_URI) {
+        console.error('⚠️ MONGODB_URI is not configured');
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Database connection failed: MONGODB_URI not configured'
+          },
+          { status: 500 }
+        );
+      }
+      
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Database connection failed',
+          message: 'Database connection failed'
+        },
+        { status: 500 }
+      );
+    }
 
     // Verify authentication
     const user = await getUserFromRequest(request);
