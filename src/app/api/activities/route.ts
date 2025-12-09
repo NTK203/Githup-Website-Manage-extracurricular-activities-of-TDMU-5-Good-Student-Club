@@ -8,14 +8,31 @@ export async function GET(request: NextRequest) {
   try {
     // Connect to database
     try {
+      console.log('🔌 Attempting to connect to database...');
       await dbConnect();
+      console.log('✅ Database connection established');
     } catch (dbError) {
-      console.error('Database connection error:', dbError);
+      console.error('❌ Database connection error:', dbError);
+      const errorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+      
+      // Check if MONGODB_URI is configured
+      if (!process.env.MONGODB_URI) {
+        console.error('⚠️ MONGODB_URI is not configured');
+        return NextResponse.json(
+          { 
+            success: false, 
+            message: 'Database connection failed: MONGODB_URI not configured',
+            error: process.env.NODE_ENV === 'development' ? 'MONGODB_URI environment variable is missing' : undefined
+          },
+          { status: 500 }
+        );
+      }
+      
       return NextResponse.json(
         { 
           success: false, 
           message: 'Database connection failed',
-          error: process.env.NODE_ENV === 'development' ? (dbError instanceof Error ? dbError.message : String(dbError)) : undefined
+          error: process.env.NODE_ENV === 'development' ? errorMessage : undefined
         },
         { status: 500 }
       );
