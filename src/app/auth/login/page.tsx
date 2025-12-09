@@ -213,6 +213,15 @@ export default function LoginPage() {
         .animate-shimmer {
           animation: shimmer 3s infinite;
         }
+        /* Fix autofill text color */
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus,
+        input:-webkit-autofill:active {
+          -webkit-text-fill-color: #111827 !important;
+          -webkit-box-shadow: 0 0 0 30px #f9fafb inset !important;
+          transition: background-color 5000s ease-in-out 0s;
+        }
       `}} />
         {/* Neutral Gradient Background */}
         <div className="absolute inset-0 bg-gradient-to-br from-gray-50 via-slate-50 to-gray-100"></div>
@@ -269,7 +278,7 @@ export default function LoginPage() {
                     required
                     value={formData.email}
                     onChange={handleInputChange}
-                    className="block w-full pl-9 pr-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all duration-200 bg-gray-50 hover:bg-white"
+                    className="block w-full pl-9 pr-3 py-2.5 text-sm text-gray-900 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all duration-200 bg-gray-50 hover:bg-white placeholder:text-gray-400"
                     placeholder="21100011@student.tdmu.edu.vn"
                     suppressHydrationWarning
                   />
@@ -291,7 +300,7 @@ export default function LoginPage() {
                     required
                     value={formData.password}
                     onChange={handleInputChange}
-                    className="block w-full pl-9 pr-10 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all duration-200 bg-gray-50 hover:bg-white"
+                    className="block w-full pl-9 pr-10 py-2.5 text-sm text-gray-900 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all duration-200 bg-gray-50 hover:bg-white placeholder:text-gray-400"
                     placeholder="Nhập mật khẩu"
                     suppressHydrationWarning
                   />
