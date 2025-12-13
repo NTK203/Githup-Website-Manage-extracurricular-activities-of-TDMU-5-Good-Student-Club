@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "toastr/build/toastr.min.css";
 
 :root {
   /* Modern Color Palette */
@@ -858,4 +859,40 @@ h1, h2, h3, h4, h5, h6 {
 
 .dark .removal-history-light .text-green {
   color: #86efac !important;
+}
+
+/* Pulse animations for urgent check-in section */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
+@keyframes pulse-border {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes pulse-header {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.9; }
+}
+
+@keyframes pulse-icon {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.1); opacity: 0.9; }
+}
+
+@keyframes pulse-text {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
+@keyframes pulse-badge {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+@keyframes pulse-button {
+  0%, 100% { transform: scale(1); box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4); }
+  50% { transform: scale(1.02); box-shadow: 0 4px 12px rgba(239, 68, 68, 0.6); }
 }

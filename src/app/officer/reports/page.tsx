@@ -771,99 +771,172 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
         summarySheet.getRow(r).height = 26;
       }
 
-      // Sheet 2: Danh Sách Hoạt Động - Chi tiết đầy đủ
+      // Sheet 2: Danh Sách Hoạt Động - Chi tiết đầy đủ với styling đẹp
       const activitiesListSheet = workbook.addWorksheet('Danh Sách Hoạt Động');
-      const activitiesListData: any[] = [];
       
-      // Header row
-      activitiesListData.push({
-        'STT': 'STT',
-        'Tên hoạt động': 'Tên hoạt động',
-        'Mô tả': 'Mô tả',
-        'Loại': 'Loại',
-        'Trạng thái': 'Trạng thái',
-        'Ngày bắt đầu': 'Ngày bắt đầu',
-        'Ngày kết thúc': 'Ngày kết thúc',
-        'Địa điểm': 'Địa điểm',
-        'Số người đăng ký': 'Số người đăng ký',
-        'Số người đã duyệt': 'Số người đã duyệt',
-        'Số người chờ duyệt': 'Số người chờ duyệt',
-        'Số người từ chối': 'Số người từ chối',
-        'Số người đã xóa': 'Số người đã xóa',
-        'Tỷ lệ duyệt (%)': 'Tỷ lệ duyệt (%)',
-        'Số người điểm danh': 'Số người điểm danh',
-        'Tỷ lệ điểm danh (%)': 'Tỷ lệ điểm danh (%)',
-        'Đúng giờ': 'Đúng giờ',
-        'Trễ': 'Trễ',
-        'Vắng': 'Vắng',
-        'Tỷ lệ hoàn thành trung bình (%)': 'Tỷ lệ hoàn thành trung bình (%)'
+      // Helper function để apply border
+      const applyBorderToList = (cell: ExcelJS.Cell) => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          left: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          right: { style: 'thin', color: { argb: 'FFCCCCCC' } }
+        };
+      };
+      
+      // Header row - Title
+      activitiesListSheet.mergeCells('A1:U1');
+      const titleCell = activitiesListSheet.getCell('A1');
+      titleCell.value = 'DANH SÁCH HOẠT ĐỘNG NGOẠI KHÓA';
+      titleCell.font = { size: 16, bold: true };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      titleCell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE8F4F8' }
+      };
+      applyBorderToList(titleCell);
+      activitiesListSheet.getRow(1).height = 32;
+      
+      // Empty row
+      activitiesListSheet.getRow(2).height = 8;
+      
+      // Header row - Column headers
+      const headerRow = activitiesListSheet.addRow([
+        'STT',
+        'Tên hoạt động',
+        'Mô tả',
+        'Loại',
+        'Trạng thái',
+        'Ngày bắt đầu',
+        'Ngày kết thúc',
+        'Địa điểm',
+        'Số người đăng ký',
+        'Số người đã duyệt',
+        'Số người chờ duyệt',
+        'Số người từ chối',
+        'Số người đã xóa',
+        'Tỷ lệ duyệt (%)',
+        'Số người điểm danh',
+        'Tỷ lệ điểm danh (%)',
+        'Đúng giờ',
+        'Trễ',
+        'Vắng',
+        'Tỷ lệ hoàn thành TB (%)',
+        'Ngày tạo'
+      ]);
+      
+      // Style header row
+      headerRow.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF3B82F6' }
+      };
+      headerRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      headerRow.height = 30;
+      headerRow.eachCell((cell: ExcelJS.Cell) => {
+        applyBorderToList(cell);
       });
-
+      
+      // Add data rows
       reportStats.activitiesWithDetails.forEach((activity: any, index: number) => {
         // Calculate average completion rate for approved participants
         const avgCompletionRate = activity.participantDetails?.approved && activity.participantDetails.approved.length > 0
           ? (activity.participantDetails.approved.reduce((sum: number, p: any) => sum + (p.completionRate || 0), 0) / activity.participantDetails.approved.length).toFixed(1)
           : 0;
 
-        activitiesListData.push({
-          'STT': index + 1,
-          'Tên hoạt động': activity.activityName,
-          'Mô tả': activity.activityDescription || 'Không có mô tả',
-          'Loại': activity.activityType === 'single_day' ? 'Một ngày' : 'Nhiều ngày',
-          'Trạng thái': activity.activityStatus,
-          'Ngày bắt đầu': activity.activityDate ? new Date(activity.activityDate).toLocaleDateString('vi-VN') : 'Chưa có',
-          'Ngày kết thúc': activity.activityEndDate ? new Date(activity.activityEndDate).toLocaleDateString('vi-VN') : 'Chưa có',
-          'Địa điểm': activity.activityLocation || 'Chưa có',
-          'Số người đăng ký': activity.participantsCount,
-          'Số người đã duyệt': activity.participantsByStatus.approved,
-          'Số người chờ duyệt': activity.participantsByStatus.pending,
-          'Số người từ chối': activity.participantsByStatus.rejected,
-          'Số người đã xóa': activity.participantsByStatus.removed || 0,
-          'Tỷ lệ duyệt (%)': `${activity.approval.approvalRate}%`,
-          'Số người điểm danh': activity.attendance.checkedIn,
-          'Tỷ lệ điểm danh (%)': `${activity.attendance.attendanceRate}%`,
-          'Đúng giờ': activity.attendance.onTime,
-          'Trễ': activity.attendance.late,
-          'Vắng': activity.attendance.absent,
-          'Tỷ lệ hoàn thành trung bình (%)': `${avgCompletionRate}%`
+        const dataRow = activitiesListSheet.addRow([
+          index + 1,
+          activity.activityName,
+          activity.activityDescription || 'Không có mô tả',
+          activity.activityType === 'single_day' ? 'Một ngày' : 'Nhiều ngày',
+          activity.activityStatus,
+          activity.activityDate ? new Date(activity.activityDate).toLocaleDateString('vi-VN') : 'Chưa có',
+          activity.activityEndDate ? new Date(activity.activityEndDate).toLocaleDateString('vi-VN') : 'Chưa có',
+          activity.activityLocation || 'Chưa có',
+          activity.participantsCount,
+          activity.participantsByStatus.approved,
+          activity.participantsByStatus.pending,
+          activity.participantsByStatus.rejected,
+          activity.participantsByStatus.removed || 0,
+          `${activity.approval.approvalRate}%`,
+          activity.attendance.checkedIn,
+          `${activity.attendance.attendanceRate}%`,
+          activity.attendance.onTime,
+          activity.attendance.late,
+          activity.attendance.absent,
+          `${avgCompletionRate}%`,
+          activity.createdAt ? new Date(activity.createdAt).toLocaleDateString('vi-VN') : 'Chưa có'
+        ]);
+        
+        // Style data rows
+        dataRow.font = { size: 10 };
+        dataRow.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+        dataRow.height = 24;
+        
+        // Alternate row colors
+        if (index % 2 === 0) {
+          dataRow.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFF9FAFB' }
+          };
+        }
+        
+        // Style specific cells
+        dataRow.eachCell((cell: ExcelJS.Cell, colNumber: number) => {
+          applyBorderToList(cell);
+          
+          // Center align for numbers and status
+          if (colNumber === 1 || colNumber === 4 || colNumber === 5 || 
+              colNumber === 9 || colNumber === 10 || colNumber === 11 || 
+              colNumber === 12 || colNumber === 13 || colNumber === 15 || 
+              colNumber === 17 || colNumber === 18 || colNumber === 19) {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          }
+          
+          // Right align for percentages
+          if (colNumber === 14 || colNumber === 16 || colNumber === 20) {
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+          }
+          
+          // Color coding for status
+          if (colNumber === 5) {
+            const status = String(cell.value || '').toLowerCase();
+            if (status === 'completed') {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+            } else if (status === 'ongoing') {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
+            } else if (status === 'cancelled') {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+            }
+          }
         });
       });
-
-      // Add data to activities list sheet
-      activitiesListSheet.addRows(activitiesListData);
       
       // Set column widths
-      activitiesListSheet.getColumn(1).width = 5;
-      activitiesListSheet.getColumn(2).width = 35;
-      activitiesListSheet.getColumn(3).width = 50;
-      activitiesListSheet.getColumn(4).width = 12;
-      activitiesListSheet.getColumn(5).width = 12;
-      activitiesListSheet.getColumn(6).width = 15;
-      activitiesListSheet.getColumn(7).width = 15;
-      activitiesListSheet.getColumn(8).width = 30;
-      activitiesListSheet.getColumn(9).width = 15;
-      activitiesListSheet.getColumn(10).width = 15;
-      activitiesListSheet.getColumn(11).width = 15;
-      activitiesListSheet.getColumn(12).width = 15;
-      activitiesListSheet.getColumn(13).width = 15;
-      activitiesListSheet.getColumn(14).width = 15;
-      activitiesListSheet.getColumn(15).width = 18;
-      activitiesListSheet.getColumn(16).width = 18;
-      activitiesListSheet.getColumn(17).width = 10;
-      activitiesListSheet.getColumn(18).width = 10;
-      activitiesListSheet.getColumn(19).width = 10;
-      activitiesListSheet.getColumn(20).width = 25;
-      
-      // Style header row
-      const headerRow = activitiesListSheet.getRow(1);
-      headerRow.font = { bold: true };
-      headerRow.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFF1F5F9' }
-      };
-      headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
-      headerRow.height = 26;
+      activitiesListSheet.getColumn(1).width = 6;  // STT
+      activitiesListSheet.getColumn(2).width = 40; // Tên hoạt động
+      activitiesListSheet.getColumn(3).width = 50; // Mô tả
+      activitiesListSheet.getColumn(4).width = 14; // Loại
+      activitiesListSheet.getColumn(5).width = 14; // Trạng thái
+      activitiesListSheet.getColumn(6).width = 16; // Ngày bắt đầu
+      activitiesListSheet.getColumn(7).width = 16; // Ngày kết thúc
+      activitiesListSheet.getColumn(8).width = 35; // Địa điểm
+      activitiesListSheet.getColumn(9).width = 16; // Số người đăng ký
+      activitiesListSheet.getColumn(10).width = 16; // Đã duyệt
+      activitiesListSheet.getColumn(11).width = 16; // Chờ duyệt
+      activitiesListSheet.getColumn(12).width = 14; // Từ chối
+      activitiesListSheet.getColumn(13).width = 14; // Đã xóa
+      activitiesListSheet.getColumn(14).width = 14; // Tỷ lệ duyệt
+      activitiesListSheet.getColumn(15).width = 18; // Số người điểm danh
+      activitiesListSheet.getColumn(16).width = 18; // Tỷ lệ điểm danh
+      activitiesListSheet.getColumn(17).width = 12; // Đúng giờ
+      activitiesListSheet.getColumn(18).width = 10; // Trễ
+      activitiesListSheet.getColumn(19).width = 10; // Vắng
+      activitiesListSheet.getColumn(20).width = 20; // Tỷ lệ hoàn thành
+      activitiesListSheet.getColumn(21).width = 16; // Ngày tạo
 
       // Sheet 3+: Chi tiết từng hoạt động với format đẹp và đầy đủ thông tin
       const usedSheetNames = new Set<string>();
@@ -1091,7 +1164,7 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
         // ============================================
         participantTable.push({ 'DANH SÁCH NGƯỜI THAM GIA': '', '': '', '': '', '': '', '': '', '': '', '': '', '': '', '': '', '': '' }); // Header sẽ merge sau
         
-        // Header row cho bảng người tham gia (đơn giản, không có chi tiết từng buổi)
+        // Header row cho bảng người tham gia (có thêm thông tin chi tiết)
         const participantHeaderRow: any = {
           'STT': 'STT',
           'Họ và tên': 'Họ và tên',
@@ -1103,15 +1176,31 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
           'Đã điểm danh': 'Đã điểm danh',
           'Thời gian điểm danh đầu tiên': 'Thời gian điểm danh đầu tiên',
           'Đã đăng ký các buổi': 'Đã đăng ký các buổi',
+          'Chi tiết điểm danh': 'Chi tiết điểm danh',
           'Ghi chú': 'Ghi chú'
         };
         
         participantTable.push(participantHeaderRow);
 
-        // Thêm dữ liệu người tham gia vào bảng (đơn giản, không có chi tiết từng buổi)
+        // Thêm dữ liệu người tham gia vào bảng (có thêm chi tiết điểm danh)
         // Approved participants
         if (activity.participantDetails?.approved) {
           activity.participantDetails.approved.forEach((participant: any, pIndex: number) => {
+            // Format attendance records nếu có
+            let attendanceDetails = '';
+            if (participant.attendanceRecords && Array.isArray(participant.attendanceRecords) && participant.attendanceRecords.length > 0) {
+              attendanceDetails = participant.attendanceRecords.map((record: any) => {
+                const day = record.day || '';
+                const slot = record.slot === 'morning' ? 'Sáng' : record.slot === 'afternoon' ? 'Chiều' : record.slot === 'evening' ? 'Tối' : record.slot || '';
+                const checkInType = record.checkInType === 'start' ? 'Đầu' : record.checkInType === 'end' ? 'Cuối' : '';
+                const timeStatus = record.timeStatus === 'on_time' ? 'Đúng giờ' : record.timeStatus === 'late' ? 'Trễ' : '';
+                const checkInTime = record.checkInTime ? new Date(record.checkInTime).toLocaleString('vi-VN') : '';
+                return `Ngày ${day} - ${slot} (${checkInType}): ${checkInTime} ${timeStatus ? `(${timeStatus})` : ''}`;
+              }).join('; ');
+            } else {
+              attendanceDetails = 'Chưa có thông tin';
+            }
+            
             const row: any = {
               'STT': pIndex + 1,
               'Họ và tên': participant.name,
@@ -1125,6 +1214,7 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
                 ? new Date(participant.checkedInAt).toLocaleString('vi-VN') 
                 : 'Chưa điểm danh',
               'Đã đăng ký các buổi': '',
+              'Chi tiết điểm danh': attendanceDetails,
               'Ghi chú': ''
             };
             
@@ -1153,6 +1243,7 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
               'Đã điểm danh': 'Chưa',
               'Thời gian điểm danh đầu tiên': 'Chưa điểm danh',
               'Đã đăng ký các buổi': '',
+              'Chi tiết điểm danh': 'Chưa có',
               'Ghi chú': ''
             };
             
@@ -1181,6 +1272,7 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
               'Đã điểm danh': 'Không',
               'Thời gian điểm danh đầu tiên': 'Không điểm danh',
               'Đã đăng ký các buổi': '',
+              'Chi tiết điểm danh': 'Không có',
               'Ghi chú': ''
             };
             
@@ -1204,6 +1296,7 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
               'Đã điểm danh': 'Không',
               'Thời gian điểm danh đầu tiên': 'Không điểm danh',
               'Đã đăng ký các buổi': '',
+              'Chi tiết điểm danh': 'Không có',
               'Ghi chú': ''
             };
             
@@ -1306,7 +1399,7 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
           
           // 2️⃣ KHỐI 1: THÔNG TIN HOẠT ĐỘNG (Key-Value dọc, bắt đầu từ row 3)
           currentRow = 3;
-          infoSection.forEach((row: any) => {
+          infoSection.forEach((row: any, idx: number) => {
             try {
               const keys = Object.keys(row);
               const firstKey = keys[0];
@@ -1320,25 +1413,30 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
               const isSectionHeader = typeof firstValue === 'string' && firstValue.includes('THÔNG TIN');
               
               if (isSectionHeader) {
-                excelRow.font = { bold: true, size: 12 };
+                excelRow.font = { bold: true, size: 13, color: { argb: 'FFFFFFFF' } };
                 excelRow.fill = {
                   type: 'pattern',
                   pattern: 'solid',
-                  fgColor: { argb: 'FFF1F5F9' }
+                  fgColor: { argb: 'FF3B82F6' }
                 };
                 excelRow.alignment = { horizontal: 'left', vertical: 'middle' };
-                excelRow.height = 26;
+                excelRow.height = 28;
                 activitySheet.mergeCells(excelRow.number, 1, excelRow.number, 2);
               } else {
                 excelRow.font = { size: 11 };
-                excelRow.height = 22;
+                excelRow.height = 24;
                 
                 const labelCell = excelRow.getCell(1);
-                labelCell.font = { size: 11, bold: true };
+                labelCell.font = { size: 11, bold: true, color: { argb: 'FF1F2937' } };
                 labelCell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+                labelCell.fill = {
+                  type: 'pattern',
+                  pattern: 'solid',
+                  fgColor: { argb: 'FFF9FAFB' }
+                };
                 
                 const valueCell = excelRow.getCell(2);
-                valueCell.font = { size: 11 };
+                valueCell.font = { size: 11, color: { argb: 'FF111827' } };
                 valueCell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
               }
               
@@ -1350,25 +1448,54 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
             }
           });
           
+          // Empty row after info section
+          const emptyRow1 = activitySheet.addRow(['', '']);
+          emptyRow1.height = 12;
+          
           // 3️⃣ KHỐI 2: LỊCH TRÌNH HOẠT ĐỘNG (Bảng ngang)
           if (scheduleTable.length > 0) {
             // Thêm header "LỊCH TRÌNH HOẠT ĐỘNG" và merge
             const scheduleHeaderRow = activitySheet.addRow(['LỊCH TRÌNH HOẠT ĐỘNG', '', '', '', '', '']);
-            scheduleHeaderRow.font = { bold: true, size: 12 };
+            scheduleHeaderRow.font = { bold: true, size: 13, color: { argb: 'FFFFFFFF' } };
             scheduleHeaderRow.fill = {
               type: 'pattern',
               pattern: 'solid',
-              fgColor: { argb: 'FFF1F5F9' }
+              fgColor: { argb: 'FF10B981' }
             };
             scheduleHeaderRow.alignment = { horizontal: 'left', vertical: 'middle' };
-            scheduleHeaderRow.height = 26;
+            scheduleHeaderRow.height = 28;
             activitySheet.mergeCells(scheduleHeaderRow.number, 1, scheduleHeaderRow.number, 6); // A:F
             scheduleHeaderRow.eachCell((cell: ExcelJS.Cell) => {
               applyBorder(cell);
             });
             
-            // Thêm các rows của bảng lịch trình
-            scheduleTable.forEach((row: any) => {
+            // Add header row for schedule table (skip first row which is section title)
+            if (scheduleTable.length > 1) {
+              const scheduleHeaderData = scheduleTable[1];
+              const headerRowValues = [
+                scheduleHeaderData['Ngày'] || 'Ngày',
+                scheduleHeaderData['Ca'] || 'Ca',
+                scheduleHeaderData['Giờ bắt đầu'] || 'Giờ bắt đầu',
+                scheduleHeaderData['Giờ kết thúc'] || 'Giờ kết thúc',
+                scheduleHeaderData['Nội dung / mô tả ca'] || 'Nội dung / mô tả ca',
+                scheduleHeaderData['Địa điểm / Bán kính'] || 'Địa điểm / Bán kính'
+              ];
+              const scheduleDataHeaderRow = activitySheet.addRow(headerRowValues);
+              scheduleDataHeaderRow.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+              scheduleDataHeaderRow.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FF059669' }
+              };
+              scheduleDataHeaderRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+              scheduleDataHeaderRow.height = 28;
+              scheduleDataHeaderRow.eachCell((cell: ExcelJS.Cell) => {
+                applyBorder(cell);
+              });
+            }
+            
+            // Thêm các rows của bảng lịch trình (skip first 2 rows: section title and header)
+            scheduleTable.slice(2).forEach((row: any, idx: number) => {
               try {
                 const rowValues = [
                   row['Ngày'] || '',
@@ -1379,9 +1506,24 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
                   row['Địa điểm / Bán kính'] || ''
                 ];
                 const excelRow = activitySheet.addRow(rowValues);
-                excelRow.font = { size: 11 };
-                excelRow.height = 22;
+                excelRow.font = { size: 10 };
+                excelRow.height = 24;
                 excelRow.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+                
+                // Alternate row colors
+                if (idx % 2 === 0) {
+                  excelRow.fill = {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: 'FFF0FDF4' }
+                  };
+                }
+                
+                // Center align for time columns
+                excelRow.getCell(3).alignment = { horizontal: 'center', vertical: 'middle' };
+                excelRow.getCell(4).alignment = { horizontal: 'center', vertical: 'middle' };
+                excelRow.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
+                
                 excelRow.eachCell((cell: ExcelJS.Cell) => {
                   applyBorder(cell);
                 });
@@ -1389,7 +1531,19 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
                 console.error(`Error adding schedule row:`, rowError);
               }
             });
+            
+            // Set column widths for schedule table
+            activitySheet.getColumn(1).width = 16; // Ngày
+            activitySheet.getColumn(2).width = 12; // Ca
+            activitySheet.getColumn(3).width = 14; // Giờ bắt đầu
+            activitySheet.getColumn(4).width = 14; // Giờ kết thúc
+            activitySheet.getColumn(5).width = 45; // Nội dung
+            activitySheet.getColumn(6).width = 35; // Địa điểm
           }
+          
+          // Empty row after schedule section
+          const emptyRow2 = activitySheet.addRow(['', '']);
+          emptyRow2.height = 12;
           
           // 4️⃣ KHỐI 3: THỐNG KÊ ĐĂNG KÝ & DUYỆT (Key-Value dọc)
           registrationStats.forEach((row: any) => {
@@ -1406,26 +1560,41 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
               const isSectionHeader = typeof firstValue === 'string' && firstValue.includes('THỐNG KÊ ĐĂNG KÝ');
               
               if (isSectionHeader) {
-                excelRow.font = { bold: true, size: 12 };
+                excelRow.font = { bold: true, size: 13, color: { argb: 'FFFFFFFF' } };
                 excelRow.fill = {
                   type: 'pattern',
                   pattern: 'solid',
-                  fgColor: { argb: 'FFF1F5F9' }
+                  fgColor: { argb: 'FFF59E0B' }
                 };
                 excelRow.alignment = { horizontal: 'left', vertical: 'middle' };
-                excelRow.height = 26;
+                excelRow.height = 28;
                 activitySheet.mergeCells(excelRow.number, 1, excelRow.number, 2);
               } else {
                 excelRow.font = { size: 11 };
-                excelRow.height = 22;
+                excelRow.height = 24;
                 
                 const labelCell = excelRow.getCell(1);
-                labelCell.font = { size: 11, bold: true };
+                labelCell.font = { size: 11, bold: true, color: { argb: 'FF1F2937' } };
                 labelCell.alignment = { horizontal: 'left', vertical: 'middle' };
+                labelCell.fill = {
+                  type: 'pattern',
+                  pattern: 'solid',
+                  fgColor: { argb: 'FFFFFBEB' }
+                };
                 
                 const valueCell = excelRow.getCell(2);
-                valueCell.font = { size: 11 };
+                valueCell.font = { size: 11, color: { argb: 'FF111827' } };
                 valueCell.alignment = { horizontal: 'left', vertical: 'middle' };
+                
+                // Color code values
+                const labelText = String(firstValue || '').toUpperCase();
+                if (labelText.includes('ĐÃ DUYỆT')) {
+                  valueCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+                } else if (labelText.includes('CHỜ DUYỆT')) {
+                  valueCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+                } else if (labelText.includes('TỪ CHỐI')) {
+                  valueCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+                }
               }
               
               excelRow.eachCell((cell: ExcelJS.Cell) => {
@@ -1435,6 +1604,10 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
               console.error(`Error adding registration stats row:`, rowError);
             }
           });
+          
+          // Empty row after registration stats
+          const emptyRow3 = activitySheet.addRow(['', '']);
+          emptyRow3.height = 12;
           
           // 5️⃣ KHỐI 4: THỐNG KÊ ĐIỂM DANH (Key-Value dọc)
           attendanceStats.forEach((row: any) => {
@@ -1451,26 +1624,41 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
               const isSectionHeader = typeof firstValue === 'string' && firstValue.includes('THỐNG KÊ ĐIỂM DANH');
               
               if (isSectionHeader) {
-                excelRow.font = { bold: true, size: 12 };
+                excelRow.font = { bold: true, size: 13, color: { argb: 'FFFFFFFF' } };
                 excelRow.fill = {
                   type: 'pattern',
                   pattern: 'solid',
-                  fgColor: { argb: 'FFF1F5F9' }
+                  fgColor: { argb: 'FF8B5CF6' }
                 };
                 excelRow.alignment = { horizontal: 'left', vertical: 'middle' };
-                excelRow.height = 26;
+                excelRow.height = 28;
                 activitySheet.mergeCells(excelRow.number, 1, excelRow.number, 2);
               } else {
                 excelRow.font = { size: 11 };
-                excelRow.height = 22;
+                excelRow.height = 24;
                 
                 const labelCell = excelRow.getCell(1);
-                labelCell.font = { size: 11, bold: true };
+                labelCell.font = { size: 11, bold: true, color: { argb: 'FF1F2937' } };
                 labelCell.alignment = { horizontal: 'left', vertical: 'middle' };
+                labelCell.fill = {
+                  type: 'pattern',
+                  pattern: 'solid',
+                  fgColor: { argb: 'FFF5F3FF' }
+                };
                 
                 const valueCell = excelRow.getCell(2);
-                valueCell.font = { size: 11 };
+                valueCell.font = { size: 11, color: { argb: 'FF111827' } };
                 valueCell.alignment = { horizontal: 'left', vertical: 'middle' };
+                
+                // Color code values
+                const labelText = String(firstValue || '').toUpperCase();
+                if (labelText.includes('ĐÚNG GIỜ')) {
+                  valueCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+                } else if (labelText.includes('TRỄ')) {
+                  valueCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+                } else if (labelText.includes('VẮNG')) {
+                  valueCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+                }
               }
               
               excelRow.eachCell((cell: ExcelJS.Cell) => {
@@ -1481,19 +1669,23 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
             }
           });
           
+          // Empty row after attendance stats
+          const emptyRow4 = activitySheet.addRow(['', '']);
+          emptyRow4.height = 12;
+          
           // 6️⃣ KHỐI 5: DANH SÁCH NGƯỜI THAM GIA (Bảng ngang đơn giản)
           if (participantTable.length > 0) {
             // Header "DANH SÁCH NGƯỜI THAM GIA" và merge
-            const participantHeaderTitleRow = activitySheet.addRow(['DANH SÁCH NGƯỜI THAM GIA', '', '', '', '', '', '', '', '', '', '']);
-            participantHeaderTitleRow.font = { bold: true, size: 12 };
+            const participantHeaderTitleRow = activitySheet.addRow(['DANH SÁCH NGƯỜI THAM GIA', '', '', '', '', '', '', '', '', '', '', '']);
+            participantHeaderTitleRow.font = { bold: true, size: 13, color: { argb: 'FFFFFFFF' } };
             participantHeaderTitleRow.fill = {
               type: 'pattern',
               pattern: 'solid',
-              fgColor: { argb: 'FFF1F5F9' }
+              fgColor: { argb: 'FFEC4899' }
             };
             participantHeaderTitleRow.alignment = { horizontal: 'left', vertical: 'middle' };
-            participantHeaderTitleRow.height = 26;
-            activitySheet.mergeCells(participantHeaderTitleRow.number, 1, participantHeaderTitleRow.number, 11); // A:K
+            participantHeaderTitleRow.height = 28;
+            activitySheet.mergeCells(participantHeaderTitleRow.number, 1, participantHeaderTitleRow.number, 12); // A:L
             participantHeaderTitleRow.eachCell((cell: ExcelJS.Cell) => {
               applyBorder(cell);
             });
@@ -1507,14 +1699,14 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
             const headerExcelRow = activitySheet.addRow(headerRowValues);
             
             // Style header row
-            headerExcelRow.font = { bold: true, size: 11 };
+            headerExcelRow.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
             headerExcelRow.fill = {
               type: 'pattern',
               pattern: 'solid',
-              fgColor: { argb: 'FFE8F4F8' }
+              fgColor: { argb: 'FFDB2777' }
             };
             headerExcelRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-            headerExcelRow.height = 30;
+            headerExcelRow.height = 32;
             headerExcelRow.eachCell((cell: ExcelJS.Cell) => {
               applyBorder(cell);
             });
@@ -1536,7 +1728,16 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
                 const excelRow = activitySheet.addRow(rowValues);
                 excelRow.font = { size: 10 };
                 excelRow.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
-                excelRow.height = 20;
+                excelRow.height = 22;
+                
+                // Alternate row colors
+                if (dataRowIndex % 2 === 0) {
+                  excelRow.fill = {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: 'FFFDF2F8' }
+                  };
+                }
                 
                 // Style đặc biệt
                 excelRow.eachCell((cell: ExcelJS.Cell, colNumber: number) => {
@@ -1545,6 +1746,18 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
                   if (columnKey === 'STT') {
                     cell.alignment = { horizontal: 'center', vertical: 'middle' };
                     cell.font = { size: 10, bold: true };
+                  } else if (columnKey === 'Tỷ lệ hoàn thành (%)' || 
+                             columnKey === 'Số buổi đã tham gia' || 
+                             columnKey === 'Tổng số buổi cần tham gia') {
+                    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                  } else if (columnKey === 'Đã điểm danh') {
+                    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                    const value = String(cell.value || '').toUpperCase();
+                    if (value === 'CÓ' || value === 'YES') {
+                      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+                    } else {
+                      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+                    }
                   }
                   
                   applyBorder(cell);
@@ -1559,16 +1772,22 @@ ${reportStats.activitiesWithDetails.map((activity: any, index: number) =>
               const colNumber = colIndex + 1;
               try {
                 if (key === 'STT') {
-                  activitySheet.getColumn(colNumber).width = 5;
+                  activitySheet.getColumn(colNumber).width = 6;
                 } else if (key === 'Họ và tên') {
-                  activitySheet.getColumn(colNumber).width = 25;
+                  activitySheet.getColumn(colNumber).width = 28;
                 } else if (key === 'Email') {
-                  activitySheet.getColumn(colNumber).width = 30;
+                  activitySheet.getColumn(colNumber).width = 32;
                 } else if (key === 'MSSV') {
-                  activitySheet.getColumn(colNumber).width = 15;
+                  activitySheet.getColumn(colNumber).width = 16;
                 } else if (key === 'Đã đăng ký các buổi') {
-                  activitySheet.getColumn(colNumber).width = 40;
+                  activitySheet.getColumn(colNumber).width = 45;
                 } else if (key === 'Thời gian điểm danh đầu tiên') {
+                  activitySheet.getColumn(colNumber).width = 24;
+                } else if (key === 'Chi tiết điểm danh') {
+                  activitySheet.getColumn(colNumber).width = 60;
+                } else if (key === 'Tỷ lệ hoàn thành (%)') {
+                  activitySheet.getColumn(colNumber).width = 20;
+                } else if (key === 'Số buổi đã tham gia' || key === 'Tổng số buổi cần tham gia') {
                   activitySheet.getColumn(colNumber).width = 22;
                 } else {
                   activitySheet.getColumn(colNumber).width = 18;

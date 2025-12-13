@@ -116,6 +116,7 @@ export default function AdminNewsPage() {
   const [showCommentLikesTooltip, setShowCommentLikesTooltip] = useState<string | null>(null);
   const [showPdfViewer, setShowPdfViewer] = useState<string | null>(null);
   const [showImageModal, setShowImageModal] = useState<string | null>(null);
+  const [expandedContent, setExpandedContent] = useState<Set<string>>(new Set());
 
   // Load theme and check desktop
   useEffect(() => {
@@ -919,6 +920,7 @@ export default function AdminNewsPage() {
                           </div>
                         </div>
                       </div>
+                      {/* Admin có quyền xóa và chỉnh sửa tất cả bài viết */}
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => handleEdit(post)}
@@ -951,9 +953,35 @@ export default function AdminNewsPage() {
                     <h3 className={`text-base font-semibold mb-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                       {post.title}
                     </h3>
-                    <p className={`text-sm leading-relaxed whitespace-pre-wrap ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                      {post.content}
-                    </p>
+                    <div>
+                      <p className={`text-sm leading-relaxed whitespace-pre-wrap ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                        {expandedContent.has(post._id) || post.content.length <= 200
+                          ? post.content
+                          : `${post.content.substring(0, 200)}...`}
+                      </p>
+                      {post.content.length > 200 && (
+                        <button
+                          onClick={() => {
+                            setExpandedContent(prev => {
+                              const newSet = new Set(prev);
+                              if (newSet.has(post._id)) {
+                                newSet.delete(post._id);
+                              } else {
+                                newSet.add(post._id);
+                              }
+                              return newSet;
+                            });
+                          }}
+                          className={`mt-2 text-sm font-medium transition-colors ${
+                            isDarkMode
+                              ? 'text-blue-400 hover:text-blue-300'
+                              : 'text-blue-600 hover:text-blue-700'
+                          }`}
+                        >
+                          {expandedContent.has(post._id) ? 'Thu gọn' : 'Xem thêm'}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Images - Display multiple images */}

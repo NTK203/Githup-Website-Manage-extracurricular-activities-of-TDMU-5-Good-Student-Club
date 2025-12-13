@@ -1,4 +1,4 @@
-'use client';
+  'use client';
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
@@ -6,6 +6,7 @@ import AdminNav from '@/components/admin/AdminNav';
 import Footer from '@/components/common/Footer';
 import ProtectedRoute from '@/components/common/ProtectedRoute';
 import Image from 'next/image';
+import Link from 'next/link';
 import { 
   User, Mail, Phone, GraduationCap, Building2, Lock, 
   Eye, EyeOff, Loader2, AlertCircle, CheckCircle2, 
@@ -134,21 +135,34 @@ export default function AdminProfile() {
   // Check if user has password
   useEffect(() => {
     const checkPassword = async () => {
+      if (!user) return;
+      
       try {
-        const response = await fetch("/api/users/change-password", {
-          method: "POST",
+        console.log('Checking if user has password...');
+        const response = await fetch('/api/users/has-password', {
           headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
-          body: JSON.stringify({ currentPassword: "", newPassword: "test" }),
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
         });
         const data = await response.json();
-        setHasPassword(data.error?.includes("mật khẩu hiện tại") || false);
+        console.log('Has password response:', data);
+        
+        if (data.success) {
+          setHasPassword(data.hasPassword);
+          console.log('User has password:', data.hasPassword);
+        } else {
+          console.warn('Failed to check password, defaulting to true');
+          // Fallback: assume user has password if they logged in with email/password
+          setHasPassword(true);
+        }
       } catch (error) {
-        setHasPassword(false);
+        console.error('Error checking password:', error);
+        // If error, check if user logged in with Google (no password) or email/password (has password)
+        // For now, default to true for safety
+        setHasPassword(true);
       }
     };
+    
     if (user) {
       checkPassword();
     }
@@ -254,17 +268,31 @@ export default function AdminProfile() {
       return;
     }
 
+    // If user has password, validate current password is provided
+    if (hasPassword === true && !passwordForm.currentPassword) {
+      setPasswordMessage({ type: 'error', text: 'Vui lòng nhập mật khẩu hiện tại' });
+      setPasswordLoading(false);
+      return;
+    }
+
     try {
+      // Prepare request body - only include currentPassword if user has password
+      const requestBody: { newPassword: string; currentPassword?: string } = {
+        newPassword: passwordForm.newPassword
+      };
+      
+      // Only add currentPassword if user has password
+      if (hasPassword === true) {
+        requestBody.currentPassword = passwordForm.currentPassword;
+      }
+
       const response = await fetch('/api/users/change-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
-        body: JSON.stringify({
-          currentPassword: passwordForm.currentPassword || undefined,
-          newPassword: passwordForm.newPassword
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const data = await response.json();
@@ -282,7 +310,9 @@ export default function AdminProfile() {
           setPasswordMessage(null);
         }, 2000);
       } else {
-        setPasswordMessage({ type: 'error', text: data.error || 'Đổi mật khẩu thất bại' });
+        // Show error message
+        const errorText = data.error || 'Đổi mật khẩu thất bại';
+        setPasswordMessage({ type: 'error', text: errorText });
       }
     } catch (error) {
       setPasswordMessage({ type: 'error', text: 'Lỗi kết nối. Vui lòng thử lại.' });
@@ -745,25 +775,64 @@ export default function AdminProfile() {
                         </h4>
                         
                         {passwordMessage && (
-                          <div className={`mb-4 p-3 rounded-lg flex items-center gap-2 ${
+                          <div className={`mb-4 p-3 rounded-lg ${
                             passwordMessage.type === 'success' 
                               ? 'bg-green-50 border border-green-200 text-green-700' 
                               : 'bg-red-50 border border-red-200 text-red-700'
                           }`}>
-                            {passwordMessage.type === 'success' ? (
-                              <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-                            ) : (
-                              <AlertCircle className="h-4 w-4 flex-shrink-0" />
-                            )}
-                            <span className="text-sm">{passwordMessage.text}</span>
+                            <div className="flex items-start gap-2">
+                              {passwordMessage.type === 'success' ? (
+                                <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                              ) : (
+                                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                              )}
+                              <div className="flex-1">
+                                <p className="text-sm whitespace-pre-line">{passwordMessage.text}</p>
+                                {passwordMessage.type === 'error' && 
+                                 passwordMessage.text.includes('Mật khẩu hiện tại không đúng') && 
+                                 hasPassword === true && (
+                                  <div className="mt-3 space-y-2">
+                                    <p className="text-xs font-medium">Gợi ý:</p>
+                                    <ul className="text-xs space-y-1 list-disc list-inside">
+                                      <li>Đảm bảo Caps Lock không bật</li>
+                                      <li>Kiểm tra bạn đang nhập đúng mật khẩu dùng để đăng nhập</li>
+                                      <li>Nếu quên mật khẩu, hãy sử dụng chức năng bên dưới</li>
+                                    </ul>
+                                    <div className="pt-2">
+                                      <Link
+                                        href="/auth/forgot-password"
+                                        className="text-sm text-purple-600 hover:text-purple-700 underline font-medium"
+                                      >
+                                        Quên mật khẩu? Đặt lại mật khẩu →
+                                      </Link>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Info message for adding password */}
+                        {hasPassword === false && (
+                          <div className={`mb-4 p-3 rounded-lg flex items-center gap-2 ${
+                            isDarkMode 
+                              ? 'bg-blue-900/30 border border-blue-700 text-blue-300' 
+                              : 'bg-blue-50 border border-blue-200 text-blue-700'
+                          }`}>
+                            <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                            <span className="text-sm">
+                              Bạn chưa có mật khẩu. Thêm mật khẩu để có thể đăng nhập bằng email/mật khẩu ngoài Google.
+                            </span>
                           </div>
                         )}
 
                         <div className="space-y-4">
-                          {hasPassword !== false && (
+                          {/* Only show current password field if user has password */}
+                          {hasPassword === true && (
                             <div>
                               <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                Mật khẩu hiện tại
+                                Mật khẩu hiện tại <span className="text-red-500">*</span>
                               </label>
                             <div className="relative">
                               <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
@@ -777,7 +846,8 @@ export default function AdminProfile() {
                                     ? 'bg-gray-700 border-gray-600 text-white' 
                                     : 'bg-white border-gray-300 text-gray-900'
                                 }`}
-                                required={hasPassword === true}
+                                required
+                                placeholder="Nhập mật khẩu hiện tại"
                               />
                               <button
                                 type="button"
@@ -792,7 +862,7 @@ export default function AdminProfile() {
 
                           <div>
                             <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                              Mật khẩu mới
+                              {hasPassword === false ? 'Mật khẩu' : 'Mật khẩu mới'} <span className="text-red-500">*</span>
                             </label>
                             <div className="relative">
                               <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
@@ -806,6 +876,7 @@ export default function AdminProfile() {
                                     ? 'bg-gray-700 border-gray-600 text-white' 
                                     : 'bg-white border-gray-300 text-gray-900'
                                 }`}
+                                placeholder={hasPassword === false ? 'Nhập mật khẩu mới' : 'Nhập mật khẩu mới'}
                                 required
                               />
                               <button
@@ -820,7 +891,7 @@ export default function AdminProfile() {
 
                           <div>
                             <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                              Xác nhận mật khẩu mới
+                              Xác nhận mật khẩu {hasPassword === false ? '' : 'mới'} <span className="text-red-500">*</span>
                             </label>
                             <div className="relative">
                               <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
@@ -834,6 +905,7 @@ export default function AdminProfile() {
                                     ? 'bg-gray-700 border-gray-600 text-white' 
                                     : 'bg-white border-gray-300 text-gray-900'
                                 }`}
+                                placeholder="Nhập lại mật khẩu"
                                 required
                               />
                               <button
@@ -844,6 +916,23 @@ export default function AdminProfile() {
                                 {showPasswords.confirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                               </button>
                             </div>
+                          </div>
+
+                          {/* Password Requirements */}
+                          <div className={`mt-4 p-3 rounded-lg ${
+                            isDarkMode 
+                              ? 'bg-gray-700 border border-gray-600' 
+                              : 'bg-gray-50 border border-gray-200'
+                          }`}>
+                            <p className={`text-xs font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                              Yêu cầu mật khẩu:
+                            </p>
+                            <ul className={`text-xs space-y-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                              <li>• Tối thiểu 8 ký tự</li>
+                              <li>• Có ít nhất 1 chữ hoa</li>
+                              <li>• Có ít nhất 1 chữ thường</li>
+                              <li>• Có ít nhất 1 số</li>
+                            </ul>
                           </div>
                         </div>
 

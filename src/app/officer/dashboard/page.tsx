@@ -259,7 +259,22 @@ export default function OfficerDashboard() {
       
       return matchesTemporal && matchesSearch && matchesStatus;
     }).sort((a, b) => {
-      // Sort by status first (published > ongoing > draft > others)
+      // Priority 1: Ongoing activities first (đang diễn ra lên đầu)
+      const aTemporal = getTemporalStatus(a);
+      const bTemporal = getTemporalStatus(b);
+      if (aTemporal !== bTemporal) {
+        if (aTemporal === 'ongoing') return -1; // Ongoing comes first
+        if (bTemporal === 'ongoing') return 1;
+      }
+      
+      // Priority 2: Activities with images (within same temporal status)
+      const aHasImage = !!(a.imageUrl && a.imageUrl.trim());
+      const bHasImage = !!(b.imageUrl && b.imageUrl.trim());
+      if (aHasImage !== bHasImage) {
+        return bHasImage ? 1 : -1; // Activities with images come first
+      }
+      
+      // Priority 3: Sort by status (published > ongoing > draft > others)
       const statusPriority: { [key: string]: number } = {
         'published': 1,
         'ongoing': 2,
@@ -273,14 +288,7 @@ export default function OfficerDashboard() {
       if (aPriority !== bPriority) {
         return aPriority - bPriority;
       }
-      // Then sort by temporal status (ongoing before upcoming)
-      const aTemporal = getTemporalStatus(a);
-      const bTemporal = getTemporalStatus(b);
-      if (aTemporal !== bTemporal) {
-        if (aTemporal === 'ongoing') return -1;
-        if (bTemporal === 'ongoing') return 1;
-      }
-      // Finally sort by date
+      // Priority 4: Sort by date
       const aDate = a.type === 'multiple_days' && a.startDate 
         ? new Date(a.startDate).getTime() 
         : new Date(a.date).getTime();
@@ -911,34 +919,6 @@ export default function OfficerDashboard() {
                         {activeActivities.length} hoạt động {activeActivities.length > activeItemsPerPage && `(hiển thị ${activeItemsPerPage})`}
                       </p>
                     </div>
-                    {activeActivities.length > 0 && (
-                      <div className="text-right">
-                        <span className={`text-[10px] font-medium block ${
-                          isDarkMode ? 'text-gray-400' : 'text-gray-600'
-                        }`}>
-                          Tỉ lệ điểm danh
-                        </span>
-                        {loadingActiveAttendanceRates ? (
-                          <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                            ...
-                          </span>
-                        ) : overallActiveAttendanceRate !== null ? (
-                          <span className={`text-sm font-bold ${
-                            overallActiveAttendanceRate >= 80
-                              ? isDarkMode ? 'text-green-400' : 'text-green-600'
-                              : overallActiveAttendanceRate >= 60
-                                ? isDarkMode ? 'text-yellow-400' : 'text-yellow-600'
-                                : isDarkMode ? 'text-red-400' : 'text-red-600'
-                          }`}>
-                            {overallActiveAttendanceRate}%
-                          </span>
-                        ) : (
-                          <span className={`text-sm font-bold ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                            0%
-                          </span>
-                        )}
-                      </div>
-                    )}
                   </div>
                 </div>
 
@@ -1376,34 +1356,6 @@ export default function OfficerDashboard() {
                         {pastActivities.length} hoạt động
                       </p>
                     </div>
-                    {pastActivities.length > 0 && (
-                      <div className="text-right">
-                        <span className={`text-[10px] font-medium block ${
-                          isDarkMode ? 'text-gray-400' : 'text-gray-600'
-                        }`}>
-                          Tỉ lệ điểm danh
-                        </span>
-                        {loadingAttendanceRates ? (
-                          <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                            ...
-                          </span>
-                        ) : overallAttendanceRate !== null ? (
-                          <span className={`text-sm font-bold ${
-                            overallAttendanceRate >= 80
-                              ? isDarkMode ? 'text-green-400' : 'text-green-600'
-                              : overallAttendanceRate >= 60
-                                ? isDarkMode ? 'text-yellow-400' : 'text-yellow-600'
-                                : isDarkMode ? 'text-red-400' : 'text-red-600'
-                          }`}>
-                            {overallAttendanceRate}%
-                          </span>
-                        ) : (
-                          <span className={`text-sm font-bold ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                            0%
-                          </span>
-                        )}
-                      </div>
-                    )}
                   </div>
                 </div>
 

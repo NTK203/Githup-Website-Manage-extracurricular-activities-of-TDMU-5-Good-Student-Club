@@ -215,10 +215,8 @@ export default function ActivityViewPage() {
                   verificationNote: a.verificationNote,
                   cancelReason: a.cancelReason,
                 }));
-                console.log(`[DEBUG] Mapped ${attendanceMap[userId].length} attendances for userId: ${userId}`, attendanceMap[userId]);
               }
             });
-            console.log('[DEBUG] Final attendanceMap keys:', Object.keys(attendanceMap));
           }
         }
 
@@ -236,10 +234,6 @@ export default function ActivityViewPage() {
           
           // Get attendances for this userId
           const attendances = attendanceMap[userId] || [];
-          
-          if (attendances.length > 0) {
-            console.log(`[DEBUG] Participant ${typeof p.userId === 'object' ? p.userId.name : p.name} (userId: ${userId}) has ${attendances.length} attendances:`, attendances);
-          }
           
           return {
             userId: userId,
@@ -502,34 +496,112 @@ export default function ActivityViewPage() {
       }
     );
     
-    // Debug log for matching
-    if (participant.attendances && participant.attendances.length > 0) {
-      const slotName = (slot.name || '').trim();
-      const matchingAttendances = participant.attendances.filter(a => {
-        if (!a.timeSlot || !a.checkInType) return false;
-        if (a.checkInType !== checkInType) return false;
-        const timeSlot = (a.timeSlot || '').trim();
-        return timeSlot.toLowerCase() === slotName.toLowerCase() ||
-               timeSlot.toLowerCase().endsWith(` - ${slotName.toLowerCase()}`);
-      });
-      if (matchingAttendances.length === 0 && checkInType === 'start') {
-        console.log(`[DEBUG] No match found for ${participant.name}:`, {
-          slotName: slotName,
-          checkInType: checkInType,
-          availableAttendances: participant.attendances.map(a => ({ timeSlot: a.timeSlot, checkInType: a.checkInType }))
-        });
-      }
-    }
-    
     const timeStatus = getTimeStatus(slot, activityDate);
     
     if (attendance) {
       // Check if check-in was on time
+      // Parse checkInTime - ensure it's a valid Date object
       const checkInTime = new Date(attendance.checkInTime);
-      const slotDate = new Date(activityDate);
+      
+      // Validate checkInTime
+      if (isNaN(checkInTime.getTime())) {
+        return {
+          attendance,
+          status: attendance.status,
+          timeStatus: 'unknown',
+          hasCheckedIn: true
+        };
+      }
+      
+      // Parse activityDate - handle different formats
+      let slotDate: Date;
+      if (typeof activityDate === 'string') {
+        // Try parsing as ISO string first
+        if (activityDate.includes('T') || activityDate.includes('Z')) {
+          slotDate = new Date(activityDate);
+        } else {
+          // Try parsing as DD/MM/YYYY or YYYY-MM-DD
+          const dateParts = activityDate.split(/[\/\-]/);
+          if (dateParts.length === 3) {
+            // Try YYYY-MM-DD format first
+            if (dateParts[0].length === 4) {
+              slotDate = new Date(
+                parseInt(dateParts[0]),
+                parseInt(dateParts[1]) - 1,
+                parseInt(dateParts[2])
+              );
+            } else {
+              // Assume DD/MM/YYYY format
+              slotDate = new Date(
+                parseInt(dateParts[2]),
+                parseInt(dateParts[1]) - 1,
+                parseInt(dateParts[0])
+              );
+            }
+          } else {
+            slotDate = new Date(activityDate);
+          }
+        }
+      } else {
+        slotDate = new Date(activityDate);
+      }
+      
+      // Validate slotDate
+      if (isNaN(slotDate.getTime())) {
+        return {
+          attendance,
+          status: attendance.status,
+          timeStatus: 'unknown',
+          hasCheckedIn: true
+        };
+      }
+      
+      // IMPORTANT: Use the date from checkInTime, not slotDate
+      // This ensures we're comparing times on the same day
+      // Extract date components from checkInTime
+      const checkInDate = new Date(checkInTime);
+      checkInDate.setHours(0, 0, 0, 0);
+      
+      // For multiple days, try to parse actual times from schedule.activities if available
+      // This ensures we use the correct end check-in time (e.g., 23:40 instead of 21:00)
+      let actualSlot = { ...slot };
+      if (activity && activity.type === 'multiple_days' && dayNumber !== undefined && activity.schedule) {
+        const daySchedule = activity.schedule.find((s: any) => s.day === dayNumber);
+        if (daySchedule && daySchedule.activities && typeof daySchedule.activities === 'string') {
+          const activitiesText = daySchedule.activities;
+          const lines = activitiesText.split('\n').filter((line: string) => line.trim());
+          
+          for (const line of lines) {
+            // Match format: "Buổi Sáng/Chiều/Tối (HH:MM-HH:MM)"
+            const slotMatch = line.match(/^Buổi (Sáng|Chiều|Tối)\s*\((\d{2}:\d{2})-(\d{2}:\d{2})\)/);
+            if (slotMatch) {
+              const slotName = slotMatch[1];
+              const slotNameFull = `Buổi ${slotName}`;
+              const parsedStartTime = slotMatch[2];
+              const parsedEndTime = slotMatch[3];
+              
+              // Check if this matches the current slot
+              const slotNameMatch = slot.name?.includes(slotName) || 
+                                   (slotName === 'Sáng' && (slot.name?.includes('Sáng') || slot.id === 'morning')) ||
+                                   (slotName === 'Chiều' && (slot.name?.includes('Chiều') || slot.id === 'afternoon')) ||
+                                   (slotName === 'Tối' && (slot.name?.includes('Tối') || slot.id === 'evening'));
+              
+              if (slotNameMatch) {
+                // Update slot with parsed times from activities text
+                actualSlot = {
+                  ...actualSlot,
+                  startTime: parsedStartTime,
+                  endTime: parsedEndTime
+                };
+                break;
+              }
+            }
+          }
+        }
+      }
       
       // Get target time based on checkInType
-      const targetTimeStr = checkInType === 'start' ? slot.startTime : slot.endTime;
+      const targetTimeStr = checkInType === 'start' ? actualSlot.startTime : actualSlot.endTime;
       if (!targetTimeStr) {
         return {
           attendance,
@@ -540,14 +612,28 @@ export default function ActivityViewPage() {
       }
       
       const [targetHour, targetMinute] = targetTimeStr.split(':').map(Number);
-      const targetTime = new Date(slotDate);
+      
+      // Create targetTime using the date from checkInTime (same day)
+      // This ensures both dates are on the same day for accurate comparison
+      const targetTime = new Date(checkInDate);
       targetTime.setHours(targetHour, targetMinute, 0, 0);
+      targetTime.setSeconds(0, 0);
       
-      // Allow 15 minutes buffer for on-time check-in
-      const bufferMinutes = 15;
-      const lateTime = new Date(targetTime.getTime() + bufferMinutes * 60000);
+      // On-time window: 15 minutes before to 15 minutes after target time
+      // This matches the server-side validation logic
+      const onTimeStart = new Date(targetTime);
+      onTimeStart.setMinutes(onTimeStart.getMinutes() - 15);
+      const onTimeEnd = new Date(targetTime);
+      onTimeEnd.setMinutes(onTimeEnd.getMinutes() + 15);
       
-      const isOnTime = checkInTime <= lateTime;
+      // Check if check-in is within on-time window
+      // Use getTime() for precise comparison to avoid timezone issues
+      const checkInTimeMs = checkInTime.getTime();
+      const onTimeStartMs = onTimeStart.getTime();
+      const onTimeEndMs = onTimeEnd.getTime();
+      const targetTimeMs = targetTime.getTime();
+      
+      const isOnTime = checkInTimeMs >= onTimeStartMs && checkInTimeMs <= onTimeEndMs;
       
       return {
         attendance,
@@ -765,8 +851,6 @@ export default function ActivityViewPage() {
             
             if (hasStartApproved || hasEndApproved) {
               completedSessions++;
-              // Debug log
-              console.log(`[DEBUG] Slot attended: Day ${dayNumber}, Slot: ${slot.name}, Start: ${hasStartApproved}, End: ${hasEndApproved}`);
             }
           }
         });
@@ -780,15 +864,6 @@ export default function ActivityViewPage() {
     
     // Ensure completedSessions never exceeds totalSessions (for display purposes)
     const finalCompleted = Math.min(completedSessions, totalSessions);
-    
-    // Debug log
-    console.log(`[DEBUG] calculateOverallAttendancePercentage for ${participant.name}:`, {
-      totalSessions,
-      completedSessions,
-      percentage,
-      activityType: activity?.type,
-      scheduleDays: activity?.schedule?.length
-    });
     
     return { percentage, completed: finalCompleted, total: totalSessions };
   }, [activity, getAttendanceStatusWithTime, isParticipantRegisteredForSlot]);
@@ -1816,11 +1891,17 @@ export default function ActivityViewPage() {
                           totalLateCheckIns++;
                         }
                         
-                        // Kiểm tra vắng
-                        if (!startStatus.hasCheckedIn || startStatus.attendance?.status === 'rejected') {
+                        // Kiểm tra vắng - chỉ đếm khi slot đã kết thúc
+                        // Start check-in: vắng nếu slot đã bắt đầu (in_progress hoặc passed) và không có điểm danh hoặc bị từ chối
+                        const startTimeStatus = getTimeStatus(slot, activity.date);
+                        if ((startTimeStatus === 'in_progress' || startTimeStatus === 'passed') && 
+                            (!startStatus.hasCheckedIn || startStatus.attendance?.status === 'rejected')) {
                           totalAbsentCheckIns++;
                         }
-                        if (!endStatus.hasCheckedIn || endStatus.attendance?.status === 'rejected') {
+                        
+                        // End check-in: vắng nếu slot đã kết thúc (passed) và không có điểm danh hoặc bị từ chối
+                        if (startTimeStatus === 'passed' && 
+                            (!endStatus.hasCheckedIn || endStatus.attendance?.status === 'rejected')) {
                           totalAbsentCheckIns++;
                         }
                       });
@@ -1834,7 +1915,19 @@ export default function ActivityViewPage() {
                       { name: 'Buổi Tối', id: 'evening', startTime: '18:00', endTime: '21:00', isActive: true }
                     ];
                     
-                    totalPossibleCheckIns = slotsToUse.length * 2 * schedule.length * participants.length;
+                    // Tính totalPossibleCheckIns chỉ cho các slot đã đăng ký
+                    let registeredCheckInsCount = 0;
+                    participants.forEach(participant => {
+                      schedule.forEach((scheduleDay: any) => {
+                        const dayNumber = scheduleDay.day;
+                        slotsToUse.forEach((slot: any) => {
+                          if (isParticipantRegisteredForSlot(participant, dayNumber, slot.name)) {
+                            registeredCheckInsCount += 2; // start + end
+                          }
+                        });
+                      });
+                    });
+                    totalPossibleCheckIns = registeredCheckInsCount;
                     
                     participants.forEach(participant => {
                       schedule.forEach((scheduleDay: any) => {
@@ -1842,6 +1935,11 @@ export default function ActivityViewPage() {
                         const dayNumber = scheduleDay.day;
                         
                         slotsToUse.forEach((slot: any) => {
+                          // Chỉ tính cho các slot đã đăng ký
+                          if (!isParticipantRegisteredForSlot(participant, dayNumber, slot.name)) {
+                            return;
+                          }
+                          
                           const startStatus = getAttendanceStatusWithTime(participant, slot, 'start', dayDateString, dayNumber);
                           const endStatus = getAttendanceStatusWithTime(participant, slot, 'end', dayDateString, dayNumber);
                           
@@ -1853,11 +1951,17 @@ export default function ActivityViewPage() {
                             totalLateCheckIns++;
                           }
                           
-                          // Kiểm tra vắng
-                          if (!startStatus.hasCheckedIn || startStatus.attendance?.status === 'rejected') {
+                          // Kiểm tra vắng - chỉ đếm khi slot đã kết thúc
+                          // Start check-in: vắng nếu slot đã bắt đầu (in_progress hoặc passed) và không có điểm danh hoặc bị từ chối
+                          const startTimeStatus = getTimeStatus(slot, dayDateString);
+                          if ((startTimeStatus === 'in_progress' || startTimeStatus === 'passed') && 
+                              (!startStatus.hasCheckedIn || startStatus.attendance?.status === 'rejected')) {
                             totalAbsentCheckIns++;
                           }
-                          if (!endStatus.hasCheckedIn || endStatus.attendance?.status === 'rejected') {
+                          
+                          // End check-in: vắng nếu slot đã kết thúc (passed) và không có điểm danh hoặc bị từ chối
+                          if (startTimeStatus === 'passed' && 
+                              (!endStatus.hasCheckedIn || endStatus.attendance?.status === 'rejected')) {
                             totalAbsentCheckIns++;
                           }
                         });
@@ -2341,18 +2445,6 @@ export default function ActivityViewPage() {
                             const completedSessions = overallStats.completed;
                             const totalSessions = overallStats.total;
                             
-                            // Debug log
-                            if (totalSessions === 0) {
-                              console.log('[DEBUG] Total sessions is 0 for participant:', participant.name, {
-                                activityType: activity?.type,
-                                hasSchedule: !!activity?.schedule,
-                                scheduleLength: activity?.schedule?.length,
-                                hasTimeSlots: !!activity?.timeSlots,
-                                timeSlotsLength: activity?.timeSlots?.length,
-                                activeTimeSlots: activity?.timeSlots?.filter((s: any) => s.isActive)?.length
-                              });
-                            }
-                            
                             return (
                               <div className="flex flex-col items-center gap-0.5">
                                 <div className={`px-1.5 py-1 rounded text-xs font-bold ${
@@ -2727,11 +2819,46 @@ export default function ActivityViewPage() {
                         {/* Attendance for Multiple Days */}
                         {activity.type === 'multiple_days' && currentWeekDaysWithSchedule.map((scheduleDay: any) => {
                           const dayTimeSlots = activity.timeSlots?.filter((s: any) => s.isActive) || [];
-                          const slotsToShow = dayTimeSlots.length > 0 ? dayTimeSlots : [
+                          let slotsToShow = dayTimeSlots.length > 0 ? dayTimeSlots : [
                             { name: 'Buổi Sáng', id: 'morning', startTime: '08:00', endTime: '11:30' },
                             { name: 'Buổi Chiều', id: 'afternoon', startTime: '13:00', endTime: '17:00' },
                             { name: 'Buổi Tối', id: 'evening', startTime: '18:00', endTime: '21:00' }
                           ];
+                          
+                          // Try to parse actual times from schedule.activities if available
+                          // This ensures we use the correct end check-in time (e.g., 23:40 instead of 21:00)
+                          if (scheduleDay.activities && typeof scheduleDay.activities === 'string') {
+                            const activitiesText = scheduleDay.activities;
+                            const lines = activitiesText.split('\n').filter((line: string) => line.trim());
+                            
+                            lines.forEach((line: string) => {
+                              // Match format: "Buổi Sáng/Chiều/Tối (HH:MM-HH:MM)"
+                              const slotMatch = line.match(/^Buổi (Sáng|Chiều|Tối)\s*\((\d{2}:\d{2})-(\d{2}:\d{2})\)/);
+                              if (slotMatch) {
+                                const slotName = slotMatch[1];
+                                const slotNameFull = `Buổi ${slotName}`;
+                                const parsedStartTime = slotMatch[2];
+                                const parsedEndTime = slotMatch[3];
+                                
+                                // Find matching slot and update times
+                                const slotIndex = slotsToShow.findIndex((s: any) => 
+                                  s.name === slotNameFull || 
+                                  (slotName === 'Sáng' && (s.name.includes('Sáng') || s.id === 'morning')) ||
+                                  (slotName === 'Chiều' && (s.name.includes('Chiều') || s.id === 'afternoon')) ||
+                                  (slotName === 'Tối' && (s.name.includes('Tối') || s.id === 'evening'))
+                                );
+                                
+                                if (slotIndex >= 0) {
+                                  // Update slot with parsed times from activities text
+                                  slotsToShow[slotIndex] = {
+                                    ...slotsToShow[slotIndex],
+                                    startTime: parsedStartTime,
+                                    endTime: parsedEndTime
+                                  };
+                                }
+                              }
+                            });
+                          }
                           
                           const dayNumber = scheduleDay.day;
                           const dayDateString = scheduleDay.date;
@@ -2801,24 +2928,70 @@ export default function ActivityViewPage() {
                                   // Check if on time
                                   if (matchedSlot.startTime && att.checkInTime) {
                                     const checkInTime = new Date(att.checkInTime);
-                                    const slotDate = new Date(dayDateString);
-                                    const [targetHour, targetMinute] = matchedSlot.startTime.split(':').map(Number);
-                                    const targetTime = new Date(slotDate);
-                                    targetTime.setHours(targetHour, targetMinute, 0, 0);
-                                    const lateTime = new Date(targetTime.getTime() + 15 * 60000);
-                                    slotAttendances[matchedSlot.name].startTimeStatus = checkInTime <= lateTime ? 'on_time' : 'late';
+                                    
+                                    // Validate checkInTime
+                                    if (isNaN(checkInTime.getTime())) {
+                                      slotAttendances[matchedSlot.name].startTimeStatus = 'late';
+                                    } else {
+                                      // Use the date from checkInTime to ensure same day comparison
+                                      const checkInDate = new Date(checkInTime);
+                                      checkInDate.setHours(0, 0, 0, 0);
+                                      
+                                      const [targetHour, targetMinute] = matchedSlot.startTime.split(':').map(Number);
+                                      const targetTime = new Date(checkInDate);
+                                      targetTime.setHours(targetHour, targetMinute, 0, 0);
+                                      targetTime.setSeconds(0, 0);
+                                      
+                                      // On-time window: 15 minutes before to 15 minutes after target time
+                                      const onTimeStart = new Date(targetTime);
+                                      onTimeStart.setMinutes(onTimeStart.getMinutes() - 15);
+                                      const onTimeEnd = new Date(targetTime);
+                                      onTimeEnd.setMinutes(onTimeEnd.getMinutes() + 15);
+                                      
+                                      // Use getTime() for precise comparison
+                                      const checkInTimeMs = checkInTime.getTime();
+                                      const onTimeStartMs = onTimeStart.getTime();
+                                      const onTimeEndMs = onTimeEnd.getTime();
+                                      
+                                      slotAttendances[matchedSlot.name].startTimeStatus = 
+                                        (checkInTimeMs >= onTimeStartMs && checkInTimeMs <= onTimeEndMs) ? 'on_time' : 'late';
+                                    }
                                   }
                                 } else if (att.checkInType === 'end') {
                                   slotAttendances[matchedSlot.name].end = fullAttendanceRecord;
                                   // Check if on time
                                   if (matchedSlot.endTime && att.checkInTime) {
                                     const checkInTime = new Date(att.checkInTime);
-                                    const slotDate = new Date(dayDateString);
-                                    const [targetHour, targetMinute] = matchedSlot.endTime.split(':').map(Number);
-                                    const targetTime = new Date(slotDate);
-                                    targetTime.setHours(targetHour, targetMinute, 0, 0);
-                                    const lateTime = new Date(targetTime.getTime() + 15 * 60000);
-                                    slotAttendances[matchedSlot.name].endTimeStatus = checkInTime <= lateTime ? 'on_time' : 'late';
+                                    
+                                    // Validate checkInTime
+                                    if (isNaN(checkInTime.getTime())) {
+                                      slotAttendances[matchedSlot.name].endTimeStatus = 'late';
+                                    } else {
+                                      // Use the date from checkInTime to ensure same day comparison
+                                      const checkInDate = new Date(checkInTime);
+                                      checkInDate.setHours(0, 0, 0, 0);
+                                      
+                                      const [targetHour, targetMinute] = matchedSlot.endTime.split(':').map(Number);
+                                      const targetTime = new Date(checkInDate);
+                                      targetTime.setHours(targetHour, targetMinute, 0, 0);
+                                      targetTime.setSeconds(0, 0);
+                                      
+                                      // On-time window: 15 minutes before to 15 minutes after target time
+                                      const onTimeStart = new Date(targetTime);
+                                      onTimeStart.setMinutes(onTimeStart.getMinutes() - 15);
+                                      const onTimeEnd = new Date(targetTime);
+                                      onTimeEnd.setMinutes(onTimeEnd.getMinutes() + 15);
+                                      
+                                      // Use getTime() for precise comparison
+                                      const checkInTimeMs = checkInTime.getTime();
+                                      const onTimeStartMs = onTimeStart.getTime();
+                                      const onTimeEndMs = onTimeEnd.getTime();
+                                      const targetTimeMs = targetTime.getTime();
+                                      
+                                      const isOnTime = checkInTimeMs >= onTimeStartMs && checkInTimeMs <= onTimeEndMs;
+                                      
+                                      slotAttendances[matchedSlot.name].endTimeStatus = isOnTime ? 'on_time' : 'late';
+                                    }
                                   }
                                 }
                               }

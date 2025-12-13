@@ -1206,6 +1206,90 @@ export default function StudentDashboard() {
     }
   };
 
+  // Helper function to get attendance status for a slot
+  const getAttendanceStatusForSlot = (activity: ActivityItem, slotDetails: {
+    slotName: string;
+    checkInType: 'start' | 'end';
+  } | null): {
+    hasCheckedIn: boolean;
+    checkInCount: number; // 0, 1, or 2
+    totalRequired: number; // Always 2 (start + end)
+    checkInTimes: { type: 'start' | 'end'; time: string; status: string }[];
+    currentCheckInType: 'start' | 'end' | null; // The check-in type that is currently active/open
+    hasCheckedInCurrentType: boolean; // Whether the current checkInType has been checked in
+  } => {
+    if (!slotDetails) {
+      return { hasCheckedIn: false, checkInCount: 0, totalRequired: 2, checkInTimes: [], currentCheckInType: null, hasCheckedInCurrentType: false };
+    }
+
+    const activityRecords = attendanceRecords[activity.id] || [];
+    
+    // Find records for this slot
+    let slotKey = '';
+    if (activity.isMultipleDays) {
+      // For multiple days, match by slot name (Sáng, Chiều, Tối)
+      slotKey = `Buổi ${slotDetails.slotName}`;
+    } else {
+      // For single day, match by slot name from timeSlots
+      const matchingSlot = activity.timeSlots?.find(slot => {
+        const slotName = slot.name.includes('Sáng') ? 'Sáng' :
+                        slot.name.includes('Chiều') ? 'Chiều' : 'Tối';
+        return slotName === slotDetails.slotName;
+      });
+      slotKey = matchingSlot?.name || '';
+    }
+
+    const startRecord = activityRecords.find(r => 
+      (r.timeSlot === slotKey || r.timeSlot?.includes(slotKey) || r.timeSlot?.includes(`Buổi ${slotDetails.slotName}`)) &&
+      r.checkInType === 'start' &&
+      (r.status === 'approved' || r.status === 'pending')
+    );
+
+    const endRecord = activityRecords.find(r => 
+      (r.timeSlot === slotKey || r.timeSlot?.includes(slotKey) || r.timeSlot?.includes(`Buổi ${slotDetails.slotName}`)) &&
+      r.checkInType === 'end' &&
+      (r.status === 'approved' || r.status === 'pending')
+    );
+
+    const checkInTimes: { type: 'start' | 'end'; time: string; status: string }[] = [];
+    if (startRecord) {
+      checkInTimes.push({
+        type: 'start',
+        time: startRecord.checkInTime,
+        status: startRecord.status
+      });
+    }
+    if (endRecord) {
+      checkInTimes.push({
+        type: 'end',
+        time: endRecord.checkInTime,
+        status: endRecord.status
+      });
+    }
+
+    const checkInCount = (startRecord ? 1 : 0) + (endRecord ? 1 : 0);
+    const hasCheckedIn = checkInCount > 0;
+
+    // Determine current check-in type: use slotDetails.checkInType (which represents the current window)
+    const currentCheckInType = slotDetails.checkInType;
+    
+    // Check if the current checkInType has been checked in
+    const hasCheckedInCurrentType = currentCheckInType === 'start' 
+      ? !!startRecord 
+      : currentCheckInType === 'end' 
+        ? !!endRecord 
+        : false;
+
+    return {
+      hasCheckedIn,
+      checkInCount,
+      totalRequired: 2,
+      checkInTimes,
+      currentCheckInType,
+      hasCheckedInCurrentType
+    };
+  };
+
   // Helper function to get check-in slot details
   const getCheckInSlotDetails = (activity: ActivityItem): {
     slotName: string;
@@ -1269,13 +1353,46 @@ export default function StudentDashboard() {
               endCheckInWindowEnd.setMinutes(endCheckInWindowEnd.getMinutes() + 15);
 
               // Check if within check-in window
+              // Priority: End window first (if both windows are active, prefer end window)
               let checkInType: 'start' | 'end' | null = null;
               let requiredTime: Date | null = null;
               let isOnTime: boolean = false;
               let statusText: string = '';
               let timeDifference: string = '';
 
-              if (now.getTime() >= startCheckInWindowStart.getTime() && now.getTime() <= startCheckInWindowEnd.getTime()) {
+              // Check end window first (higher priority when both windows are active)
+              if (now.getTime() >= endCheckInWindowStart.getTime() && now.getTime() <= endCheckInWindowEnd.getTime()) {
+                // End check-in window
+                checkInType = 'end';
+                requiredTime = slotEndTime;
+                
+                isOnTime = now.getTime() <= slotEndTime.getTime() + 15 * 60 * 1000;
+                
+                const diffMs = slotEndTime.getTime() - now.getTime();
+                const totalMinutes = Math.abs(Math.floor(diffMs / (1000 * 60)));
+                const hours = Math.floor(totalMinutes / 60);
+                const minutes = totalMinutes % 60;
+                
+                if (now.getTime() <= slotEndTime.getTime() + 15 * 60 * 1000) {
+                  statusText = 'Đúng giờ';
+                  if (totalMinutes > 0) {
+                    if (hours > 0 && minutes > 0) {
+                      timeDifference = `Còn ${hours} giờ ${minutes} phút`;
+                    } else if (hours > 0) {
+                      timeDifference = `Còn ${hours} giờ`;
+                    } else {
+                      timeDifference = `Còn ${minutes} phút`;
+                    }
+                  } else {
+                    timeDifference = 'Đúng giờ';
+                  }
+                } else {
+                  statusText = 'Trễ';
+                  const lateMs = now.getTime() - (slotEndTime.getTime() + 15 * 60 * 1000);
+                  const lateMinutes = Math.floor(lateMs / (1000 * 60));
+                  timeDifference = `Trễ ${lateMinutes} phút`;
+                }
+              } else if (now.getTime() >= startCheckInWindowStart.getTime() && now.getTime() <= startCheckInWindowEnd.getTime()) {
                 // Start check-in window (6h45-7h15)
                 checkInType = 'start';
                 requiredTime = slotStartTime;
@@ -1307,37 +1424,6 @@ export default function StudentDashboard() {
                   // Trễ (7h16-7h30) - nhưng không nên vào đây vì window chỉ đến 7h15
                   statusText = 'Trễ';
                   const lateMs = now.getTime() - (slotStartTime.getTime() + 15 * 60 * 1000);
-                  const lateMinutes = Math.floor(lateMs / (1000 * 60));
-                  timeDifference = `Trễ ${lateMinutes} phút`;
-                }
-              } else if (now.getTime() >= endCheckInWindowStart.getTime() && now.getTime() <= endCheckInWindowEnd.getTime()) {
-                // End check-in window
-                checkInType = 'end';
-                requiredTime = slotEndTime;
-                
-                isOnTime = now.getTime() <= slotEndTime.getTime() + 15 * 60 * 1000;
-                
-                const diffMs = slotEndTime.getTime() - now.getTime();
-                const totalMinutes = Math.abs(Math.floor(diffMs / (1000 * 60)));
-                const hours = Math.floor(totalMinutes / 60);
-                const minutes = totalMinutes % 60;
-                
-                if (now.getTime() <= slotEndTime.getTime() + 15 * 60 * 1000) {
-                  statusText = 'Đúng giờ';
-                  if (totalMinutes > 0) {
-                    if (hours > 0 && minutes > 0) {
-                      timeDifference = `Còn ${hours} giờ ${minutes} phút`;
-                    } else if (hours > 0) {
-                      timeDifference = `Còn ${hours} giờ`;
-                    } else {
-                      timeDifference = `Còn ${minutes} phút`;
-                    }
-                  } else {
-                    timeDifference = 'Đúng giờ';
-                  }
-                } else {
-                  statusText = 'Trễ';
-                  const lateMs = now.getTime() - (slotEndTime.getTime() + 15 * 60 * 1000);
                   const lateMinutes = Math.floor(lateMs / (1000 * 60));
                   timeDifference = `Trễ ${lateMinutes} phút`;
                 }
@@ -1407,58 +1493,15 @@ export default function StudentDashboard() {
             const endCheckInWindowEnd = new Date(slotEndTime);
             endCheckInWindowEnd.setMinutes(endCheckInWindowEnd.getMinutes() + 15);
 
+            // Priority: End window first (if both windows are active, prefer end window)
             let checkInType: 'start' | 'end' | null = null;
             let requiredTime: Date | null = null;
             let isOnTime: boolean = false;
             let statusText: string = '';
             let timeDifference: string = '';
 
-            if (now.getTime() >= startCheckInWindowStart.getTime() && now.getTime() <= startCheckInWindowEnd.getTime()) {
-              // Start check-in window
-              checkInType = 'start';
-              requiredTime = slotStartTime;
-              
-              const onTimeEnd = new Date(slotStartTime);
-              onTimeEnd.setMinutes(onTimeEnd.getMinutes() + 15);
-              
-              if (now.getTime() <= onTimeEnd.getTime()) {
-                // Đúng giờ (15 phút trước đến 15 phút sau)
-                isOnTime = true;
-                statusText = 'Đúng giờ';
-                const diffMs = slotStartTime.getTime() - now.getTime();
-                const totalMinutes = Math.abs(Math.floor(diffMs / (1000 * 60)));
-                const hours = Math.floor(totalMinutes / 60);
-                const minutes = totalMinutes % 60;
-                
-                if (totalMinutes > 0) {
-                  if (hours > 0 && minutes > 0) {
-                    timeDifference = `Còn ${hours} giờ ${minutes} phút`;
-                  } else if (hours > 0) {
-                    timeDifference = `Còn ${hours} giờ`;
-                  } else {
-                    timeDifference = `Còn ${minutes} phút`;
-                  }
-                } else {
-                  timeDifference = 'Đúng giờ';
-                }
-              } else {
-                // Trễ (sau 15 phút nhưng vẫn trong window)
-                isOnTime = false;
-                statusText = 'Trễ';
-                const lateMs = now.getTime() - onTimeEnd.getTime();
-                const lateMinutes = Math.floor(lateMs / (1000 * 60));
-                const lateHours = Math.floor(lateMinutes / 60);
-                const lateMins = lateMinutes % 60;
-                
-                if (lateHours > 0 && lateMins > 0) {
-                  timeDifference = `Trễ ${lateHours} giờ ${lateMins} phút`;
-                } else if (lateHours > 0) {
-                  timeDifference = `Trễ ${lateHours} giờ`;
-                } else {
-                  timeDifference = `Trễ ${lateMins} phút`;
-                }
-              }
-            } else if (now.getTime() >= endCheckInWindowStart.getTime() && now.getTime() <= endCheckInWindowEnd.getTime()) {
+            // Check end window first (higher priority when both windows are active)
+            if (now.getTime() >= endCheckInWindowStart.getTime() && now.getTime() <= endCheckInWindowEnd.getTime()) {
               // End check-in window
               checkInType = 'end';
               requiredTime = slotEndTime;
@@ -1501,7 +1544,52 @@ export default function StudentDashboard() {
                   timeDifference = `Trễ ${lateMins} phút`;
                 }
               }
-            }
+            } else if (now.getTime() >= startCheckInWindowStart.getTime() && now.getTime() <= startCheckInWindowEnd.getTime()) {
+              // Start check-in window
+              checkInType = 'start';
+              requiredTime = slotStartTime;
+              
+              const onTimeEnd = new Date(slotStartTime);
+              onTimeEnd.setMinutes(onTimeEnd.getMinutes() + 15);
+              
+              if (now.getTime() <= onTimeEnd.getTime()) {
+                // Đúng giờ (15 phút trước đến 15 phút sau)
+                isOnTime = true;
+                statusText = 'Đúng giờ';
+                const diffMs = slotStartTime.getTime() - now.getTime();
+                const totalMinutes = Math.abs(Math.floor(diffMs / (1000 * 60)));
+                const hours = Math.floor(totalMinutes / 60);
+                const minutes = totalMinutes % 60;
+                
+                if (totalMinutes > 0) {
+                  if (hours > 0 && minutes > 0) {
+                    timeDifference = `Còn ${hours} giờ ${minutes} phút`;
+                  } else if (hours > 0) {
+                    timeDifference = `Còn ${hours} giờ`;
+                  } else {
+                    timeDifference = `Còn ${minutes} phút`;
+                  }
+                } else {
+                  timeDifference = 'Đúng giờ';
+                }
+                } else {
+                  // Trễ (sau 15 phút nhưng vẫn trong window)
+                  isOnTime = false;
+                  statusText = 'Trễ';
+                  const lateMs = now.getTime() - onTimeEnd.getTime();
+                  const lateMinutes = Math.floor(lateMs / (1000 * 60));
+                  const lateHours = Math.floor(lateMinutes / 60);
+                  const lateMins = lateMinutes % 60;
+                  
+                  if (lateHours > 0 && lateMins > 0) {
+                    timeDifference = `Trễ ${lateHours} giờ ${lateMins} phút`;
+                  } else if (lateHours > 0) {
+                    timeDifference = `Trễ ${lateHours} giờ`;
+                  } else {
+                    timeDifference = `Trễ ${lateMins} phút`;
+                  }
+                }
+              }
 
             if (checkInType && requiredTime) {
 
@@ -2001,23 +2089,49 @@ export default function StudentDashboard() {
       }
     });
 
-    // Sort each category by date
+    // Sort each category - prioritize ongoing activities, then images, then by date
     const sortByDate = (a: ActivityItem, b: ActivityItem) => {
+      // Priority 1: Ongoing activities first (đang diễn ra lên đầu)
+      const aTimeStatus = getActivityTimeStatus(a);
+      const bTimeStatus = getActivityTimeStatus(b);
+      if (aTimeStatus !== bTimeStatus) {
+        if (aTimeStatus === 'during') return -1; // Ongoing comes first
+        if (bTimeStatus === 'during') return 1;
+      }
+      
+      // Priority 2: Activities with images (within same time status)
+      const aHasImage = !!(a.imageUrl && a.imageUrl.trim());
+      const bHasImage = !!(b.imageUrl && b.imageUrl.trim());
+      if (aHasImage !== bHasImage) {
+        return bHasImage ? 1 : -1; // Activities with images come first
+      }
+      
+      // Priority 3: Sort by date
       const dateA = getActivityDate(a);
       const dateB = getActivityDate(b);
       if (!dateA || !dateB) return 0;
       return dateA.getTime() - dateB.getTime();
     };
 
-    unregistered.sort(sortByDate);
-    registeredOngoing.sort(sortByDate);
-    registeredUpcoming.sort(sortByDate);
-    registeredCompleted.sort((a, b) => {
+    const sortByDateReverse = (a: ActivityItem, b: ActivityItem) => {
+      // Priority 1: Activities with images first
+      const aHasImage = !!(a.imageUrl && a.imageUrl.trim());
+      const bHasImage = !!(b.imageUrl && b.imageUrl.trim());
+      if (aHasImage !== bHasImage) {
+        return bHasImage ? 1 : -1; // Activities with images come first
+      }
+      
+      // Priority 2: Sort by date (reverse for completed - newest first)
       const dateA = getActivityDate(a);
       const dateB = getActivityDate(b);
       if (!dateA || !dateB) return 0;
-      return dateB.getTime() - dateA.getTime(); // Reverse for completed (newest first)
-    });
+      return dateB.getTime() - dateA.getTime();
+    };
+
+    unregistered.sort(sortByDate);
+    registeredOngoing.sort(sortByDate);
+    registeredUpcoming.sort(sortByDate);
+    registeredCompleted.sort(sortByDateReverse);
 
     return {
       unregistered,
@@ -2086,8 +2200,24 @@ export default function StudentDashboard() {
       });
     }
 
-    // Sort
+    // Sort - prioritize ongoing activities first, then images, then by date
     filtered.sort((a, b) => {
+      // Priority 1: Ongoing activities first (đang diễn ra lên đầu)
+      const aTimeStatus = getActivityTimeStatus(a);
+      const bTimeStatus = getActivityTimeStatus(b);
+      if (aTimeStatus !== bTimeStatus) {
+        if (aTimeStatus === 'during') return -1; // Ongoing comes first
+        if (bTimeStatus === 'during') return 1;
+      }
+      
+      // Priority 2: Activities with images (within same time status)
+      const aHasImage = !!(a.imageUrl && a.imageUrl.trim());
+      const bHasImage = !!(b.imageUrl && b.imageUrl.trim());
+      if (aHasImage !== bHasImage) {
+        return bHasImage ? 1 : -1; // Activities with images come first
+      }
+      
+      // Priority 3: Sort by date
       const dateA = getActivityDate(a);
       const dateB = getActivityDate(b);
 
@@ -3309,11 +3439,35 @@ export default function StudentDashboard() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to register for activity');
+        let errorData: any = {};
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            errorData = await response.json();
+          } else {
+            const text = await response.text();
+            errorData = { message: text || `Lỗi ${response.status}. Vui lòng thử lại.` };
+          }
+        } catch (parseError) {
+          console.error('Error parsing error response:', parseError);
+          errorData = { message: `Lỗi ${response.status}. Vui lòng thử lại.` };
+        }
+        const errorMessage = errorData.message || errorData.error || 'Đăng ký thất bại';
+        throw new Error(errorMessage);
       }
 
-      const result = await response.json();
+      let result: any = {};
+      try {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          result = await response.json();
+        } else {
+          throw new Error('Response không phải JSON');
+        }
+      } catch (parseError) {
+        console.error('Error parsing success response:', parseError);
+        throw new Error('Lỗi xử lý response từ server.');
+      }
       setSuccessMessage(result.message || 'Đăng ký thành công');
       setTimeout(() => setSuccessMessage(null), 3000);
 
@@ -3617,11 +3771,35 @@ export default function StudentDashboard() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Đăng ký thất bại');
+        let errorData: any = {};
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            errorData = await response.json();
+          } else {
+            const text = await response.text();
+            errorData = { message: text || `Lỗi ${response.status}. Vui lòng thử lại.` };
+          }
+        } catch (parseError) {
+          console.error('Error parsing error response:', parseError);
+          errorData = { message: `Lỗi ${response.status}. Vui lòng thử lại.` };
+        }
+        const errorMessage = errorData.message || errorData.error || 'Đăng ký thất bại';
+        throw new Error(errorMessage);
       }
 
-      const result = await response.json();
+      let result: any = {};
+      try {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          result = await response.json();
+        } else {
+          throw new Error('Response không phải JSON');
+        }
+      } catch (parseError) {
+        console.error('Error parsing success response:', parseError);
+        throw new Error('Lỗi xử lý response từ server.');
+      }
       setSuccessMessage(result.message || 'Đăng ký thành công');
       setTimeout(() => setSuccessMessage(null), 3000);
 
@@ -4005,8 +4183,14 @@ export default function StudentDashboard() {
         </div>
         )}
 
-        {/* Tomorrow Activities Countdown Section */}
+        {/* Urgent Check-in and Tomorrow Activities - Side by Side */}
         {isAuthenticated && user && (() => {
+          const urgentActivities = availableActivities.filter(activity => {
+            return activity.isRegistered && 
+                   activity.approvalStatus === 'approved' && 
+                   isActivityNeedingCheckIn(activity);
+          });
+
           const tomorrowActivities = availableActivities.filter(activity => {
             // Chỉ hiển thị nếu:
             // 1. Đã đăng ký và được duyệt
@@ -4016,12 +4200,678 @@ export default function StudentDashboard() {
                    isActivityTomorrow(activity);
           });
 
-          if (tomorrowActivities.length === 0) return null;
+          // Nếu cả 2 section đều không có hoạt động thì không hiển thị
+          if (urgentActivities.length === 0 && tomorrowActivities.length === 0) return null;
 
           return (
-            <div 
-              id="tomorrow-activities-section"
-              className={`mb-4 mt-4 rounded-xl border-2 overflow-visible shadow-lg relative z-30 scroll-mt-24 ${
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 mb-4 mt-4 items-stretch">
+              {/* Urgent Check-in Section - Left Side (First) */}
+              {urgentActivities.length > 0 && (
+                <div className={`rounded-l-lg lg:rounded-r-none border-2 border-r-0 lg:border-r-2 overflow-hidden shadow-lg relative flex flex-col h-full ${
+                  isDarkMode 
+                    ? 'bg-gradient-to-br from-red-900/50 via-red-800/60 to-red-900/50 border-red-500 ring-2 ring-red-500/30' 
+                    : 'bg-gradient-to-br from-red-50 via-red-100/70 to-red-50 border-red-400 shadow-red-300/50 ring-2 ring-red-200/40'
+                }`}
+                style={{
+                  animation: 'pulse-glow 2s ease-in-out infinite',
+                }}>
+                  {/* Animated border glow */}
+                  <div className={`absolute inset-0 rounded-lg ${
+                    isDarkMode 
+                      ? 'bg-red-500/20' 
+                      : 'bg-red-400/30'
+                  }`}
+                  style={{
+                    animation: 'pulse-border 2s ease-in-out infinite',
+                    boxShadow: isDarkMode 
+                      ? '0 0 20px rgba(239, 68, 68, 0.3)' 
+                      : '0 0 20px rgba(248, 113, 113, 0.4)',
+                  }} />
+                  
+                  {/* Compact Header with Animation */}
+                  <div className={`relative px-3 py-2 border-b-2 flex items-center justify-between ${
+                    isDarkMode 
+                      ? 'bg-gradient-to-r from-red-700 via-red-600 to-red-700 border-red-500' 
+                      : 'bg-gradient-to-r from-red-500 via-red-600 to-red-500 border-red-400'
+                  }`}
+                  style={{
+                    animation: 'pulse-header 2s ease-in-out infinite',
+                  }}>
+                    <div className="flex items-center gap-2">
+                      <div className={`p-1.5 rounded-lg ${
+                        isDarkMode 
+                          ? 'bg-red-500 text-white' 
+                          : 'bg-red-700 text-white'
+                      }`}
+                      style={{
+                        animation: 'pulse-icon 1.5s ease-in-out infinite',
+                        boxShadow: isDarkMode 
+                          ? '0 0 10px rgba(255, 255, 255, 0.3)' 
+                          : '0 0 10px rgba(255, 255, 255, 0.4)',
+                      }}>
+                        <CheckSquare size={12} strokeWidth={2.5} />
+                      </div>
+                      <div>
+                        <h2 className={`text-xs font-bold ${
+                          isDarkMode ? 'text-white' : 'text-white'
+                        }`}
+                        style={{
+                          animation: 'pulse-text 2s ease-in-out infinite',
+                          textShadow: '0 1px 3px rgba(0, 0, 0, 0.5)',
+                        }}>
+                          ⚠️ Cần điểm danh ngay
+                        </h2>
+                        <p className={`text-[10px] mt-0.5 font-medium ${
+                          isDarkMode ? 'text-red-100' : 'text-red-50'
+                        }`}
+                        style={{
+                          textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)',
+                        }}>
+                          {urgentActivities.length} hoạt động đang diễn ra
+                        </p>
+                      </div>
+                    </div>
+                    <div className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                        isDarkMode 
+                        ? 'bg-red-500 text-white border-2 border-red-400' 
+                        : 'bg-red-700 text-white border-2 border-red-600'
+                    }`}
+                    style={{
+                      animation: 'pulse-badge 1.5s ease-in-out infinite',
+                      boxShadow: isDarkMode 
+                        ? '0 0 12px rgba(255, 255, 255, 0.3)' 
+                        : '0 0 12px rgba(255, 255, 255, 0.4)',
+                    }}>
+                          {urgentActivities.length}
+                    </div>
+                  </div>
+
+                  {/* Compact Activities List */}
+                  <div className="p-2 relative z-10">
+                    {(() => {
+                      const groupedByDate = groupActivitiesByDate(urgentActivities);
+                      const shouldGroup = urgentActivities.length > 3; // Chỉ nhóm khi có nhiều hơn 3 hoạt động
+                      
+                      if (shouldGroup && groupedByDate.length > 0) {
+                        return (
+                          <div className="space-y-3">
+                            {groupedByDate.map(({ dateKey, dateLabel, activities }) => (
+                              <div key={dateKey} className="space-y-2">
+                                {/* Date Header */}
+                                <div className={`px-2 py-1.5 rounded-lg border ${
+                                  isDarkMode 
+                                    ? 'bg-red-800/30 border-red-500/50' 
+                                    : 'bg-red-100/50 border-red-300'
+                                }`}>
+                                  <div className="flex items-center gap-2">
+                                    <Calendar size={14} className={isDarkMode ? 'text-red-300' : 'text-red-700'} strokeWidth={2} />
+                                    <h3 className={`text-sm font-bold ${
+                                      isDarkMode ? 'text-red-200' : 'text-red-900'
+                                    }`}>
+                                      {dateLabel}
+                                    </h3>
+                                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                      isDarkMode 
+                                        ? 'bg-red-600/40 text-red-200' 
+                                        : 'bg-red-500 text-white'
+                                    }`}>
+                                      {activities.length} hoạt động
+                                    </span>
+                                  </div>
+                                </div>
+                                
+                                {/* Activities Grid for this date */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-stretch">
+                                  {activities.map((activity, index) => {
+                                    const slotDetails = getCheckInSlotDetails(activity);
+                                    const attendanceStatus = getAttendanceStatusForSlot(activity, slotDetails);
+
+                                    return (
+                                      <div
+                                        key={activity.id}
+                                        className={`group rounded-lg border-2 overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-lg flex flex-col h-full ${
+                                          isDarkMode 
+                                            ? 'bg-gray-800/95 border-red-500/50 hover:border-red-400' 
+                                            : 'bg-white border-red-300 hover:border-red-400'
+                                        }`}
+                                        style={{ minHeight: '280px', maxHeight: '280px' }}
+                                      >
+                                        {/* Card Header - Red Background */}
+                                        <div className={`px-2.5 py-1.5 border-b-2 flex-shrink-0 ${
+                                          isDarkMode
+                                            ? 'bg-gradient-to-r from-red-600/50 via-red-500/50 to-red-600/50 border-red-400/50'
+                                            : 'bg-gradient-to-r from-red-500 via-red-600 to-red-500 border-red-400'
+                                        }`}>
+                                          <div className="flex items-center gap-1.5">
+                                            <CheckSquare size={12} className="text-white" strokeWidth={2.5} />
+                                            <span className="text-[10px] font-bold text-white">
+                                              Cần điểm danh ngay
+                                            </span>
+                                          </div>
+                                        </div>
+
+                                        {/* Activity Image */}
+                                        <div className="relative h-20 overflow-hidden flex-shrink-0">
+                                          {activity.imageUrl ? (
+                                            <img
+                                              src={activity.imageUrl}
+                                              alt={activity.title}
+                                              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                                            />
+                                          ) : (
+                                            <div className={`w-full h-full flex items-center justify-center ${
+                                              isDarkMode ? 'bg-gray-700/50' : 'bg-gray-100'
+                                            }`}>
+                                              <ImageIcon size={16} className={isDarkMode ? 'text-gray-500' : 'text-gray-400'} strokeWidth={1.5} />
+                                            </div>
+                                          )}
+                                          {/* Registered Badge */}
+                                          {activity.isRegistered && (
+                                            <div className="absolute top-1 left-1 z-10">
+                                              <div className={`p-1 rounded-full shadow-md backdrop-blur-sm ${
+                                                activity.approvalStatus === 'approved'
+                                                  ? isDarkMode 
+                                                    ? 'bg-green-500/90 text-white border border-green-400/50' 
+                                                    : 'bg-green-500 text-white border border-green-600'
+                                                  : isDarkMode 
+                                                    ? 'bg-yellow-500/90 text-white border border-yellow-400/50' 
+                                                    : 'bg-yellow-500 text-white border border-yellow-600'
+                                              }`}>
+                                                <CheckCircle2 size={10} strokeWidth={2.5} />
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        {/* Activity Info */}
+                                        <div className="p-2.5 flex-1 flex flex-col min-h-0">
+                                          {/* Title */}
+                                          <h3 className={`text-xs font-bold line-clamp-2 mb-2 flex-shrink-0 ${
+                                            isDarkMode ? 'text-white' : 'text-gray-900'
+                                          }`}>
+                                            {activity.title}
+                                          </h3>
+                                          
+                                          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
+                                          {slotDetails ? (
+                                            <>
+                                              {attendanceStatus.hasCheckedInCurrentType ? (
+                                                <>
+                                                  {/* Đã điểm danh cho checkInType hiện tại - Success State */}
+                                                  <div className={`mb-2 text-center flex-shrink-0`}>
+                                                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg ${
+                                                      isDarkMode 
+                                                        ? 'bg-green-600/30 border-2 border-green-500/50' 
+                                                        : 'bg-green-50 border-2 border-green-300'
+                                                    }`}>
+                                                      <CheckCircle2 size={12} className={
+                                                        isDarkMode ? 'text-green-300' : 'text-green-600'
+                                                      } />
+                                                      <span className={`text-xs font-bold ${
+                                                        isDarkMode ? 'text-green-300' : 'text-green-700'
+                                                      }`}>
+                                                        Đã điểm danh thành công
+                                                      </span>
+                                                    </div>
+                                                  </div>
+
+                                                  {/* Date & Slot Info */}
+                                                  <div className={`flex items-center gap-1.5 mb-2 text-[10px] flex-shrink-0 ${
+                                                    isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                                                  }`}>
+                                                    <Calendar size={10} className="flex-shrink-0" />
+                                                    <span className="truncate">{slotDetails.date}</span>
+                                                    <span className="mx-0.5">•</span>
+                                                    <span className="font-semibold">
+                                                      {attendanceStatus.currentCheckInType === 'start' ? '📍 Đầu' : attendanceStatus.currentCheckInType === 'end' ? '🏁 Cuối' : ''} buổi {slotDetails.slotName}
+                                                    </span>
+                                                  </div>
+
+                                                  {/* Check-in Times */}
+                                                  {attendanceStatus.checkInTimes.length > 0 && (
+                                                    <div className={`mb-2 text-[10px] flex-shrink-0 space-y-1 ${
+                                                      isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                                                    }`}>
+                                                      {attendanceStatus.checkInTimes.map((checkIn, idx) => (
+                                                        <div key={idx} className="flex items-center gap-1.5">
+                                                          <Clock size={10} className="flex-shrink-0" />
+                                                          <span>
+                                                            {checkIn.type === 'start' ? '📍 Đầu buổi' : '🏁 Cuối buổi'}: 
+                                                            <span className="font-semibold ml-1">
+                                                              {new Date(checkIn.time).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                                                            </span>
+                                                          </span>
+                                                        </div>
+                                                      ))}
+                                                    </div>
+                                                  )}
+
+                                                  {/* Attendance Count (1/2 or 2/2) */}
+                                                  <div className={`mb-2 text-center flex-shrink-0`}>
+                                                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold ${
+                                                      attendanceStatus.checkInCount === 2
+                                                        ? isDarkMode 
+                                                          ? 'bg-green-600/40 text-green-200 border border-green-500/50' 
+                                                          : 'bg-green-100 text-green-700 border border-green-300'
+                                                        : isDarkMode 
+                                                          ? 'bg-yellow-600/40 text-yellow-200 border border-yellow-500/50' 
+                                                          : 'bg-yellow-100 text-yellow-700 border border-yellow-300'
+                                                    }`}>
+                                                      {attendanceStatus.checkInCount}/{attendanceStatus.totalRequired}
+                                                    </span>
+                                                  </div>
+                                                </>
+                                              ) : (
+                                                <>
+                                                  {/* Chưa điểm danh - Normal State */}
+                                                  {/* Date & Slot Info */}
+                                                  <div className={`flex items-center gap-1.5 mb-2 text-[10px] flex-shrink-0 ${
+                                                    isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                                                  }`}>
+                                                    <Calendar size={10} className="flex-shrink-0" />
+                                                    <span className="truncate">{slotDetails.date}</span>
+                                                    <span className="mx-0.5">•</span>
+                                                    <span className="font-semibold">
+                                                      {slotDetails.checkInType === 'start' ? '📍 Đầu' : '🏁 Cuối'} buổi {slotDetails.slotName}
+                                                    </span>
+                                                  </div>
+
+                                                  {/* Time Info */}
+                                                  <div className={`mb-2 text-[10px] flex-shrink-0 space-y-1 ${
+                                                    isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                                                  }`}>
+                                                    <div className="flex items-center gap-1.5">
+                                                      <Clock size={10} className="flex-shrink-0" />
+                                                      <span>Hiện tại: <span className="font-semibold">{slotDetails.currentTime}</span></span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5">
+                                                      <Clock size={10} className="flex-shrink-0" />
+                                                      <span>Cần điểm danh: <span className="font-semibold">{slotDetails.requiredTime}</span></span>
+                                                    </div>
+                                                  </div>
+
+                                                  {/* Countdown Timer / Time Difference */}
+                                                  <div className={`mb-2 text-center flex-shrink-0 ${
+                                                    isDarkMode ? 'text-white' : 'text-gray-900'
+                                                  }`}>
+                                                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg ${
+                                                      slotDetails.isOnTime
+                                                        ? isDarkMode 
+                                                          ? 'bg-green-600/30 border-2 border-green-500/50' 
+                                                          : 'bg-green-50 border-2 border-green-300'
+                                                        : isDarkMode 
+                                                          ? 'bg-orange-600/30 border-2 border-orange-500/50' 
+                                                          : 'bg-orange-50 border-2 border-orange-300'
+                                                    }`}>
+                                                      <Clock size={12} className={
+                                                        slotDetails.isOnTime
+                                                          ? isDarkMode ? 'text-green-300' : 'text-green-600'
+                                                          : isDarkMode ? 'text-orange-300' : 'text-orange-600'
+                                                      } />
+                                                      <span className={`text-xs font-bold ${
+                                                        slotDetails.isOnTime
+                                                          ? isDarkMode ? 'text-green-300' : 'text-green-700'
+                                                          : isDarkMode ? 'text-orange-300' : 'text-orange-700'
+                                                      }`}>
+                                                        {slotDetails.timeDifference}
+                                                      </span>
+                                                    </div>
+                                                  </div>
+
+                                                  {/* Status Badge */}
+                                                  <div className={`mb-2 flex-shrink-0`}>
+                                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                                                      slotDetails.isOnTime
+                                                        ? isDarkMode 
+                                                          ? 'bg-green-600/40 text-green-200 border border-green-500/50' 
+                                                          : 'bg-green-100 text-green-700 border border-green-300'
+                                                        : isDarkMode 
+                                                          ? 'bg-orange-600/40 text-orange-200 border border-orange-500/50' 
+                                                          : 'bg-orange-100 text-orange-700 border border-orange-300'
+                                                    }`}>
+                                                      {slotDetails.isOnTime ? '✅' : '⚠️'} {slotDetails.statusText}
+                                                    </span>
+                                                  </div>
+                                                </>
+                                              )}
+
+                                              {/* Location */}
+                                              {activity.location && (
+                                                <div className={`flex items-center gap-1.5 mb-2 text-[10px] flex-shrink-0 ${
+                                                  isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                                                }`}>
+                                                  <MapPin size={10} className="flex-shrink-0" />
+                                                  <span className="truncate">{activity.location}</span>
+                                                </div>
+                                              )}
+                                            </>
+                                          ) : (
+                                            <div className={`text-[10px] flex-shrink-0 ${
+                                              isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                                            }`}>
+                                              Đang tải thông tin...
+                                            </div>
+                                          )}
+                                          </div>
+
+                                          {/* Check-in Button */}
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              router.push(`/student/attendance/${activity.id}`);
+                                            }}
+                                            className={`mt-2 flex-shrink-0 w-full py-2 px-2 rounded-md text-[10px] font-bold transition-all duration-300 border-2 relative overflow-hidden flex items-center justify-center gap-1.5 ${
+                                              attendanceStatus.checkInCount === 2
+                                                ? isDarkMode 
+                                                  ? 'bg-gradient-to-r from-green-600 to-green-500 text-white border-green-400 hover:from-green-500 hover:to-green-400' 
+                                                  : 'bg-gradient-to-r from-green-500 to-green-600 text-white border-green-400 hover:from-green-600 hover:to-green-700'
+                                                : isDarkMode 
+                                                  ? 'bg-gradient-to-r from-red-600 to-red-500 text-white border-red-400 hover:from-red-500 hover:to-red-400' 
+                                                  : 'bg-gradient-to-r from-red-500 to-red-600 text-white border-red-400 hover:from-red-600 hover:to-red-700'
+                                            }`}
+                                            style={attendanceStatus.checkInCount === 2 ? {} : {
+                                              animation: 'pulse-button 1.5s ease-in-out infinite',
+                                              boxShadow: isDarkMode 
+                                                ? '0 2px 8px rgba(239, 68, 68, 0.4)' 
+                                                : '0 2px 8px rgba(239, 68, 68, 0.5)',
+                                            }}
+                                          >
+                                            <CheckSquare size={12} strokeWidth={2.5} />
+                                            <span>{attendanceStatus.checkInCount === 2 ? 'Xem chi tiết' : 'Điểm danh ngay'}</span>
+                                            {attendanceStatus.checkInCount < 2 && (
+                                              <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 bg-gradient-to-r from-transparent via-white/30 to-transparent rounded" />
+                                            )}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      } else {
+                        // Không nhóm khi có ít hoạt động
+                        return (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 items-stretch">
+                            {urgentActivities.map((activity, index) => {
+                              const slotDetails = getCheckInSlotDetails(activity);
+                              const attendanceStatus = getAttendanceStatusForSlot(activity, slotDetails);
+
+                              return (
+                                <div
+                                  key={activity.id}
+                                  className={`group rounded-lg border-2 overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-lg flex flex-col h-full ${
+                                    isDarkMode 
+                                      ? 'bg-gray-800/95 border-red-500/50 hover:border-red-400' 
+                                      : 'bg-white border-red-300 hover:border-red-400'
+                                  }`}
+                                  style={{ minHeight: '280px', maxHeight: '280px' }}
+                                >
+                                  {/* Card Header - Red Background */}
+                                  <div className={`px-2.5 py-1.5 border-b-2 flex-shrink-0 ${
+                                    isDarkMode
+                                      ? 'bg-gradient-to-r from-red-600/50 via-red-500/50 to-red-600/50 border-red-400/50'
+                                      : 'bg-gradient-to-r from-red-500 via-red-600 to-red-500 border-red-400'
+                                  }`}>
+                                    <div className="flex items-center gap-1.5">
+                                      <CheckSquare size={12} className="text-white" strokeWidth={2.5} />
+                                      <span className="text-[10px] font-bold text-white">
+                                        Cần điểm danh ngay
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* Activity Image */}
+                                  <div className="relative h-20 overflow-hidden flex-shrink-0">
+                                    {activity.imageUrl ? (
+                                      <img
+                                        src={activity.imageUrl}
+                                        alt={activity.title}
+                                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                                      />
+                                    ) : (
+                                      <div className={`w-full h-full flex items-center justify-center ${
+                                        isDarkMode ? 'bg-gray-700/50' : 'bg-gray-100'
+                                      }`}>
+                                        <ImageIcon size={16} className={isDarkMode ? 'text-gray-500' : 'text-gray-400'} strokeWidth={1.5} />
+                                      </div>
+                                    )}
+                                    {/* Registered Badge */}
+                                    {activity.isRegistered && (
+                                      <div className="absolute top-1 left-1 z-10">
+                                        <div className={`p-1 rounded-full shadow-md backdrop-blur-sm ${
+                                          activity.approvalStatus === 'approved'
+                                            ? isDarkMode 
+                                              ? 'bg-green-500/90 text-white border border-green-400/50' 
+                                              : 'bg-green-500 text-white border border-green-600'
+                                            : isDarkMode 
+                                              ? 'bg-yellow-500/90 text-white border border-yellow-400/50' 
+                                              : 'bg-yellow-500 text-white border border-yellow-600'
+                                        }`}>
+                                          <CheckCircle2 size={10} strokeWidth={2.5} />
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Activity Info */}
+                                  <div className="p-2.5 flex-1 flex flex-col min-h-0">
+                                    {/* Title */}
+                                    <h3 className={`text-xs font-bold line-clamp-2 mb-2 flex-shrink-0 ${
+                                      isDarkMode ? 'text-white' : 'text-gray-900'
+                                    }`}>
+                                      {activity.title}
+                                    </h3>
+                                    
+                                    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
+                                    {slotDetails ? (
+                                      <>
+                                        {attendanceStatus.hasCheckedInCurrentType ? (
+                                          <>
+                                            {/* Đã điểm danh cho checkInType hiện tại - Success State */}
+                                            <div className={`mb-2 text-center flex-shrink-0`}>
+                                              <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg ${
+                                                isDarkMode 
+                                                  ? 'bg-green-600/30 border-2 border-green-500/50' 
+                                                  : 'bg-green-50 border-2 border-green-300'
+                                              }`}>
+                                                <CheckCircle2 size={12} className={
+                                                  isDarkMode ? 'text-green-300' : 'text-green-600'
+                                                } />
+                                                <span className={`text-xs font-bold ${
+                                                  isDarkMode ? 'text-green-300' : 'text-green-700'
+                                                }`}>
+                                                  Đã điểm danh thành công
+                                                </span>
+                                              </div>
+                                            </div>
+
+                                            {/* Date & Slot Info */}
+                                            <div className={`flex items-center gap-1.5 mb-2 text-[10px] flex-shrink-0 ${
+                                              isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                                            }`}>
+                                              <Calendar size={10} className="flex-shrink-0" />
+                                              <span className="truncate">{slotDetails.date}</span>
+                                              <span className="mx-0.5">•</span>
+                                              <span className="font-semibold">
+                                                {attendanceStatus.currentCheckInType === 'start' ? '📍 Đầu' : attendanceStatus.currentCheckInType === 'end' ? '🏁 Cuối' : ''} buổi {slotDetails.slotName}
+                                              </span>
+                                            </div>
+
+                                            {/* Check-in Times */}
+                                            {attendanceStatus.checkInTimes.length > 0 && (
+                                              <div className={`mb-2 text-[10px] flex-shrink-0 space-y-1 ${
+                                                isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                                              }`}>
+                                                {attendanceStatus.checkInTimes.map((checkIn, idx) => (
+                                                  <div key={idx} className="flex items-center gap-1.5">
+                                                    <Clock size={10} className="flex-shrink-0" />
+                                                    <span>
+                                                      {checkIn.type === 'start' ? '📍 Đầu buổi' : '🏁 Cuối buổi'}: 
+                                                      <span className="font-semibold ml-1">
+                                                        {new Date(checkIn.time).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                                                      </span>
+                                                    </span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )}
+
+                                            {/* Attendance Count (1/2 or 2/2) */}
+                                            <div className={`mb-2 text-center flex-shrink-0`}>
+                                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold ${
+                                                attendanceStatus.checkInCount === 2
+                                                  ? isDarkMode 
+                                                    ? 'bg-green-600/40 text-green-200 border border-green-500/50' 
+                                                    : 'bg-green-100 text-green-700 border border-green-300'
+                                                  : isDarkMode 
+                                                    ? 'bg-yellow-600/40 text-yellow-200 border border-yellow-500/50' 
+                                                    : 'bg-yellow-100 text-yellow-700 border border-yellow-300'
+                                              }`}>
+                                                {attendanceStatus.checkInCount}/{attendanceStatus.totalRequired}
+                                              </span>
+                                            </div>
+                                          </>
+                                        ) : (
+                                          <>
+                                            {/* Chưa điểm danh - Normal State */}
+                                            {/* Date & Slot Info */}
+                                            <div className={`flex items-center gap-1.5 mb-2 text-[10px] flex-shrink-0 ${
+                                              isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                                            }`}>
+                                              <Calendar size={10} className="flex-shrink-0" />
+                                              <span className="truncate">{slotDetails.date}</span>
+                                              <span className="mx-0.5">•</span>
+                                              <span className="font-semibold">
+                                                {slotDetails.checkInType === 'start' ? '📍 Đầu' : '🏁 Cuối'} buổi {slotDetails.slotName}
+                                              </span>
+                                            </div>
+
+                                            {/* Time Info */}
+                                            <div className={`mb-2 text-[10px] flex-shrink-0 space-y-1 ${
+                                              isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                                            }`}>
+                                              <div className="flex items-center gap-1.5">
+                                                <Clock size={10} className="flex-shrink-0" />
+                                                <span>Hiện tại: <span className="font-semibold">{slotDetails.currentTime}</span></span>
+                                              </div>
+                                              <div className="flex items-center gap-1.5">
+                                                <Clock size={10} className="flex-shrink-0" />
+                                                <span>Cần điểm danh: <span className="font-semibold">{slotDetails.requiredTime}</span></span>
+                                              </div>
+                                            </div>
+
+                                            {/* Countdown Timer / Time Difference */}
+                                            <div className={`mb-2 text-center flex-shrink-0 ${
+                                              isDarkMode ? 'text-white' : 'text-gray-900'
+                                            }`}>
+                                              <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg ${
+                                                slotDetails.isOnTime
+                                                  ? isDarkMode 
+                                                    ? 'bg-green-600/30 border-2 border-green-500/50' 
+                                                    : 'bg-green-50 border-2 border-green-300'
+                                                  : isDarkMode 
+                                                    ? 'bg-orange-600/30 border-2 border-orange-500/50' 
+                                                    : 'bg-orange-50 border-2 border-orange-300'
+                                              }`}>
+                                                <Clock size={12} className={
+                                                  slotDetails.isOnTime
+                                                    ? isDarkMode ? 'text-green-300' : 'text-green-600'
+                                                    : isDarkMode ? 'text-orange-300' : 'text-orange-600'
+                                                } />
+                                                <span className={`text-xs font-bold ${
+                                                  slotDetails.isOnTime
+                                                    ? isDarkMode ? 'text-green-300' : 'text-green-700'
+                                                    : isDarkMode ? 'text-orange-300' : 'text-orange-700'
+                                                }`}>
+                                                  {slotDetails.timeDifference}
+                                                </span>
+                                              </div>
+                                            </div>
+
+                                            {/* Status Badge */}
+                                            <div className={`mb-2 flex-shrink-0`}>
+                                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                                                slotDetails.isOnTime
+                                                  ? isDarkMode 
+                                                    ? 'bg-green-600/40 text-green-200 border border-green-500/50' 
+                                                    : 'bg-green-100 text-green-700 border border-green-300'
+                                                  : isDarkMode 
+                                                    ? 'bg-orange-600/40 text-orange-200 border border-orange-500/50' 
+                                                    : 'bg-orange-100 text-orange-700 border border-orange-300'
+                                              }`}>
+                                                {slotDetails.isOnTime ? '✅' : '⚠️'} {slotDetails.statusText}
+                                              </span>
+                                            </div>
+                                          </>
+                                        )}
+
+                                        {/* Location */}
+                                        {activity.location && (
+                                          <div className={`flex items-center gap-1.5 mb-2 text-[10px] flex-shrink-0 ${
+                                            isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                                          }`}>
+                                            <MapPin size={10} className="flex-shrink-0" />
+                                            <span className="truncate">{activity.location}</span>
+                                          </div>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <div className={`text-[10px] flex-shrink-0 ${
+                                        isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                                      }`}>
+                                        Đang tải thông tin...
+                                      </div>
+                                    )}
+                                    </div>
+
+                                    {/* Check-in Button */}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        router.push(`/student/attendance/${activity.id}`);
+                                      }}
+                                      className={`mt-2 flex-shrink-0 w-full py-2 px-2 rounded-md text-[10px] font-bold transition-all duration-300 border-2 relative overflow-hidden flex items-center justify-center gap-1.5 ${
+                                        attendanceStatus.checkInCount === 2
+                                          ? isDarkMode 
+                                            ? 'bg-gradient-to-r from-green-600 to-green-500 text-white border-green-400 hover:from-green-500 hover:to-green-400' 
+                                            : 'bg-gradient-to-r from-green-500 to-green-600 text-white border-green-400 hover:from-green-600 hover:to-green-700'
+                                          : isDarkMode 
+                                            ? 'bg-gradient-to-r from-red-600 to-red-500 text-white border-red-400 hover:from-red-500 hover:to-red-400' 
+                                            : 'bg-gradient-to-r from-red-500 to-red-600 text-white border-red-400 hover:from-red-600 hover:to-red-700'
+                                      }`}
+                                      style={attendanceStatus.checkInCount === 2 ? {} : {
+                                        animation: 'pulse-button 1.5s ease-in-out infinite',
+                                        boxShadow: isDarkMode 
+                                          ? '0 2px 8px rgba(239, 68, 68, 0.4)' 
+                                          : '0 2px 8px rgba(239, 68, 68, 0.5)',
+                                      }}
+                                    >
+                                      <CheckSquare size={12} strokeWidth={2.5} />
+                                      <span>{attendanceStatus.checkInCount === 2 ? 'Xem chi tiết' : 'Điểm danh ngay'}</span>
+                                      {attendanceStatus.checkInCount < 2 && (
+                                        <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 bg-gradient-to-r from-transparent via-white/30 to-transparent rounded" />
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      }
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* Tomorrow Activities Countdown Section - Right Side */}
+              {tomorrowActivities.length > 0 && (
+                <div 
+                  id="tomorrow-activities-section"
+                  className={`rounded-r-lg lg:rounded-l-none border-2 border-l-0 lg:border-l-2 overflow-visible shadow-lg relative z-30 scroll-mt-24 flex flex-col h-full ${
                 isDarkMode 
                   ? 'bg-gradient-to-br from-blue-900/40 via-blue-800/50 to-blue-900/40 border-blue-500/70 ring-2 ring-blue-500/20' 
                   : 'bg-gradient-to-br from-blue-50 via-blue-100/60 to-blue-50 border-blue-400 shadow-blue-300/50 ring-2 ring-blue-200/30'
@@ -4029,8 +4879,7 @@ export default function StudentDashboard() {
               style={{ 
                 scrollMarginTop: '100px',
                 position: 'relative',
-                isolation: 'isolate',
-                marginTop: '20px'
+                isolation: 'isolate'
               }}
             >
               {/* Header */}
@@ -4095,16 +4944,15 @@ export default function StudentDashboard() {
                             </div>
                             
                             {/* Activities Grid for this date */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                              {activities.map((activity) => {
-                                const timeUntil = getTimeUntilFirstSlot(activity);
-                                if (!timeUntil) return null;
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 items-stretch">
+                              {activities
+                                .map((activity) => {
+                                  const timeUntil = getTimeUntilFirstSlot(activity);
+                                  const formatTime = (value: number) => String(value).padStart(2, '0');
 
-                                const formatTime = (value: number) => String(value).padStart(2, '0');
-
-                                return (
-                                  <div
-                                    key={activity.id}
+                                  return (
+                                    <div
+                                      key={`${activity.id}-${activity.title}`}
                                     onClick={() => { router.push(`/student/activities/${activity.id}`); }}
                                     className={`group rounded-lg border-2 overflow-hidden shadow-md transition-all duration-300 hover:shadow-lg hover:scale-[1.02] flex flex-col h-full cursor-pointer ${
                                       isDarkMode 
@@ -4197,20 +5045,36 @@ export default function StudentDashboard() {
                           <div className={`mb-1.5 text-center flex-shrink-0 ${
                             isDarkMode ? 'text-white' : 'text-gray-900'
                           }`}>
-                            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg ${
-                              isDarkMode 
-                                ? 'bg-blue-600/30 border-2 border-blue-500/50' 
-                                : 'bg-blue-50 border-2 border-blue-300'
-                            }`}>
-                              <span className={`text-lg font-bold ${
-                                isDarkMode ? 'text-blue-200' : 'text-blue-700'
+                            {timeUntil ? (
+                              <>
+                                <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg ${
+                                  isDarkMode 
+                                    ? 'bg-blue-600/30 border-2 border-blue-500/50' 
+                                    : 'bg-blue-50 border-2 border-blue-300'
+                                }`}>
+                                  <span className={`text-lg font-bold ${
+                                    isDarkMode ? 'text-blue-200' : 'text-blue-700'
+                                  }`}>
+                                    {formatTime(timeUntil.hours)}:{formatTime(timeUntil.minutes)}:{formatTime(timeUntil.seconds)}
+                                  </span>
+                                </div>
+                                <p className={`text-[10px] mt-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                  (Giờ:Phút:Giây)
+                                </p>
+                              </>
+                            ) : (
+                              <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg ${
+                                isDarkMode 
+                                  ? 'bg-green-600/30 border-2 border-green-500/50' 
+                                  : 'bg-green-50 border-2 border-green-300'
                               }`}>
-                                {formatTime(timeUntil.hours)}:{formatTime(timeUntil.minutes)}:{formatTime(timeUntil.seconds)}
-                              </span>
-                            </div>
-                            <p className={`text-[10px] mt-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                              (Giờ:Phút:Giây)
-                            </p>
+                                <span className={`text-sm font-bold ${
+                                  isDarkMode ? 'text-green-200' : 'text-green-700'
+                                }`}>
+                                  Sắp diễn ra
+                                </span>
+                              </div>
+                            )}
                           </div>
 
                           {/* Info Section - Flexible */}
@@ -4236,19 +5100,18 @@ export default function StudentDashboard() {
                         ))}
                       </div>
                     );
-                  } else {
-                    // Không nhóm khi có ít hoạt động
-                    return (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {tomorrowActivities.map((activity) => {
-                          const timeUntil = getTimeUntilFirstSlot(activity);
-                          if (!timeUntil) return null;
-
-                          const formatTime = (value: number) => String(value).padStart(2, '0');
+                    } else {
+                      // Không nhóm khi có ít hoạt động
+                      return (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 items-stretch">
+                          {tomorrowActivities
+                            .map((activity) => {
+                            const timeUntil = getTimeUntilFirstSlot(activity);
+                            const formatTime = (value: number) => String(value).padStart(2, '0');
 
                           return (
                             <div
-                              key={activity.id}
+                              key={`${activity.id}-${activity.title}`}
                               onClick={() => { router.push(`/student/activities/${activity.id}`); }}
                               className={`group rounded-lg border-2 overflow-hidden shadow-md transition-all duration-300 hover:shadow-lg hover:scale-[1.02] flex flex-col h-full cursor-pointer ${
                                 isDarkMode 
@@ -4317,20 +5180,36 @@ export default function StudentDashboard() {
                                 <div className={`mb-1.5 text-center flex-shrink-0 ${
                                   isDarkMode ? 'text-white' : 'text-gray-900'
                                 }`}>
-                                  <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg ${
-                                    isDarkMode 
-                                      ? 'bg-blue-600/30 border-2 border-blue-500/50' 
-                                      : 'bg-blue-50 border-2 border-blue-300'
-                                  }`}>
-                                    <span className={`text-lg font-bold ${
-                                      isDarkMode ? 'text-blue-200' : 'text-blue-700'
+                                  {timeUntil ? (
+                                    <>
+                                      <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg ${
+                                        isDarkMode 
+                                          ? 'bg-blue-600/30 border-2 border-blue-500/50' 
+                                          : 'bg-blue-50 border-2 border-blue-300'
+                                      }`}>
+                                        <span className={`text-lg font-bold ${
+                                          isDarkMode ? 'text-blue-200' : 'text-blue-700'
+                                        }`}>
+                                          {formatTime(timeUntil.hours)}:{formatTime(timeUntil.minutes)}:{formatTime(timeUntil.seconds)}
+                                        </span>
+                                      </div>
+                                      <p className={`text-[10px] mt-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                        (Giờ:Phút:Giây)
+                                      </p>
+                                    </>
+                                  ) : (
+                                    <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg ${
+                                      isDarkMode 
+                                        ? 'bg-green-600/30 border-2 border-green-500/50' 
+                                        : 'bg-green-50 border-2 border-green-300'
                                     }`}>
-                                      {formatTime(timeUntil.hours)}:{formatTime(timeUntil.minutes)}:{formatTime(timeUntil.seconds)}
-                                    </span>
-                                  </div>
-                                  <p className={`text-[10px] mt-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                    (Giờ:Phút:Giây)
-                                  </p>
+                                      <span className={`text-sm font-bold ${
+                                        isDarkMode ? 'text-green-200' : 'text-green-700'
+                                      }`}>
+                                        Sắp diễn ra
+                                      </span>
+                                    </div>
+                                  )}
                                 </div>
 
                                 {/* Info Section - Flexible */}
@@ -4357,477 +5236,7 @@ export default function StudentDashboard() {
                 })()}
               </div>
             </div>
-          );
-        })()}
-
-        {/* Urgent Check-in Section - Compact & Modern with Eye-catching Effects */}
-        {isAuthenticated && user && (() => {
-          const urgentActivities = availableActivities.filter(activity => {
-            return activity.isRegistered && 
-                   activity.approvalStatus === 'approved' && 
-                   isActivityNeedingCheckIn(activity);
-          });
-
-          if (urgentActivities.length === 0) return null;
-
-          return (
-            <div className={`mb-3 rounded-lg border-2 overflow-hidden shadow-lg relative ${
-              isDarkMode 
-                ? 'bg-gradient-to-br from-red-900/30 via-red-800/40 to-red-900/30 border-red-500/70' 
-                : 'bg-gradient-to-br from-red-50 via-red-100/80 to-red-50 border-red-400 shadow-red-300/50'
-            }`}
-            style={{
-              animation: 'pulse-glow 2s ease-in-out infinite',
-            }}>
-              {/* Animated border glow */}
-              <div className={`absolute inset-0 rounded-lg ${
-                isDarkMode 
-                  ? 'bg-red-500/20' 
-                  : 'bg-red-400/30'
-              }`}
-              style={{
-                animation: 'pulse-border 2s ease-in-out infinite',
-                boxShadow: isDarkMode 
-                  ? '0 0 20px rgba(239, 68, 68, 0.3)' 
-                  : '0 0 20px rgba(248, 113, 113, 0.4)',
-              }} />
-              
-              {/* Compact Header with Animation */}
-              <div className={`relative px-3 py-2 border-b-2 flex items-center justify-between ${
-                isDarkMode 
-                  ? 'bg-gradient-to-r from-red-700 via-red-600 to-red-700 border-red-500' 
-                  : 'bg-gradient-to-r from-red-500 via-red-600 to-red-500 border-red-400'
-              }`}
-              style={{
-                animation: 'pulse-header 2s ease-in-out infinite',
-              }}>
-                <div className="flex items-center gap-2">
-                  <div className={`p-1.5 rounded-lg ${
-                    isDarkMode 
-                      ? 'bg-red-500 text-white' 
-                      : 'bg-red-700 text-white'
-                  }`}
-                  style={{
-                    animation: 'pulse-icon 1.5s ease-in-out infinite',
-                    boxShadow: isDarkMode 
-                      ? '0 0 10px rgba(255, 255, 255, 0.3)' 
-                      : '0 0 10px rgba(255, 255, 255, 0.4)',
-                  }}>
-                    <CheckSquare size={12} strokeWidth={2.5} />
-                  </div>
-                  <div>
-                    <h2 className={`text-xs font-bold ${
-                      isDarkMode ? 'text-white' : 'text-white'
-                    }`}
-                    style={{
-                      animation: 'pulse-text 2s ease-in-out infinite',
-                      textShadow: '0 1px 3px rgba(0, 0, 0, 0.5)',
-                    }}>
-                      ⚠️ Cần điểm danh ngay
-                    </h2>
-                    <p className={`text-[10px] mt-0.5 font-medium ${
-                      isDarkMode ? 'text-red-100' : 'text-red-50'
-                    }`}
-                    style={{
-                      textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)',
-                    }}>
-                      {urgentActivities.length} hoạt động đang diễn ra
-                    </p>
-                  </div>
-                </div>
-                <div className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                    isDarkMode 
-                    ? 'bg-red-500 text-white border-2 border-red-400' 
-                    : 'bg-red-700 text-white border-2 border-red-600'
-                }`}
-                style={{
-                  animation: 'pulse-badge 1.5s ease-in-out infinite',
-                  boxShadow: isDarkMode 
-                    ? '0 0 12px rgba(255, 255, 255, 0.3)' 
-                    : '0 0 12px rgba(255, 255, 255, 0.4)',
-                }}>
-                      {urgentActivities.length}
-                </div>
-              </div>
-
-              {/* Compact Activities List */}
-              <div className="p-2 relative z-10">
-                {(() => {
-                  const groupedByDate = groupActivitiesByDate(urgentActivities);
-                  const shouldGroup = urgentActivities.length > 3; // Chỉ nhóm khi có nhiều hơn 3 hoạt động
-                  
-                  if (shouldGroup && groupedByDate.length > 0) {
-                    return (
-                      <div className="space-y-3">
-                        {groupedByDate.map(({ dateKey, dateLabel, activities }) => (
-                          <div key={dateKey} className="space-y-2">
-                            {/* Date Header */}
-                            <div className={`px-2 py-1.5 rounded-lg border ${
-                              isDarkMode 
-                                ? 'bg-red-800/30 border-red-500/50' 
-                                : 'bg-red-100/50 border-red-300'
-                            }`}>
-                              <div className="flex items-center gap-2">
-                                <Calendar size={14} className={isDarkMode ? 'text-red-300' : 'text-red-700'} strokeWidth={2} />
-                                <h3 className={`text-sm font-bold ${
-                                  isDarkMode ? 'text-red-200' : 'text-red-900'
-                                }`}>
-                                  {dateLabel}
-                                </h3>
-                                <span className={`text-xs px-2 py-0.5 rounded-full ${
-                                  isDarkMode 
-                                    ? 'bg-red-600/40 text-red-200' 
-                                    : 'bg-red-500 text-white'
-                                }`}>
-                                  {activities.length} hoạt động
-                                </span>
-                              </div>
-                            </div>
-                            
-                            {/* Activities Grid for this date */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                              {activities.map((activity, index) => {
-                                const slotDetails = getCheckInSlotDetails(activity);
-
-                                return (
-                      <div
-                        key={activity.id}
-                        className={`group rounded-lg border-2 overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-lg ${
-                          isDarkMode 
-                            ? 'bg-gray-800/90 border-red-500/40 hover:border-red-400/70' 
-                            : 'bg-white border-red-200 hover:border-red-400'
-                        }`}
-                        style={{
-                          animation: `fadeInUp 0.5s ease-out ${index * 0.1}s both, pulse-card 2s ease-in-out infinite`,
-                          animationDelay: `${index * 0.1}s, 0.5s`,
-                          boxShadow: isDarkMode 
-                            ? '0 2px 8px rgba(239, 68, 68, 0.2)' 
-                            : '0 2px 8px rgba(239, 68, 68, 0.15)',
-                        }}
-                      >
-                        {/* Compact Content */}
-                        <div className="p-2 flex gap-2">
-                          {/* Image - Small with hover effect */}
-                          <div className="relative w-16 h-16 rounded overflow-hidden flex-shrink-0 group-hover:ring-2 group-hover:ring-red-400/50 transition-all">
-                            {activity.imageUrl ? (
-                              <img
-                                src={activity.imageUrl}
-                                alt={activity.title}
-                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                              />
-                            ) : (
-                              <div className={`w-full h-full flex items-center justify-center ${
-                                isDarkMode ? 'bg-gray-700/50' : 'bg-gray-100'
-                              }`}>
-                                <ImageIcon size={14} className={isDarkMode ? 'text-gray-500' : 'text-gray-400'} strokeWidth={1.5} />
-                              </div>
-                            )}
-                            {/* Registered Badge - Top Left */}
-                            {activity.isRegistered && (
-                              <div className="absolute top-0.5 left-0.5 z-10">
-                                <div className={`p-0.5 rounded-full shadow-md backdrop-blur-sm ${
-                                  activity.approvalStatus === 'approved'
-                                    ? isDarkMode 
-                                      ? 'bg-green-500/90 text-white border border-green-400/50' 
-                                      : 'bg-green-500 text-white border border-green-600'
-                                    : activity.approvalStatus === 'pending'
-                                    ? isDarkMode 
-                                      ? 'bg-yellow-500/90 text-white border border-yellow-400/50' 
-                                      : 'bg-yellow-500 text-white border border-yellow-600'
-                                    : activity.approvalStatus === 'rejected'
-                                    ? isDarkMode 
-                                      ? 'bg-red-500/90 text-white border border-red-400/50' 
-                                      : 'bg-red-500 text-white border border-red-600'
-                                    : isDarkMode 
-                                      ? 'bg-gray-500/90 text-white border border-gray-400/50' 
-                                      : 'bg-gray-500 text-white border border-gray-600'
-                                }`}>
-                                  <CheckCircle2 size={8} strokeWidth={2.5} />
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Info - Compact */}
-                          <div className="flex-1 min-w-0 flex flex-col justify-between">
-                            <div className="flex-1 min-w-0">
-                              <h3 className={`text-[11px] font-bold line-clamp-2 mb-1 group-hover:text-red-500 transition-colors ${
-                              isDarkMode ? 'text-white' : 'text-gray-900'
-                            }`}>
-                              {activity.title}
-                            </h3>
-                              <div className="space-y-0.5">
-                                {/* Check-in Slot Details */}
-                                {slotDetails && (
-                                  <div className={`px-1.5 py-1 rounded text-[9px] font-semibold mb-1 ${
-                                    slotDetails.isOnTime
-                                      ? isDarkMode 
-                                        ? 'bg-green-600/30 text-green-300 border border-green-500/40' 
-                                        : 'bg-green-100 text-green-700 border border-green-300'
-                                      : isDarkMode 
-                                        ? 'bg-orange-600/30 text-orange-300 border border-orange-500/40' 
-                                        : 'bg-orange-100 text-orange-700 border border-orange-300'
-                                  }`}>
-                                    <div className="space-y-0.5">
-                                      <div className="flex items-center gap-1 flex-wrap">
-                                        <span className="font-bold">
-                                          {slotDetails.checkInType === 'start' ? '📍 Đầu' : '🏁 Cuối'} buổi {slotDetails.slotName}
-                                        </span>
-                                        <span className="opacity-70">•</span>
-                                        <span>{slotDetails.date}</span>
-                          </div>
-                                      <div className="flex items-center gap-1 flex-wrap text-[8px]">
-                                        <span className="opacity-80">Thời gian hiện tại:</span>
-                                        <span className="font-bold">{slotDetails.currentTime}</span>
-                                        <span className="opacity-70">•</span>
-                                        <span className="opacity-80">Cần điểm danh:</span>
-                                        <span className="font-bold">{slotDetails.requiredTime}</span>
-                                      </div>
-                                      <div className="flex items-center gap-1 flex-wrap">
-                                        <span className={`font-bold ${
-                                          slotDetails.isOnTime 
-                                            ? isDarkMode ? 'text-green-400' : 'text-green-600'
-                                            : isDarkMode ? 'text-orange-400' : 'text-orange-600'
-                                        }`}>
-                                          {slotDetails.statusText}
-                                        </span>
-                                        <span className="opacity-70">•</span>
-                                        <span className={slotDetails.isOnTime 
-                                          ? isDarkMode ? 'text-green-300' : 'text-green-600'
-                                          : isDarkMode ? 'text-orange-300' : 'text-orange-600'
-                                        }>
-                                          {slotDetails.timeDifference}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  </div>
-                                )}
-                                <div className={`flex items-center gap-1 text-[9px] ${
-                                isDarkMode ? 'text-gray-400' : 'text-gray-600'
-                              }`}>
-                                  <Calendar size={9} />
-                                <span className="truncate">
-                                    {activity.isMultipleDays && activity.startDate && activity.endDate
-                                      ? `${new Date(activity.startDate).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })} - ${new Date(activity.endDate).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}`
-                                      : activity.date}
-                                </span>
-                              </div>
-                              {activity.location && (
-                                  <div className={`flex items-center gap-1 text-[9px] ${
-                                  isDarkMode ? 'text-gray-400' : 'text-gray-600'
-                                }`}>
-                                    <MapPin size={9} />
-                                  <span className="truncate">{activity.location}</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                            {/* Compact Check-in Button with Animation */}
-                          <button
-                            onClick={() => router.push(`/student/attendance/${activity.id}`)}
-                              className={`mt-1.5 w-full py-1.5 px-2 rounded text-[10px] font-bold transition-all duration-300 border-2 relative overflow-hidden ${
-                              isDarkMode 
-                                  ? 'bg-gradient-to-r from-red-600 to-red-500 text-white border-red-400 hover:from-red-500 hover:to-red-400' 
-                                  : 'bg-gradient-to-r from-red-500 to-red-600 text-white border-red-400 hover:from-red-600 hover:to-red-700'
-                            }`}
-                            style={{
-                                animation: 'pulse-button 1.5s ease-in-out infinite',
-                                boxShadow: isDarkMode 
-                                  ? '0 2px 8px rgba(239, 68, 68, 0.4)' 
-                                  : '0 2px 8px rgba(239, 68, 68, 0.5)',
-                              }}
-                            >
-                              <div className="flex items-center justify-center gap-1 relative z-10">
-                                <CheckSquare size={10} strokeWidth={2.5} />
-                                <span>Điểm danh</span>
-                            </div>
-                            {/* Shimmer effect */}
-                              <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 bg-gradient-to-r from-transparent via-white/30 to-transparent rounded" />
-                                  </button>
-                            </div>
-                          </div>
-                        </div>
-                        );
-                      })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  } else {
-                    // Không nhóm khi có ít hoạt động
-                    return (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                        {urgentActivities.map((activity, index) => {
-                          const slotDetails = getCheckInSlotDetails(activity);
-
-                          return (
-                            <div
-                              key={activity.id}
-                              className={`group rounded-lg border-2 overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-lg ${
-                                isDarkMode 
-                                  ? 'bg-gray-800/90 border-red-500/40 hover:border-red-400/70' 
-                                  : 'bg-white border-red-200 hover:border-red-400'
-                              }`}
-                              style={{
-                                animation: `fadeInUp 0.5s ease-out ${index * 0.1}s both, pulse-card 2s ease-in-out infinite`,
-                                animationDelay: `${index * 0.1}s, 0.5s`,
-                                boxShadow: isDarkMode 
-                                  ? '0 2px 8px rgba(239, 68, 68, 0.2)' 
-                                  : '0 2px 8px rgba(239, 68, 68, 0.15)',
-                              }}
-                            >
-                              {/* Compact Content */}
-                              <div className="p-2 flex gap-2">
-                                {/* Image - Small with hover effect */}
-                                <div className="relative w-16 h-16 rounded overflow-hidden flex-shrink-0 group-hover:ring-2 group-hover:ring-red-400/50 transition-all">
-                                  {activity.imageUrl ? (
-                                    <img
-                                      src={activity.imageUrl}
-                                      alt={activity.title}
-                                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                                    />
-                                  ) : (
-                                    <div className={`w-full h-full flex items-center justify-center ${
-                                      isDarkMode ? 'bg-gray-700/50' : 'bg-gray-100'
-                                    }`}>
-                                      <ImageIcon size={14} className={isDarkMode ? 'text-gray-500' : 'text-gray-400'} strokeWidth={1.5} />
-                                    </div>
-                                  )}
-                                  {/* Registered Badge - Top Left */}
-                                  {activity.isRegistered && (
-                                    <div className="absolute top-0.5 left-0.5 z-10">
-                                      <div className={`p-0.5 rounded-full shadow-md backdrop-blur-sm ${
-                                        activity.approvalStatus === 'approved'
-                                          ? isDarkMode 
-                                            ? 'bg-green-500/90 text-white border border-green-400/50' 
-                                            : 'bg-green-500 text-white border border-green-600'
-                                          : activity.approvalStatus === 'pending'
-                                          ? isDarkMode 
-                                            ? 'bg-yellow-500/90 text-white border border-yellow-400/50' 
-                                            : 'bg-yellow-500 text-white border border-yellow-600'
-                                          : activity.approvalStatus === 'rejected'
-                                          ? isDarkMode 
-                                            ? 'bg-red-500/90 text-white border border-red-400/50' 
-                                            : 'bg-red-500 text-white border border-red-600'
-                                          : isDarkMode 
-                                            ? 'bg-gray-500/90 text-white border border-gray-400/50' 
-                                            : 'bg-gray-500 text-white border border-gray-600'
-                                      }`}>
-                                        <CheckCircle2 size={8} strokeWidth={2.5} />
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* Info - Compact */}
-                                <div className="flex-1 min-w-0 flex flex-col justify-between">
-                                  <div className="flex-1 min-w-0">
-                                    <h3 className={`text-[11px] font-bold line-clamp-2 mb-1 group-hover:text-red-500 transition-colors ${
-                                    isDarkMode ? 'text-white' : 'text-gray-900'
-                                  }`}>
-                                    {activity.title}
-                                  </h3>
-                                    <div className="space-y-0.5">
-                                      {/* Check-in Slot Details */}
-                                      {slotDetails && (
-                                        <div className={`px-1.5 py-1 rounded text-[9px] font-semibold mb-1 ${
-                                          slotDetails.isOnTime
-                                            ? isDarkMode 
-                                              ? 'bg-green-600/30 text-green-300 border border-green-500/40' 
-                                              : 'bg-green-100 text-green-700 border border-green-300'
-                                            : isDarkMode 
-                                              ? 'bg-orange-600/30 text-orange-300 border border-orange-500/40' 
-                                              : 'bg-orange-100 text-orange-700 border border-orange-300'
-                                        }`}>
-                                          <div className="space-y-0.5">
-                                            <div className="flex items-center gap-1 flex-wrap">
-                                              <span className="font-bold">
-                                                {slotDetails.checkInType === 'start' ? '📍 Đầu' : '🏁 Cuối'} buổi {slotDetails.slotName}
-                                              </span>
-                                              <span className="opacity-70">•</span>
-                                              <span>{slotDetails.date}</span>
-                                            </div>
-                                            <div className="flex items-center gap-1 flex-wrap text-[8px]">
-                                              <span className="opacity-80">Thời gian hiện tại:</span>
-                                              <span className="font-bold">{slotDetails.currentTime}</span>
-                                              <span className="opacity-70">•</span>
-                                              <span className="opacity-80">Cần điểm danh:</span>
-                                              <span className="font-bold">{slotDetails.requiredTime}</span>
-                                            </div>
-                                            <div className="flex items-center gap-1 flex-wrap">
-                                              <span className={`font-bold ${
-                                                slotDetails.isOnTime 
-                                                  ? isDarkMode ? 'text-green-400' : 'text-green-600'
-                                                  : isDarkMode ? 'text-orange-400' : 'text-orange-600'
-                                              }`}>
-                                                {slotDetails.statusText}
-                                              </span>
-                                              <span className="opacity-70">•</span>
-                                              <span className={slotDetails.isOnTime 
-                                                ? isDarkMode ? 'text-green-300' : 'text-green-600'
-                                                : isDarkMode ? 'text-orange-300' : 'text-orange-600'
-                                              }>
-                                                {slotDetails.timeDifference}
-                                              </span>
-                                            </div>
-                                          </div>
-                                        </div>
-                                      )}
-                                      <div className={`flex items-center gap-1 text-[9px] ${
-                                      isDarkMode ? 'text-gray-400' : 'text-gray-600'
-                                    }`}>
-                                      <Calendar size={9} />
-                                    <span className="truncate">
-                                      {activity.isMultipleDays && activity.startDate && activity.endDate
-                                        ? `${new Date(activity.startDate).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })} - ${new Date(activity.endDate).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}`
-                                        : activity.date}
-                                    </span>
-                                  </div>
-                                  {activity.location && (
-                                      <div className={`flex items-center gap-1 text-[9px] ${
-                                      isDarkMode ? 'text-gray-400' : 'text-gray-600'
-                                    }`}>
-                                      <MapPin size={9} />
-                                    <span className="truncate">{activity.location}</span>
-                                  </div>
-                                  )}
-                                </div>
-                              </div>
-
-                              {/* Compact Check-in Button with Animation */}
-                              <button
-                                onClick={() => router.push(`/student/attendance/${activity.id}`)}
-                                className={`mt-1.5 w-full py-1.5 px-2 rounded text-[10px] font-bold transition-all duration-300 border-2 relative overflow-hidden ${
-                                  isDarkMode 
-                                      ? 'bg-gradient-to-r from-red-600 to-red-500 text-white border-red-400 hover:from-red-500 hover:to-red-400' 
-                                      : 'bg-gradient-to-r from-red-500 to-red-600 text-white border-red-400 hover:from-red-600 hover:to-red-700'
-                                }`}
-                                style={{
-                                    animation: 'pulse-button 1.5s ease-in-out infinite',
-                                    boxShadow: isDarkMode 
-                                      ? '0 2px 8px rgba(239, 68, 68, 0.4)' 
-                                      : '0 2px 8px rgba(239, 68, 68, 0.5)',
-                                  }}
-                              >
-                                <div className="flex items-center justify-center gap-1 relative z-10">
-                                  <CheckSquare size={10} strokeWidth={2.5} />
-                                  <span>Điểm danh</span>
-                                </div>
-                                {/* Shimmer effect */}
-                                <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 bg-gradient-to-r from-transparent via-white/30 to-transparent rounded" />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                    );
-                        })}
-                      </div>
-                    );
-                  }
-                })()}
-              </div>
+              )}
             </div>
           );
         })()}
@@ -5985,7 +6394,7 @@ export default function StudentDashboard() {
                   <div className="space-y-3">
                     {selectedActivityParticipants.map((participant, idx) => (
                       <div
-                        key={idx}
+                        key={participant.userId || `participant-${idx}`}
                         className={`flex items-center gap-2 sm:gap-3 p-2 sm:p-3 rounded-lg border ${
                           isDarkMode 
                             ? 'bg-gray-700/50 border-gray-600 hover:bg-gray-700' 
@@ -6147,15 +6556,18 @@ export default function StudentDashboard() {
 
                 {/* Time Slots */}
                 <div className="space-y-3">
-                  {selectedActivityForRegistration.timeSlots?.filter((slot: any) => slot.isActive).map((slot: any) => {
+                  {selectedActivityForRegistration.timeSlots?.filter((slot: any) => slot.isActive).map((slot: any, slotIndex: number) => {
                     const slotKey = slot.name === 'Buổi Sáng' ? 'morning' : 
                                    slot.name === 'Buổi Chiều' ? 'afternoon' : 'evening';
                     const isSelected = selectedSingleDaySlots.includes(slotKey);
                     const SlotIcon = slotKey === 'morning' ? Sunrise : slotKey === 'afternoon' ? Sun : Moon;
                     
+                    // Create unique key from slot name and index
+                    const uniqueSlotKey = `${slot.name}-${slotIndex}-${slot.startTime || ''}-${slot.endTime || ''}`;
+                    
                     return (
                       <button
-                        key={slot.name}
+                        key={uniqueSlotKey}
                         type="button"
                         onClick={() => toggleSingleDaySlotSelection(slotKey)}
                         className={`w-full p-3 rounded border text-left transition-all ${
@@ -6462,9 +6874,12 @@ export default function StudentDashboard() {
                     };
                     const slotName = slotNames[overlap.slot] || overlap.slot;
                     
+                    // Create unique key from activity name, date, and slot
+                    const uniqueKey = `${overlap.activityName}-${overlap.date || ''}-${overlap.slot}-${index}`;
+                    
                     return (
                       <div
-                        key={index}
+                        key={uniqueKey}
                         className={`p-3 rounded-lg border ${
                           isDarkMode ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-50 border-gray-200'
                         }`}

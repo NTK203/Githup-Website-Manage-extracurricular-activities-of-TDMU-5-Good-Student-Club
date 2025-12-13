@@ -59,11 +59,17 @@ export async function POST(request: NextRequest) {
       }
 
       // Verify current password
+      console.log('Verifying current password for user:', user.email);
       const isPasswordValid = await bcrypt.compare(currentPassword, user.passwordHash);
+      console.log('Password verification result:', isPasswordValid);
 
       if (!isPasswordValid) {
+        console.log('Password verification failed for user:', user.email);
         return NextResponse.json(
-          { success: false, error: 'Mật khẩu hiện tại không đúng' },
+          { 
+            success: false, 
+            error: 'Mật khẩu hiện tại không đúng. Vui lòng kiểm tra lại hoặc sử dụng chức năng "Quên mật khẩu" nếu bạn không nhớ mật khẩu.' 
+          },
           { status: 400 }
         );
       }

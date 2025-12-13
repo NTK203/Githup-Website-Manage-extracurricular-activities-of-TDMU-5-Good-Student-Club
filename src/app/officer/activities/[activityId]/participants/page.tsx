@@ -1838,24 +1838,24 @@ export default function ParticipantsPage() {
             <div className={`border-b-[1.5px] ${isDarkMode ? 'bg-[#0C0C0E] border-[#2A2A2A]' : 'bg-white border-[#E2E2E2]'}`}>
               <div className="max-w-7xl mx-auto px-4 py-3">
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  <div className={`p-3 rounded-[12px] border-[1.5px] ${isDarkMode ? 'bg-white border-black' : 'bg-white border-black'}`}>
-                    <Users size={20} className={isDarkMode ? 'text-gray-900' : 'text-gray-900'} strokeWidth={2.5} />
-                    <p className={`text-lg font-bold mt-2 mb-0.5 ${isDarkMode ? 'text-gray-900' : 'text-gray-900'}`}>
+                  <div className={`p-3 rounded-[12px] border-[1.5px] ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-black'}`}>
+                    <Users size={20} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={2.5} />
+                    <p className={`text-lg font-bold mt-2 mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                       {participants.length} / {activity.maxParticipants || '∞'}
                     </p>
-                    <p className={`text-[10px] uppercase tracking-wide ${isDarkMode ? 'text-gray-600' : 'text-gray-600'}`}>Tổng người tham gia</p>
+                    <p className={`text-[10px] uppercase tracking-wide ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Tổng người tham gia</p>
                   </div>
                   
-                  <div className={`p-3 rounded-[12px] border-[1.5px] ${isDarkMode ? 'bg-white border-black' : 'bg-white border-black'}`}>
-                    <CheckSquare size={20} className={isDarkMode ? 'text-gray-900' : 'text-gray-900'} strokeWidth={2.5} />
-                    <p className={`text-lg font-bold mt-2 mb-0.5 ${isDarkMode ? 'text-gray-900' : 'text-gray-900'}`}>{overallAttendancePercentage}%</p>
-                    <p className={`text-[10px] uppercase tracking-wide ${isDarkMode ? 'text-gray-600' : 'text-gray-600'}`}>Tỷ lệ điểm danh</p>
+                  <div className={`p-3 rounded-[12px] border-[1.5px] ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-black'}`}>
+                    <CheckSquare size={20} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={2.5} />
+                    <p className={`text-lg font-bold mt-2 mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{overallAttendancePercentage}%</p>
+                    <p className={`text-[10px] uppercase tracking-wide ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Tỷ lệ điểm danh</p>
                   </div>
                   
-                  <div className={`p-3 rounded-[12px] border-[1.5px] ${isDarkMode ? 'bg-white border-black' : 'bg-white border-black'}`}>
-                    <BarChart3 size={20} className={isDarkMode ? 'text-gray-900' : 'text-gray-900'} strokeWidth={2.5} />
-                    <p className={`text-lg font-bold mt-2 mb-0.5 ${isDarkMode ? 'text-gray-900' : 'text-gray-900'}`}>{participationPercent}%</p>
-                    <p className={`text-[10px] uppercase tracking-wide ${isDarkMode ? 'text-gray-600' : 'text-gray-600'}`}>Tỷ lệ đăng ký</p>
+                  <div className={`p-3 rounded-[12px] border-[1.5px] ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-black'}`}>
+                    <BarChart3 size={20} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={2.5} />
+                    <p className={`text-lg font-bold mt-2 mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{participationPercent}%</p>
+                    <p className={`text-[10px] uppercase tracking-wide ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Tỷ lệ đăng ký</p>
                   </div>
                 </div>
               </div>
@@ -1868,7 +1868,7 @@ export default function ParticipantsPage() {
               <div className="flex-1 min-w-0">
                 {/* Clean Week Selector for Multiple Days Activity */}
                 {activity && activity.type === 'multiple_days' && activity.schedule && activity.schedule.length > 0 && (
-                  <div className={`w-full mb-3 rounded-[12px] border-[1.5px] ${isDarkMode ? 'bg-white border-black' : 'bg-white border-black'}`}>
+                  <div className={`w-full mb-3 rounded-[12px] border-[1.5px] ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-black'}`}>
                     <div className="p-2.5">
                       {/* Two Column Layout */}
                       {currentWeekDays.length > 0 ? (
@@ -1877,7 +1877,7 @@ export default function ParticipantsPage() {
                           <div className="flex flex-col items-center gap-3">
                       {/* Clean Week Navigation Header */}
                             <div className={`flex items-center justify-center px-2 py-1.5 rounded-lg ${
-                        isDarkMode ? 'bg-gray-100' : 'bg-gray-100'
+                        isDarkMode ? 'bg-gray-700' : 'bg-gray-100'
                       }`}>
                         <button
                           onClick={() => setCurrentWeekIndex(Math.max(0, currentWeekIndex - 1))}
@@ -1885,8 +1885,8 @@ export default function ParticipantsPage() {
                           className={`p-0.5 rounded transition-colors ${
                             currentWeekIndex === 0
                               ? 'opacity-40 cursor-not-allowed'
-                              : isDarkMode 
-                                ? 'hover:bg-gray-200 text-gray-900' 
+                                : isDarkMode 
+                                ? 'hover:bg-gray-600 text-white' 
                                 : 'hover:bg-gray-200 text-gray-900'
                           }`}
                         >
@@ -1894,8 +1894,8 @@ export default function ParticipantsPage() {
                         </button>
                         
                         <div className="flex items-center gap-1.5 px-3">
-                          <Calendar size={12} strokeWidth={2} className={isDarkMode ? 'text-gray-900' : 'text-gray-900'} />
-                          <span className={`text-xs font-semibold ${isDarkMode ? 'text-gray-900' : 'text-gray-900'}`}>
+                          <Calendar size={12} strokeWidth={2} className={isDarkMode ? 'text-white' : 'text-gray-900'} />
+                          <span className={`text-xs font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                             Tuần {currentWeekIndex + 1}
                           </span>
                         </div>
@@ -1906,8 +1906,8 @@ export default function ParticipantsPage() {
                           className={`p-0.5 rounded transition-colors ${
                             currentWeekIndex === totalWeeks - 1
                               ? 'opacity-40 cursor-not-allowed'
-                              : isDarkMode 
-                                ? 'hover:bg-gray-200 text-gray-900' 
+                                : isDarkMode 
+                                ? 'hover:bg-gray-600 text-white' 
                                 : 'hover:bg-gray-200 text-gray-900'
                           }`}
                         >
@@ -1949,7 +1949,7 @@ export default function ParticipantsPage() {
                                       ? 'bg-[#3A57E8] border-[#3A57E8] text-white' 
                                       : 'bg-[#3A57E8] border-[#3A57E8] text-white'
                                     : isDarkMode 
-                                      ? 'bg-white border-black text-gray-900 hover:border-[#3A57E8]' 
+                                      ? 'bg-gray-800 border-gray-700 text-white hover:border-[#3A57E8]' 
                                       : 'bg-white border-black text-gray-900 hover:border-[#3A57E8]'
                                 }`}
                               >
@@ -1958,8 +1958,8 @@ export default function ParticipantsPage() {
                                   isDaySelected
                                     ? 'text-white'
                                     : isInSchedule
-                                    ? isDarkMode ? 'text-gray-900' : 'text-gray-900'
-                                    : isDarkMode ? 'text-gray-500' : 'text-gray-500'
+                                    ? isDarkMode ? 'text-white' : 'text-gray-900'
+                                    : isDarkMode ? 'text-gray-400' : 'text-gray-500'
                                 }`}>
                                   {weekDay.dayName}
                                 </p>
@@ -1971,14 +1971,14 @@ export default function ParticipantsPage() {
                                       <div className={`px-1 py-0.5 rounded text-[9px] font-bold ${
                                         isDaySelected
                                           ? 'bg-white/20 text-white'
-                                          : isDarkMode ? 'bg-gray-100 text-gray-900' : 'bg-gray-100 text-gray-900'
+                                          : isDarkMode ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-900'
                                       }`}>
                                         {registeredCount}/{maxParticipants}
                                       </div>
                                       <div className={`text-[9px] font-medium ${
                                         isDaySelected
                                           ? 'text-white/80'
-                                          : isDarkMode ? 'text-gray-600' : 'text-gray-600'
+                                          : isDarkMode ? 'text-gray-300' : 'text-gray-600'
                                       }`}>
                                         {attendancePercentage}%
                                       </div>
@@ -1986,7 +1986,7 @@ export default function ParticipantsPage() {
                                   </>
                                 ) : (
                                   <p className={`text-[9px] font-medium ${
-                                    isDarkMode ? 'text-gray-500' : 'text-gray-500'
+                                    isDarkMode ? 'text-gray-400' : 'text-gray-500'
                                   }`}>
                                     Ngoài phạm vi
                                   </p>
@@ -2014,22 +2014,22 @@ export default function ParticipantsPage() {
                                           ? 'bg-[#3A57E8] border-[#3A57E8] text-white' 
                                           : 'bg-[#3A57E8] border-[#3A57E8] text-white'
                                       : isDarkMode 
-                                        ? 'bg-white border-black hover:bg-gray-50' 
+                                        ? 'bg-gray-800 border-gray-700 hover:bg-gray-700' 
                                         : 'bg-white border-black hover:bg-gray-50'
                                   }`}
                                 >
                                   <div className="flex items-center gap-1">
-                                    <Sunrise size={10} strokeWidth={2} className={selectedSlot === 'morning' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-gray-900' : 'text-gray-900')} />
-                                    <span className={`text-[9px] font-semibold ${selectedSlot === 'morning' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-gray-900' : 'text-gray-900')}`}>
+                                    <Sunrise size={10} strokeWidth={2} className={selectedSlot === 'morning' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-white' : 'text-gray-900')} />
+                                    <span className={`text-[9px] font-semibold ${selectedSlot === 'morning' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-white' : 'text-gray-900')}`}>
                                       Sáng
                                     </span>
                                   </div>
                                   <div className="flex items-center gap-1">
-                                    <span className={`text-xs font-bold ${selectedSlot === 'morning' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-gray-900' : 'text-gray-900')}`}>
+                                    <span className={`text-xs font-bold ${selectedSlot === 'morning' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-white' : 'text-gray-900')}`}>
                                       {slotCounts.morning}
                                     </span>
                                     {maxParticipants > 0 && (
-                                      <span className={`text-[8px] ${selectedSlot === 'morning' ? (isDarkMode ? 'text-white/70' : 'text-white/70') : (isDarkMode ? 'text-gray-500' : 'text-gray-500')}`}>
+                                      <span className={`text-[8px] ${selectedSlot === 'morning' ? (isDarkMode ? 'text-white/70' : 'text-white/70') : (isDarkMode ? 'text-gray-400' : 'text-gray-500')}`}>
                                         /{maxParticipants}
                                       </span>
                                     )}
@@ -2045,22 +2045,22 @@ export default function ParticipantsPage() {
                                           ? 'bg-[#3A57E8] border-[#3A57E8] text-white' 
                                           : 'bg-[#3A57E8] border-[#3A57E8] text-white'
                                       : isDarkMode 
-                                        ? 'bg-white border-black hover:bg-gray-50' 
+                                        ? 'bg-gray-800 border-gray-700 hover:bg-gray-700' 
                                         : 'bg-white border-black hover:bg-gray-50'
                                   }`}
                                 >
                                   <div className="flex items-center gap-1">
-                                    <Sun size={10} strokeWidth={2} className={selectedSlot === 'afternoon' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-gray-900' : 'text-gray-900')} />
-                                    <span className={`text-[9px] font-semibold ${selectedSlot === 'afternoon' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-gray-900' : 'text-gray-900')}`}>
+                                    <Sun size={10} strokeWidth={2} className={selectedSlot === 'afternoon' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-white' : 'text-gray-900')} />
+                                    <span className={`text-[9px] font-semibold ${selectedSlot === 'afternoon' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-white' : 'text-gray-900')}`}>
                                       Chiều
                                     </span>
                                   </div>
                                   <div className="flex items-center gap-1">
-                                    <span className={`text-xs font-bold ${selectedSlot === 'afternoon' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-gray-900' : 'text-gray-900')}`}>
+                                    <span className={`text-xs font-bold ${selectedSlot === 'afternoon' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-white' : 'text-gray-900')}`}>
                                       {slotCounts.afternoon}
                                     </span>
                                     {maxParticipants > 0 && (
-                                      <span className={`text-[8px] ${selectedSlot === 'afternoon' ? (isDarkMode ? 'text-white/70' : 'text-white/70') : (isDarkMode ? 'text-gray-500' : 'text-gray-500')}`}>
+                                      <span className={`text-[8px] ${selectedSlot === 'afternoon' ? (isDarkMode ? 'text-white/70' : 'text-white/70') : (isDarkMode ? 'text-gray-400' : 'text-gray-500')}`}>
                                         /{maxParticipants}
                                       </span>
                                     )}
@@ -2076,22 +2076,22 @@ export default function ParticipantsPage() {
                                           ? 'bg-[#3A57E8] border-[#3A57E8] text-white' 
                                           : 'bg-[#3A57E8] border-[#3A57E8] text-white'
                                       : isDarkMode 
-                                        ? 'bg-white border-black hover:bg-gray-50' 
+                                        ? 'bg-gray-800 border-gray-700 hover:bg-gray-700' 
                                         : 'bg-white border-black hover:bg-gray-50'
                                   }`}
                                 >
                                   <div className="flex items-center gap-1">
-                                    <Moon size={10} strokeWidth={2} className={selectedSlot === 'evening' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-gray-900' : 'text-gray-900')} />
-                                    <span className={`text-[9px] font-semibold ${selectedSlot === 'evening' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-gray-900' : 'text-gray-900')}`}>
+                                    <Moon size={10} strokeWidth={2} className={selectedSlot === 'evening' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-white' : 'text-gray-900')} />
+                                    <span className={`text-[9px] font-semibold ${selectedSlot === 'evening' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-white' : 'text-gray-900')}`}>
                                       Tối
                                     </span>
                                   </div>
                                   <div className="flex items-center gap-1">
-                                    <span className={`text-xs font-bold ${selectedSlot === 'evening' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-gray-900' : 'text-gray-900')}`}>
+                                    <span className={`text-xs font-bold ${selectedSlot === 'evening' ? (isDarkMode ? 'text-white' : 'text-white') : (isDarkMode ? 'text-white' : 'text-gray-900')}`}>
                                       {slotCounts.evening}
                                     </span>
                                     {maxParticipants > 0 && (
-                                      <span className={`text-[8px] ${selectedSlot === 'evening' ? (isDarkMode ? 'text-white/70' : 'text-white/70') : (isDarkMode ? 'text-gray-500' : 'text-gray-500')}`}>
+                                      <span className={`text-[8px] ${selectedSlot === 'evening' ? (isDarkMode ? 'text-white/70' : 'text-white/70') : (isDarkMode ? 'text-gray-400' : 'text-gray-500')}`}>
                                         /{maxParticipants}
                                       </span>
                                     )}
@@ -2120,12 +2120,12 @@ export default function ParticipantsPage() {
                 )}
 
                 {/* Scientific Filter Panel */}
-                <div className={`rounded-[12px] p-3 border-[1.5px] ${isDarkMode ? 'bg-white border-black' : 'bg-white border-black'}`}>
+                <div className={`rounded-[12px] p-3 border-[1.5px] ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-black'}`}>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     {/* Search Bar */}
                     <div className="flex-1">
                       <div className="relative">
-                        <Search size={14} strokeWidth={2} className={`absolute left-2.5 top-1/2 -translate-y-1/2 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`} />
+                        <Search size={14} strokeWidth={2} className={`absolute left-2.5 top-1/2 -translate-y-1/2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
                         <input
                           type="text"
                           value={searchQuery}
@@ -2133,7 +2133,7 @@ export default function ParticipantsPage() {
                           placeholder="Tìm theo tên hoặc email…"
                           className={`w-full pl-8 pr-2 py-1.5 rounded-[10px] border-[1.5px] text-xs transition-colors ${
                             isDarkMode 
-                              ? 'bg-white border-black text-gray-900 placeholder-gray-500 focus:border-[#3A57E8]' 
+                              ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:border-[#3A57E8]' 
                               : 'bg-white border-black text-gray-900 placeholder-gray-500 focus:border-[#3A57E8]'
                           } focus:outline-none`}
                         />
@@ -2152,7 +2152,7 @@ export default function ParticipantsPage() {
                           }}
                           className={`flex-1 px-2 py-1.5 rounded-[10px] border-[1.5px] text-xs transition-colors ${
                             isDarkMode 
-                              ? 'bg-white border-black text-gray-900 focus:border-[#3A57E8]' 
+                              ? 'bg-gray-700 border-gray-600 text-white focus:border-[#3A57E8]' 
                               : 'bg-white border-black text-gray-900 focus:border-[#3A57E8]'
                           } focus:outline-none`}
                         >
@@ -2167,7 +2167,7 @@ export default function ParticipantsPage() {
                             onChange={(e) => setSelectedSlot(e.target.value as 'morning' | 'afternoon' | 'evening' | null || null)}
                             className={`px-2 py-1.5 rounded-[10px] border-[1.5px] text-xs transition-colors ${
                               isDarkMode 
-                                ? 'bg-white border-black text-gray-900 focus:border-[#3A57E8]' 
+                                ? 'bg-gray-700 border-gray-600 text-white focus:border-[#3A57E8]' 
                                 : 'bg-white border-black text-gray-900 focus:border-[#3A57E8]'
                             } focus:outline-none`}
                           >
@@ -2190,7 +2190,7 @@ export default function ParticipantsPage() {
                               ? 'bg-[#3A57E8] text-white border-[#3A57E8]'
                               : 'bg-[#3A57E8] text-white border-[#3A57E8]'
                             : isDarkMode
-                              ? 'bg-white text-gray-900 border-black hover:bg-gray-50'
+                              ? 'bg-gray-800 text-white border-gray-700 hover:bg-gray-700'
                               : 'bg-white text-gray-900 border-black hover:bg-gray-50'
                         }`}
                       >
@@ -2384,19 +2384,19 @@ export default function ParticipantsPage() {
                       return (
                         <div key={role} className={`rounded-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
                           {/* Clean Section Header */}
-                          <div className={`px-3 py-2 border-b-[1.5px] ${isDarkMode ? 'bg-white border-black' : 'bg-white border-black'}`}>
+                          <div className={`px-3 py-2 border-b-[1.5px] ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-black'}`}>
                             <div className="flex items-center gap-2">
-                              <div className={`w-6 h-6 rounded-[8px] flex items-center justify-center ${isDarkMode ? 'bg-gray-900' : 'bg-gray-900'}`}>
+                              <div className={`w-6 h-6 rounded-[8px] flex items-center justify-center ${isDarkMode ? 'bg-gray-700' : 'bg-gray-900'}`}>
                                 {(() => {
                                   const IconComponent = config.icon;
                                   return <IconComponent size={12} strokeWidth={2.5} className="text-white" />;
                                 })()}
                               </div>
                               <div className="flex-1">
-                                <h2 className={`text-xs font-bold ${isDarkMode ? 'text-gray-900' : 'text-gray-900'}`}>
+                                <h2 className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                                   {role}
                                 </h2>
-                                <p className={`text-[10px] mt-0.5 ${isDarkMode ? 'text-gray-600' : 'text-gray-600'}`}>
+                                <p className={`text-[10px] mt-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                                   {roleParticipants.length} {roleParticipants.length === 1 ? 'người' : 'người'}
                                 </p>
                               </div>
@@ -2419,7 +2419,7 @@ export default function ParticipantsPage() {
                                 key={`${participantId}-${idx}`}
                                 className={`rounded-[12px] border-[1.5px] transition-all ${
                                   isDarkMode 
-                                    ? 'bg-white border-black hover:shadow-md' 
+                                    ? 'bg-gray-800 border-gray-700 hover:shadow-md' 
                                     : 'bg-white border-black hover:shadow-md'
                                 }`}
                               >
@@ -2449,10 +2449,10 @@ export default function ParticipantsPage() {
                                     </div>
                                     
                                     <div className="flex-1 min-w-0">
-                                      <h3 className={`font-bold text-sm mb-0.5 ${isDarkMode ? 'text-gray-900' : 'text-gray-900'}`}>
+                                      <h3 className={`font-bold text-sm mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                                         {participantName}
                                       </h3>
-                                      <p className={`text-[11px] mb-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                      <p className={`text-[11px] mb-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                         {participantEmail}
                                       </p>
                                       
@@ -2460,7 +2460,7 @@ export default function ParticipantsPage() {
                                       <div className="mb-2">
                                         <span className={`inline-flex items-center px-1.5 py-0.5 rounded-[6px] text-[10px] font-semibold border-[1.5px] ${
                                           isDarkMode 
-                                            ? 'border-black text-gray-900 bg-white' 
+                                            ? 'border-gray-600 text-white bg-gray-700' 
                                             : 'border-black text-gray-900 bg-white'
                                         }`}>
                                           {participant.role || 'Người Tham Gia'}
@@ -2600,7 +2600,7 @@ export default function ParticipantsPage() {
                                         }}
                                         className={`w-full px-2.5 py-1.5 rounded-[8px] text-xs font-semibold transition-colors border-[1.5px] flex items-center justify-center gap-1.5 ${
                                           isDarkMode 
-                                            ? 'border-black text-gray-900 bg-white hover:bg-gray-50' 
+                                            ? 'border-gray-600 text-white bg-gray-700 hover:bg-gray-600' 
                                             : 'border-black text-gray-900 bg-white hover:bg-gray-50'
                                         }`}
                                         title="Xem danh sách các buổi đã đăng ký"
@@ -2740,7 +2740,7 @@ export default function ParticipantsPage() {
                                         disabled={!!processing && processing.includes(participantId)}
                                         className={`w-full px-4 py-2.5 rounded-[8px] text-sm font-semibold transition-colors border-[1.5px] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
                                           isDarkMode 
-                                            ? 'border-black text-gray-900 bg-white hover:bg-gray-100' 
+                                            ? 'border-gray-600 text-white bg-gray-700 hover:bg-gray-600' 
                                             : 'border-black text-gray-900 bg-white hover:bg-gray-100'
                                         }`}
                                         title="Xóa người tham gia"
@@ -2753,8 +2753,8 @@ export default function ParticipantsPage() {
                                   
                                   {/* Date */}
                                   <div className="flex items-center gap-1.5 mt-3 pt-3 border-t-[1.5px] border-[#E2E2E2]">
-                                    <Calendar size={12} strokeWidth={2} className={isDarkMode ? 'text-gray-500' : 'text-gray-500'} />
-                                    <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                    <Calendar size={12} strokeWidth={2} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} />
+                                    <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                       {(() => {
                                         try {
                                           const date = participant.joinedAt ? new Date(participant.joinedAt) : new Date();
@@ -2917,13 +2917,13 @@ export default function ParticipantsPage() {
                                     </div>
                                   )}
                                   {participant.removedBy && (
-                                    <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                    <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                       Xóa bởi: {typeof participant.removedBy === 'object' ? participant.removedBy.name : participant.removedBy}
                                       {participant.removedAt && ` • ${new Date(participant.removedAt).toLocaleString('vi-VN')}`}
                                     </p>
                                   )}
                                   {participant.removedAt && !participant.removedBy && (
-                                    <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                    <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                       {new Date(participant.removedAt).toLocaleString('vi-VN')}
                                     </p>
                                   )}
@@ -3145,18 +3145,18 @@ export default function ParticipantsPage() {
         {showRegisteredSlotsModal && selectedParticipantForSlots && activity && activity.type === 'multiple_days' && parsedScheduleData.length > 0 && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className={`rounded-[12px] border-[2px] max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col ${
-              isDarkMode ? 'bg-white border-black' : 'bg-white border-black'
+              isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-black'
             }`}>
               {/* Modal Header - Scientific Style */}
               <div className={`px-4 py-2.5 border-b-[2px] flex items-center justify-between ${
-                isDarkMode ? 'border-black bg-white' : 'border-black bg-white'
+                isDarkMode ? 'border-gray-700 bg-gray-800' : 'border-black bg-white'
               }`}>
                 <div className="flex items-center gap-2">
-                  <Calendar size={16} className={isDarkMode ? 'text-gray-900' : 'text-gray-900'} strokeWidth={2.5} />
-                  <h2 className={`text-sm font-bold ${isDarkMode ? 'text-gray-900' : 'text-gray-900'}`}>
+                  <Calendar size={16} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={2.5} />
+                  <h2 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                     Danh sách các buổi đã đăng ký
                   </h2>
-                  <span className={`text-xs ${isDarkMode ? 'text-gray-600' : 'text-gray-600'}`}>
+                  <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                     - {selectedParticipantForSlots.name || 'Người tham gia'}
                   </span>
                 </div>
@@ -3167,7 +3167,7 @@ export default function ParticipantsPage() {
                     setSelectedDaySlotsForRegistration([]);
                   }}
                   className={`p-1.5 rounded-[8px] transition-colors ${
-                    isDarkMode ? 'hover:bg-gray-100 text-gray-900' : 'hover:bg-gray-100 text-gray-900'
+                    isDarkMode ? 'hover:bg-gray-700 text-white' : 'hover:bg-gray-100 text-gray-900'
                   }`}
                 >
                   <X size={16} strokeWidth={2.5} />
@@ -3298,24 +3298,24 @@ export default function ParticipantsPage() {
                       <div
                         key={dayData.day}
                         className={`rounded-[12px] border-[1.5px] ${
-                          isDarkMode ? 'bg-white border-black' : 'bg-white border-black'
+                          isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-black'
                         }`}
                       >
                         {/* Day Header */}
                         <div className={`px-3 py-2 border-b-[1.5px] flex items-center justify-between ${
-                          isDarkMode ? 'border-black bg-white' : 'border-black bg-white'
+                          isDarkMode ? 'border-gray-600 bg-gray-700' : 'border-black bg-white'
                         }`}>
                           <div className="flex items-center gap-1.5">
-                            <Calendar size={14} className={isDarkMode ? 'text-gray-900' : 'text-gray-900'} strokeWidth={2.5} />
-                            <h3 className={`text-sm font-bold ${isDarkMode ? 'text-gray-900' : 'text-gray-900'}`}>
+                            <Calendar size={14} className={isDarkMode ? 'text-white' : 'text-gray-900'} strokeWidth={2.5} />
+                            <h3 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                               Ngày {dayData.day}
                             </h3>
-                            <span className={`text-xs ${isDarkMode ? 'text-gray-600' : 'text-gray-600'}`}>
+                            <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                               {dayDateStr}
                             </span>
                           </div>
                           {hasSameLocation && commonLocation && (
-                            <div className={`flex items-center gap-1.5 text-xs ${isDarkMode ? 'text-gray-600' : 'text-gray-600'}`}>
+                            <div className={`flex items-center gap-1.5 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                               <MapPin size={12} strokeWidth={2} />
                               <span className="line-clamp-1">{commonLocation}</span>
                             </div>
@@ -3345,10 +3345,10 @@ export default function ParticipantsPage() {
                                         : 'bg-[#3A57E8] border-[#3A57E8] text-white'
                                       : isActive
                                         ? isDarkMode
-                                          ? 'bg-white border-black'
+                                          ? 'bg-gray-700 border-gray-600'
                                           : 'bg-white border-black'
                                         : isDarkMode
-                                          ? 'bg-gray-100 border-black opacity-50'
+                                          ? 'bg-gray-800 border-gray-700 opacity-50'
                                           : 'bg-gray-100 border-black opacity-50'
                                   }`}
                                 >
@@ -3359,8 +3359,8 @@ export default function ParticipantsPage() {
                                         isSelected
                                           ? isDarkMode ? 'text-white' : 'text-white'
                                           : isActive
-                                            ? isDarkMode ? 'text-gray-900' : 'text-gray-900'
-                                            : isDarkMode ? 'text-gray-500' : 'text-gray-500'
+                                            ? isDarkMode ? 'text-white' : 'text-gray-900'
+                                            : isDarkMode ? 'text-gray-400' : 'text-gray-500'
                                       }`}>
                                         {slotName}
                                       </span>
@@ -3372,8 +3372,8 @@ export default function ParticipantsPage() {
                                     {/* Time */}
                                     {slot && (
                                       <div className="flex items-center gap-1.5">
-                                        <Clock size={12} className={isSelected ? (isDarkMode ? 'text-white/80' : 'text-white/80') : (isDarkMode ? 'text-gray-600' : 'text-gray-600')} strokeWidth={2} />
-                                        <span className={`text-xs ${isSelected ? (isDarkMode ? 'text-white/80' : 'text-white/80') : (isDarkMode ? 'text-gray-600' : 'text-gray-600')}`}>
+                                        <Clock size={12} className={isSelected ? (isDarkMode ? 'text-white/80' : 'text-white/80') : (isDarkMode ? 'text-gray-300' : 'text-gray-600')} strokeWidth={2} />
+                                        <span className={`text-xs ${isSelected ? (isDarkMode ? 'text-white/80' : 'text-white/80') : (isDarkMode ? 'text-gray-300' : 'text-gray-600')}`}>
                                           {slot.startTime} - {slot.endTime}
                                         </span>
                                       </div>
@@ -3386,7 +3386,7 @@ export default function ParticipantsPage() {
                                       if (slotLocation && slotLocation !== commonLocation) {
                                         return (
                                           <div className={`flex items-start gap-1.5 text-xs ${
-                                            isSelected ? (isDarkMode ? 'text-white/80' : 'text-white/80') : (isDarkMode ? 'text-gray-600' : 'text-gray-600')
+                                            isSelected ? (isDarkMode ? 'text-white/80' : 'text-white/80') : (isDarkMode ? 'text-gray-300' : 'text-gray-600')
                                           }`}>
                                             <MapPin size={12} className="mt-0.5 flex-shrink-0" strokeWidth={2} />
                                             <span className="line-clamp-1">{slotLocation}</span>
@@ -3421,7 +3421,7 @@ export default function ParticipantsPage() {
                                         <div className={`text-xs mt-1.5 pt-1.5 border-t-[1.5px] ${
                                           isSelected 
                                             ? (isDarkMode ? 'border-white/20 text-white/80' : 'border-white/20 text-white/80')
-                                            : (isDarkMode ? 'border-black text-gray-600' : 'border-black text-gray-600')
+                                            : (isDarkMode ? 'border-gray-600 text-gray-300' : 'border-black text-gray-600')
                                         }`}>
                                           <div className="flex items-center justify-between">
                                             {isSelected ? (
@@ -3462,14 +3462,14 @@ export default function ParticipantsPage() {
 
               {/* Modal Footer - Scientific Style */}
               <div className={`px-3 py-2.5 border-t-[2px] flex items-center justify-between gap-2 ${
-                isDarkMode ? 'border-black bg-white' : 'border-black bg-white'
+                isDarkMode ? 'border-gray-700 bg-gray-800' : 'border-black bg-white'
               }`}>
                 {/* Summary Info */}
                 <div className="flex items-center gap-2 flex-1">
                   {selectedDaySlotsForRegistration.length > 0 ? (
                     <>
                       <span className={`text-sm font-bold px-2 py-1 rounded-[8px] ${
-                        isDarkMode ? 'bg-gray-100 text-gray-900' : 'bg-gray-100 text-gray-900'
+                        isDarkMode ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-900'
                       }`}>
                         {selectedDaySlotsForRegistration.length} buổi
                       </span>
@@ -3509,7 +3509,7 @@ export default function ParticipantsPage() {
                       })()}
                     </>
                   ) : (
-                    <span className={`text-xs ${isDarkMode ? 'text-gray-600' : 'text-gray-600'}`}>
+                    <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                       Chưa đăng ký buổi nào
                     </span>
                   )}
@@ -3524,7 +3524,7 @@ export default function ParticipantsPage() {
                   }}
                   className={`px-3 py-1.5 rounded-[8px] text-xs font-semibold transition-colors border-[1.5px] ${
                     isDarkMode
-                      ? 'bg-white text-gray-900 border-black hover:bg-gray-50'
+                      ? 'bg-gray-700 text-white border-gray-600 hover:bg-gray-600'
                       : 'bg-white text-gray-900 border-black hover:bg-gray-50'
                   }`}
                 >
@@ -3539,26 +3539,26 @@ export default function ParticipantsPage() {
         {showRemoveModal && participantToRemove && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className={`rounded-[12px] border-[2px] shadow-xl max-w-md w-full ${
-              isDarkMode ? 'bg-white border-black' : 'bg-white border-black'
+              isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-black'
             }`}>
               <div className="p-4">
                 <div className="flex items-center gap-2.5 mb-3">
                   <div className={`w-10 h-10 rounded-[12px] flex items-center justify-center border-[1.5px] ${
-                    isDarkMode ? 'bg-white border-black' : 'bg-white border-black'
+                    isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-black'
                   }`}>
                     <Trash2 size={20} strokeWidth={2.5} className={isDarkMode ? 'text-[#F4443E]' : 'text-[#F4443E]'} />
                   </div>
-                  <h3 className={`text-base font-bold ${isDarkMode ? 'text-gray-900' : 'text-gray-900'}`}>
+                  <h3 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                     Xác nhận xóa
                   </h3>
                 </div>
-                <p className={`text-xs mb-3 ${isDarkMode ? 'text-gray-600' : 'text-gray-600'}`}>
+                <p className={`text-xs mb-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
                   Bạn có chắc chắn muốn xóa <span className="font-semibold text-[#F4443E]">
                     {participantToRemove.name || (typeof participantToRemove.userId === 'object' && participantToRemove.userId !== null && 'name' in participantToRemove.userId ? String(participantToRemove.userId.name) : 'Người này')}
                   </span> khỏi danh sách người tham gia không?
                 </p>
                 <div className="mb-3">
-                  <label className={`block text-xs font-semibold mb-1.5 ${isDarkMode ? 'text-gray-700' : 'text-gray-700'}`}>
+                  <label className={`block text-xs font-semibold mb-1.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                     Lý do xóa <span className="text-gray-400">(tùy chọn)</span>
                   </label>
                   <textarea
@@ -3568,7 +3568,7 @@ export default function ParticipantsPage() {
                     rows={3}
                     className={`w-full px-3 py-2 rounded-[8px] text-xs border-[1.5px] resize-none ${
                       isDarkMode 
-                        ? 'bg-white text-gray-900 border-black placeholder-gray-400 focus:border-[#3A57E8] focus:ring-1 focus:ring-[#3A57E8]' 
+                        ? 'bg-gray-700 text-white border-gray-600 placeholder-gray-400 focus:border-[#3A57E8] focus:ring-1 focus:ring-[#3A57E8]' 
                         : 'bg-white text-gray-900 border-black placeholder-gray-400 focus:border-[#3A57E8] focus:ring-1 focus:ring-[#3A57E8]'
                     }`}
                   />
@@ -3582,7 +3582,7 @@ export default function ParticipantsPage() {
                     }}
                     className={`flex-1 px-3 py-2 rounded-[8px] text-xs font-semibold transition-colors border-[1.5px] ${
                       isDarkMode 
-                        ? 'bg-white text-gray-900 border-black hover:bg-gray-50' 
+                        ? 'bg-gray-700 text-white border-gray-600 hover:bg-gray-600' 
                         : 'bg-white text-gray-900 border-black hover:bg-gray-50'
                     }`}
                   >

@@ -171,12 +171,62 @@ export function useAuth() {
       
       // Check if response is ok
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Lỗi server. Vui lòng thử lại sau.' }));
+        let errorData: any = {};
+        let errorMessage = `Lỗi ${response.status}. Vui lòng thử lại.`;
+        
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            errorData = await response.json();
+            errorMessage = errorData.error || errorData.message || errorMessage;
+          } else {
+            const text = await response.text();
+            if (text && text.trim()) {
+              errorMessage = text;
+            }
+            errorData = { error: errorMessage };
+          }
+        } catch (parseError) {
+          console.error('Error parsing error response:', parseError);
+          // Determine error message based on status code
+          switch (response.status) {
+            case 400:
+              errorMessage = 'Thông tin đăng nhập không hợp lệ.';
+              break;
+            case 401:
+              errorMessage = 'Email hoặc mật khẩu không đúng.';
+              break;
+            case 404:
+              errorMessage = 'Email này chưa được đăng ký.';
+              break;
+            case 500:
+              errorMessage = 'Lỗi server. Vui lòng thử lại sau.';
+              break;
+            default:
+              errorMessage = `Lỗi ${response.status}. Vui lòng thử lại.`;
+          }
+          errorData = { error: errorMessage };
+        }
+        
         console.error('Login error response:', errorData);
-        return { success: false, error: errorData.error || `Lỗi ${response.status}. Vui lòng thử lại.` };
+        return { success: false, error: errorMessage };
       }
 
-      const data = await response.json();
+      // Parse successful response
+      let data: any = {};
+      try {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          data = await response.json();
+        } else {
+          const text = await response.text();
+          console.error('Unexpected response format:', text);
+          return { success: false, error: 'Lỗi định dạng response từ server.' };
+        }
+      } catch (parseError) {
+        console.error('Error parsing response:', parseError);
+        return { success: false, error: 'Lỗi xử lý response từ server.' };
+      }
       console.log('Login response data:', data);
 
       if (data.success && data.user && data.token) {

@@ -325,7 +325,22 @@ export default function ActivityDashboardLayout({
       
       return matchesTemporal && matchesSearch && matchesStatus && matchesTemporalFilter;
     }).sort((a, b) => {
-      // Sort by status first (published > ongoing > draft > others)
+      // Priority 1: Ongoing activities first (đang diễn ra lên đầu)
+      const aTemporal = getTemporalStatus(a);
+      const bTemporal = getTemporalStatus(b);
+      if (aTemporal !== bTemporal) {
+        if (aTemporal === 'ongoing') return -1; // Ongoing comes first
+        if (bTemporal === 'ongoing') return 1;
+      }
+      
+      // Priority 2: Activities with images (within same temporal status)
+      const aHasImage = !!(a.imageUrl && a.imageUrl.trim());
+      const bHasImage = !!(b.imageUrl && b.imageUrl.trim());
+      if (aHasImage !== bHasImage) {
+        return bHasImage ? 1 : -1; // Activities with images come first
+      }
+      
+      // Priority 3: Sort by status (published > ongoing > draft > others)
       const statusPriority: { [key: string]: number } = {
         'published': 1,
         'ongoing': 2,
@@ -339,14 +354,7 @@ export default function ActivityDashboardLayout({
       if (aPriority !== bPriority) {
         return aPriority - bPriority;
       }
-      // Then sort by temporal status (ongoing before upcoming)
-      const aTemporal = getTemporalStatus(a);
-      const bTemporal = getTemporalStatus(b);
-      if (aTemporal !== bTemporal) {
-        if (aTemporal === 'ongoing') return -1;
-        if (bTemporal === 'ongoing') return 1;
-      }
-      // Finally sort by date
+      // Priority 4: Sort by date
       const aDate = a.type === 'multiple_days' && a.startDate 
         ? new Date(a.startDate).getTime() 
         : new Date(a.date).getTime();
@@ -2382,56 +2390,17 @@ export default function ActivityDashboardLayout({
                 : 'bg-gradient-to-r from-blue-200 via-blue-300/50 to-blue-200 border-blue-400'
             }`}>
               <div className="flex items-center gap-2 sm:gap-3">
-                <div className={`p-1.5 rounded-lg ${
-                  isDarkMode 
-                    ? 'bg-blue-600/40 text-blue-200' 
-                    : 'bg-blue-500 text-white shadow-xl'
-                }`}>
-                  <Calendar size={16} strokeWidth={2} />
-                </div>
                 <div className="flex-1">
                   <h2 className={`text-sm sm:text-base font-bold mb-0.5 ${
                     isDarkMode ? 'text-blue-100' : 'text-blue-900'
                   }`}>
-                    📅 Hoạt động đang diễn ra & Sắp diễn ra
+                    Hoạt động đang diễn ra & Sắp diễn ra
                   </h2>
                   <p className={`text-xs ${isDarkMode ? 'text-blue-200/90' : 'text-blue-800'}`}>
                     Có <span className="font-bold">{activeActivities.length}</span> hoạt động {activeActivities.length > 6 && `(hiển thị 6)`}
                   </p>
                 </div>
               </div>
-              {activeActivities.length > 0 && (
-                <div className={`mt-2 pt-2 border-t ${
-                  isDarkMode ? 'border-gray-600' : 'border-gray-300'
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <span className={`text-xs font-medium ${
-                      isDarkMode ? 'text-gray-400' : 'text-gray-600'
-                    }`}>
-                      Tỉ lệ điểm danh:
-                    </span>
-                    {loadingActiveAttendanceRates ? (
-                      <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                        Đang tải...
-                      </span>
-                    ) : overallActiveAttendanceRate !== null ? (
-                      <span className={`text-sm font-bold ${
-                        overallActiveAttendanceRate >= 80
-                          ? isDarkMode ? 'text-green-400' : 'text-green-600'
-                          : overallActiveAttendanceRate >= 60
-                            ? isDarkMode ? 'text-yellow-400' : 'text-yellow-600'
-                            : isDarkMode ? 'text-red-400' : 'text-red-600'
-                      }`}>
-                        {overallActiveAttendanceRate}%
-                      </span>
-                    ) : (
-                      <span className={`text-sm font-bold ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                        0%
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Activities Grid with Pagination */}
@@ -2504,56 +2473,17 @@ export default function ActivityDashboardLayout({
               justifyContent: 'flex-start'
             }}>
               <div className="flex items-center gap-2 sm:gap-3">
-                <div className={`p-1.5 rounded-lg ${
-                  isDarkMode 
-                    ? 'bg-gray-600/40 text-gray-200' 
-                    : 'bg-gray-400 text-white shadow-xl'
-                }`}>
-                  <CheckCircle2 size={16} strokeWidth={2} />
-                </div>
                 <div className="flex-1">
                   <h2 className={`text-sm sm:text-base font-bold mb-0.5 ${
                     isDarkMode ? 'text-gray-100' : 'text-gray-900'
                   }`}>
-                    ✅ Đã kết thúc
+                    Đã kết thúc
                   </h2>
                   <p className={`text-xs ${isDarkMode ? 'text-gray-300/90' : 'text-gray-700'}`}>
                     Có <span className="font-bold">{pastActivities.length}</span> hoạt động đã kết thúc
                   </p>
                 </div>
               </div>
-              {pastActivities.length > 0 && (
-                <div className={`mt-2 pt-2 border-t ${
-                  isDarkMode ? 'border-gray-600' : 'border-gray-300'
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <span className={`text-xs font-medium ${
-                      isDarkMode ? 'text-gray-400' : 'text-gray-600'
-                    }`}>
-                      Tỉ lệ điểm danh:
-                    </span>
-                    {loadingAttendanceRates ? (
-                      <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                        Đang tải...
-                      </span>
-                    ) : overallAttendanceRate !== null ? (
-                      <span className={`text-sm font-bold ${
-                        overallAttendanceRate >= 80
-                          ? isDarkMode ? 'text-green-400' : 'text-green-600'
-                          : overallAttendanceRate >= 60
-                            ? isDarkMode ? 'text-yellow-400' : 'text-yellow-600'
-                            : isDarkMode ? 'text-red-400' : 'text-red-600'
-                      }`}>
-                        {overallAttendanceRate}%
-                      </span>
-                    ) : (
-                      <span className={`text-sm font-bold ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                        0%
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Past Activities List - Scrollable, Height matches left side */}

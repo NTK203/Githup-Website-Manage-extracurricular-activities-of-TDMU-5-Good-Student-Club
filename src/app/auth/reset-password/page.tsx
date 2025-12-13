@@ -82,21 +82,29 @@ function ResetPasswordPageContent() {
 
   if (!token) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-violet-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8 text-center">
-            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-            <h1 className="text-xl font-bold text-gray-900 mb-2">Token không hợp lệ</h1>
-            <p className="text-sm text-gray-600 mb-6">
-              Link đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.
-            </p>
-            <Link
-              href="/auth/forgot-password"
-              className="inline-flex items-center gap-2 text-sm text-purple-600 hover:text-purple-700 font-medium"
-            >
-              <ArrowLeft size={14} strokeWidth={2} />
-              <span>Yêu cầu link mới</span>
-            </Link>
+      <div className="min-h-screen relative flex items-center justify-center py-4 px-4 sm:px-6 lg:px-8 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-gray-50 via-slate-50 to-gray-100"></div>
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#00000005_1px,transparent_1px),linear-gradient(to_bottom,#00000005_1px,transparent_1px)] bg-[size:24px_24px] opacity-30"></div>
+        <div className="relative z-10 w-full max-w-md">
+          <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">
+            <div className="relative bg-gradient-to-r from-red-500 via-red-600 to-pink-600 px-6 py-8 text-center text-white overflow-hidden shadow-lg">
+              <div className="relative z-10">
+                <AlertCircle className="w-12 h-12 mx-auto mb-4" />
+                <h1 className="text-xl font-bold mb-2">Token không hợp lệ</h1>
+                <p className="text-red-100 text-sm">
+                  Link đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.
+                </p>
+              </div>
+            </div>
+            <div className="p-6 text-center">
+              <Link
+                href="/auth/forgot-password"
+                className="inline-flex items-center gap-2 text-sm text-purple-600 hover:text-purple-700 font-medium"
+              >
+                <ArrowLeft size={14} strokeWidth={2} />
+                <span>Yêu cầu link mới</span>
+              </Link>
+            </div>
           </div>
         </div>
       </div>
@@ -105,20 +113,28 @@ function ResetPasswordPageContent() {
 
   if (success) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-violet-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8 text-center">
-            <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-4" />
-            <h1 className="text-xl font-bold text-gray-900 mb-2">Đặt lại mật khẩu thành công</h1>
-            <p className="text-sm text-gray-600 mb-6">
-              Mật khẩu của bạn đã được đặt lại. Đang chuyển đến trang đăng nhập...
-            </p>
-            <Link
-              href="/auth/login"
-              className="inline-flex items-center gap-2 text-sm text-purple-600 hover:text-purple-700 font-medium"
-            >
-              <span>Đăng nhập ngay</span>
-            </Link>
+      <div className="min-h-screen relative flex items-center justify-center py-4 px-4 sm:px-6 lg:px-8 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-gray-50 via-slate-50 to-gray-100"></div>
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#00000005_1px,transparent_1px),linear-gradient(to_bottom,#00000005_1px,transparent_1px)] bg-[size:24px_24px] opacity-30"></div>
+        <div className="relative z-10 w-full max-w-md">
+          <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">
+            <div className="relative bg-gradient-to-r from-green-500 via-green-600 to-emerald-600 px-6 py-8 text-center text-white overflow-hidden shadow-lg">
+              <div className="relative z-10">
+                <CheckCircle2 className="w-12 h-12 mx-auto mb-4" />
+                <h1 className="text-xl font-bold mb-2">Đặt lại mật khẩu thành công</h1>
+                <p className="text-green-100 text-sm">
+                  Mật khẩu của bạn đã được đặt lại. Đang chuyển đến trang đăng nhập...
+                </p>
+              </div>
+            </div>
+            <div className="p-6 text-center">
+              <Link
+                href="/auth/login"
+                className="inline-flex items-center gap-2 text-sm text-purple-600 hover:text-purple-700 font-medium"
+              >
+                <span>Đăng nhập ngay</span>
+              </Link>
+            </div>
           </div>
         </div>
       </div>
@@ -126,34 +142,71 @@ function ResetPasswordPageContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-violet-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Logo and Header */}
-        <div className="text-center mb-6">
-          <div className="flex justify-center mb-4">
-            <Image
-              src="/logo.png"
-              alt="CLB Sinh viên 5 Tốt TDMU"
-              width={80}
-              height={80}
-              className="rounded-full shadow-lg"
-              priority
-            />
+    <div className="min-h-screen relative flex items-center justify-center py-4 px-4 sm:px-6 lg:px-8 overflow-hidden">
+      <style dangerouslySetInnerHTML={{__html: `
+        /* Fix autofill text color */
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus,
+        input:-webkit-autofill:active {
+          -webkit-text-fill-color: #111827 !important;
+          -webkit-box-shadow: 0 0 0 30px #f9fafb inset !important;
+          transition: background-color 5000s ease-in-out 0s;
+        }
+      `}} />
+      
+      {/* Neutral Gradient Background */}
+      <div className="absolute inset-0 bg-gradient-to-br from-gray-50 via-slate-50 to-gray-100"></div>
+      
+      {/* Subtle Grid Pattern Overlay */}
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,#00000005_1px,transparent_1px),linear-gradient(to_bottom,#00000005_1px,transparent_1px)] bg-[size:24px_24px] opacity-30"></div>
+      
+      {/* Glassmorphism Card */}
+      <div className="relative z-10 w-full max-w-md">
+        <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">
+          {/* Compact Header with Glassmorphism */}
+          <div className="relative bg-gradient-to-r from-purple-600 via-violet-600 to-fuchsia-600 px-6 py-8 text-center text-white overflow-hidden shadow-lg">
+            {/* Animated background pattern */}
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_40%,rgba(255,255,255,0.15),transparent_50%)]"></div>
+            <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff0a_1px,transparent_1px),linear-gradient(to_bottom,#ffffff0a_1px,transparent_1px)] bg-[size:20px_20px] opacity-40"></div>
+            
+            <div className="relative z-10">
+              <div className="flex justify-center mb-4">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-white/20 rounded-xl blur-xl"></div>
+                  <Image
+                    src="/logo_clb_sv_5T.jpg"
+                    alt="CLB Sinh viên 5 Tốt TDMU"
+                    width={80}
+                    height={80}
+                    className="relative rounded-xl shadow-2xl border-2 border-white/40"
+                  />
+                </div>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-bold mb-1 drop-shadow-lg">
+                Đặt lại mật khẩu
+              </h1>
+              <p className="text-purple-100 text-sm drop-shadow-md">
+                Nhập mật khẩu mới của bạn
+              </p>
+            </div>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
-            Đặt lại mật khẩu
-          </h1>
-          <p className="text-sm text-gray-600">
-            Nhập mật khẩu mới của bạn
-          </p>
-          <p className="text-xs text-gray-500 mt-1">
-            {getPasswordRequirements()}
-          </p>
-        </div>
 
-        {/* Form Card */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8">
-          <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Compact Form Section */}
+          <div className="px-6 py-6 sm:px-8 sm:py-8">
+
+          <form onSubmit={handleSubmit} className="space-y-4" suppressHydrationWarning>
+            {/* Password Requirements Info */}
+            <div className="mb-4 p-3 rounded-lg bg-gray-50 border border-gray-200">
+              <p className="text-xs font-medium text-gray-700 mb-2">Yêu cầu mật khẩu:</p>
+              <ul className="text-xs space-y-1 text-gray-600">
+                <li>• Tối thiểu 8 ký tự</li>
+                <li>• Có ít nhất 1 chữ hoa</li>
+                <li>• Có ít nhất 1 chữ thường</li>
+                <li>• Có ít nhất 1 số</li>
+              </ul>
+            </div>
+
             {/* Password Field */}
             <div>
               <label htmlFor="password" className="block text-xs font-semibold text-gray-700 mb-1.5">
@@ -169,8 +222,8 @@ function ResetPasswordPageContent() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full pl-9 pr-10 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all duration-200 bg-gray-50 hover:bg-white"
-                  placeholder="Nhập mật khẩu mới (tối thiểu 6 ký tự, 1 chữ hoa, 1 ký tự đặc biệt)"
+                  className="block w-full pl-9 pr-10 py-2.5 text-sm text-gray-900 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all duration-200 bg-gray-50 hover:bg-white placeholder:text-gray-400"
+                  placeholder="Nhập mật khẩu mới"
                   suppressHydrationWarning
                 />
                 <button
@@ -198,7 +251,7 @@ function ResetPasswordPageContent() {
                   required
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="block w-full pl-9 pr-10 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all duration-200 bg-gray-50 hover:bg-white"
+                  className="block w-full pl-9 pr-10 py-2.5 text-sm text-gray-900 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all duration-200 bg-gray-50 hover:bg-white placeholder:text-gray-400"
                   placeholder="Nhập lại mật khẩu mới"
                   suppressHydrationWarning
                 />
@@ -247,9 +300,17 @@ function ResetPasswordPageContent() {
                 <span>Quay lại đăng nhập</span>
               </Link>
             </div>
+
+            {/* Footer */}
+            <div className="pt-2 text-center">
+              <p className="text-[10px] text-gray-400">
+                © 2025 CLB Sinh viên 5 Tốt TDMU
+              </p>
+            </div>
           </form>
         </div>
       </div>
+    </div>
     </div>
     );
 }

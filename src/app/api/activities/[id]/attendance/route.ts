@@ -433,6 +433,8 @@ function validateLocation(
       timeSlot,
       hasWeeklySlotLocations: !!activity.weeklySlotLocations,
       hasDailyLocations: !!activity.dailyLocations,
+      hasSchedule: !!activity.schedule,
+      scheduleLength: activity.schedule ? activity.schedule.length : 0,
       weeklySlotLocations: activity.weeklySlotLocations,
       dailyLocations: activity.dailyLocations
     });
@@ -440,16 +442,29 @@ function validateLocation(
     // Check weeklySlotLocations first (most specific: day + slot)
     if (activity.weeklySlotLocations && activity.weeklySlotLocations[dayNumber]) {
       const dayLocations = activity.weeklySlotLocations[dayNumber];
-      // Convert timeSlot from "Buổi Tối" to "evening", etc.
+      // Convert timeSlot from "Buổi Tối" or "Ngày X - Buổi Y" to "evening", etc.
       const slotKeyMap: { [key: string]: string } = {
         'Buổi Sáng': 'morning',
         'Buổi Chiều': 'afternoon',
         'Buổi Tối': 'evening'
       };
-      const slotKey = timeSlot ? slotKeyMap[timeSlot] : null;
+      
+      // Extract slot name from timeSlot if it's in "Ngày X - Buổi Y" format
+      let slotName = timeSlot || '';
+      if (timeSlot && timeSlot.includes(' - ')) {
+        // Extract "Buổi Y" from "Ngày X - Buổi Y"
+        const match = timeSlot.match(/Buổi (Sáng|Chiều|Tối)/);
+        if (match) {
+          slotName = `Buổi ${match[1]}`;
+        }
+      }
+      
+      const slotKey = slotName ? slotKeyMap[slotName] : null;
       
       console.log('Checking weeklySlotLocations:', {
         dayNumber,
+        originalTimeSlot: timeSlot,
+        extractedSlotName: slotName,
         slotKey,
         dayLocations,
         hasSlotLocation: slotKey ? !!dayLocations[slotKey] : false
@@ -507,9 +522,186 @@ function validateLocation(
       }
     }
     
-    // If no location found for multiple days, check if there's a default location
-    // This handles cases where location might be in a different format
-    console.log('No specific location found for multiple days, checking fallback locations');
+    // Check schedule data (location might be stored in schedule instead)
+    if (activity.schedule && Array.isArray(activity.schedule)) {
+      const dayData = activity.schedule.find((s: any) => (s.day || activity.schedule.indexOf(s) + 1) === dayNumber);
+      if (dayData) {
+        // Extract slot name from timeSlot
+        let slotName = timeSlot || '';
+        if (timeSlot && timeSlot.includes(' - ')) {
+          const match = timeSlot.match(/Buổi (Sáng|Chiều|Tối)/);
+          if (match) {
+            slotName = `Buổi ${match[1]}`;
+          }
+        }
+        
+        // Map slot name to slotKey
+        const slotKeyMap: { [key: string]: string } = {
+          'Buổi Sáng': 'morning',
+          'Buổi Chiều': 'afternoon',
+          'Buổi Tối': 'evening'
+        };
+        const slotKey = slotName ? slotKeyMap[slotName] : null;
+        
+        console.log('Checking schedule for location:', {
+          dayNumber,
+          originalTimeSlot: timeSlot,
+          extractedSlotName: slotName,
+          slotKey,
+          hasDayData: !!dayData,
+          hasSlots: !!dayData.slots,
+          slotsLength: dayData.slots ? dayData.slots.length : 0,
+          hasActivities: !!dayData.activities
+        });
+        
+        // Check slot-specific location first (structured data)
+        if (slotKey && dayData.slots && Array.isArray(dayData.slots)) {
+          const slot = dayData.slots.find((s: any) => s.slotKey === slotKey);
+          if (slot && slot.mapLocation && slot.mapLocation.lat && slot.mapLocation.lng) {
+            const slotLocation = slot.mapLocation;
+            const radius = slotLocation.radius || 200;
+            const distance = calculateDistance(
+              userLat,
+              userLng,
+              slotLocation.lat,
+              slotLocation.lng
+            );
+            
+            console.log('Found slot location in schedule.slots:', {
+              dayNumber,
+              slotKey,
+              location: { lat: slotLocation.lat, lng: slotLocation.lng, radius },
+              distance,
+              valid: distance <= radius
+            });
+            
+            if (distance <= radius) {
+              return { valid: true, distance };
+            } else {
+              return {
+                valid: false,
+                distance,
+                message: `Bạn đang cách vị trí điểm danh (Ngày ${dayNumber} - ${slotName}) ${distance.toFixed(0)}m. Vui lòng đến đúng vị trí (trong bán kính ${radius}m) để điểm danh.`
+              };
+            }
+          }
+        }
+        
+        // Parse location from activities string if structured data not available
+        if (dayData.activities && typeof dayData.activities === 'string' && slotName) {
+          // Try to extract location for specific slot from activities string
+          // Format: "Buổi Chiều (14:28-17:00) - Địa điểm map: ... (10.97549, 106.68699) - Bán kính: 200m"
+          const slotPattern = new RegExp(`${slotName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^\\n]*\\(([0-9.]+),\\s*([0-9.]+)\\)[^\\n]*Bán kính:\\s*(\\d+)m`, 'i');
+          const match = dayData.activities.match(slotPattern);
+          
+          if (match) {
+            const lat = parseFloat(match[1]);
+            const lng = parseFloat(match[2]);
+            const radius = parseInt(match[3]) || 200;
+            
+            if (!isNaN(lat) && !isNaN(lng)) {
+              const distance = calculateDistance(userLat, userLng, lat, lng);
+              
+              console.log('Found slot location from activities string:', {
+                dayNumber,
+                slotName,
+                location: { lat, lng, radius },
+                distance,
+                valid: distance <= radius
+              });
+              
+              if (distance <= radius) {
+                return { valid: true, distance };
+              } else {
+                return {
+                  valid: false,
+                  distance,
+                  message: `Bạn đang cách vị trí điểm danh (Ngày ${dayNumber} - ${slotName}) ${distance.toFixed(0)}m. Vui lòng đến đúng vị trí (trong bán kính ${radius}m) để điểm danh.`
+                };
+              }
+            }
+          }
+        }
+        
+        // Check day-level location (structured data)
+        if (dayData.dayMapLocation && dayData.dayMapLocation.lat && dayData.dayMapLocation.lng) {
+          const dayLocation = dayData.dayMapLocation;
+          const radius = dayLocation.radius || 200;
+          const distance = calculateDistance(
+            userLat,
+            userLng,
+            dayLocation.lat,
+            dayLocation.lng
+          );
+          
+          console.log('Found day location in schedule.dayMapLocation:', {
+            dayNumber,
+            location: { lat: dayLocation.lat, lng: dayLocation.lng, radius },
+            distance,
+            valid: distance <= radius
+          });
+          
+          if (distance <= radius) {
+            return { valid: true, distance };
+          } else {
+            return {
+              valid: false,
+              distance,
+              message: `Bạn đang cách vị trí hoạt động (Ngày ${dayNumber}) ${distance.toFixed(0)}m. Vui lòng đến đúng vị trí (trong bán kính ${radius}m) để điểm danh.`
+            };
+          }
+        }
+        
+        // Parse day-level location from activities string if structured data not available
+        if (dayData.activities && typeof dayData.activities === 'string') {
+          // Try to extract day-level location (last location in activities string)
+          // Format: "Địa điểm map: ... (10.97549, 106.68699) - Bán kính: 200m"
+          const dayLocationPattern = /Địa điểm map:[^(]*\(([0-9.]+),\s*([0-9.]+)\)[^\\n]*Bán kính:\s*(\d+)m/g;
+          const matches = [...dayData.activities.matchAll(dayLocationPattern)];
+          
+          // Get the last match (day-level location, usually at the end)
+          if (matches.length > 0) {
+            const lastMatch = matches[matches.length - 1];
+            const lat = parseFloat(lastMatch[1]);
+            const lng = parseFloat(lastMatch[2]);
+            const radius = parseInt(lastMatch[3]) || 200;
+            
+            if (!isNaN(lat) && !isNaN(lng)) {
+              const distance = calculateDistance(userLat, userLng, lat, lng);
+              
+              console.log('Found day location from activities string:', {
+                dayNumber,
+                location: { lat, lng, radius },
+                distance,
+                valid: distance <= radius
+              });
+              
+              if (distance <= radius) {
+                return { valid: true, distance };
+              } else {
+                return {
+                  valid: false,
+                  distance,
+                  message: `Bạn đang cách vị trí hoạt động (Ngày ${dayNumber}) ${distance.toFixed(0)}m. Vui lòng đến đúng vị trí (trong bán kính ${radius}m) để điểm danh.`
+                };
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // If no location found for multiple days, don't fallback to activity.locationData
+    // This is important - we should only check against specific slot/day locations
+    console.log('No specific location found for multiple days:', {
+      dayNumber,
+      timeSlot,
+      hasWeeklySlotLocations: !!activity.weeklySlotLocations,
+      hasDailyLocations: !!activity.dailyLocations,
+      hasLocationData: !!activity.locationData,
+      weeklySlotLocations: activity.weeklySlotLocations ? Object.keys(activity.weeklySlotLocations) : [],
+      dailyLocations: activity.dailyLocations ? Object.keys(activity.dailyLocations) : []
+    });
     
     // For multiple days, if no specific location found, we should still validate
     // But we need to check if there's any location data at all
@@ -518,10 +710,18 @@ function validateLocation(
       console.log('No location data found for multiple days, allowing check-in');
       return { valid: true, message: 'Hoạt động không yêu cầu vị trí cụ thể cho ngày này' };
     }
+    
+    // IMPORTANT: For multiple days, don't fallback to activity.locationData
+    // Return error if no specific location found
+    console.warn('Multiple days activity but no specific location found for day/slot, rejecting check-in');
+    return {
+      valid: false,
+      message: 'Không tìm thấy vị trí điểm danh cho buổi này. Vui lòng liên hệ quản trị viên.'
+    };
   }
 
-  // Check single location (for single day or fallback for multiple days)
-  if (activity.locationData && activity.locationData.lat && activity.locationData.lng && activity.locationData.radius) {
+  // Check single location (ONLY for single day activities, NOT for multiple days)
+  if (activity.type !== 'multiple_days' && activity.locationData && activity.locationData.lat && activity.locationData.lng && activity.locationData.radius) {
     const distance = calculateDistance(
       userLat,
       userLng,

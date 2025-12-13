@@ -103,6 +103,10 @@ export async function POST(request: NextRequest) {
       { expiresIn: '7d' }
     );
 
+    // Initialize role and redirect URL
+    let effectiveRole = user.role;
+    let redirectUrl = '/student/dashboard'; // Default
+
     // Check membership status to determine effective role and redirect URL
     let membership = null;
     try {
@@ -126,18 +130,15 @@ export async function POST(request: NextRequest) {
       // User can register again after being removed
       effectiveRole = 'STUDENT';
       redirectUrl = '/student/register'; // Redirect to registration page
-    }
-
-    let effectiveRole = user.role;
-    let redirectUrl = '/student/dashboard'; // Default
-
-    // Normal role-based routing first
-    if (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN' || user.role === 'CLUB_LEADER') {
-      redirectUrl = '/admin/dashboard';
-    } else if (user.role === 'CLUB_DEPUTY' || user.role === 'CLUB_MEMBER' || user.role === 'OFFICER') {
-      redirectUrl = '/officer/dashboard';
-    } else if (user.role === 'CLUB_STUDENT' || user.role === 'STUDENT') {
-      redirectUrl = '/student/dashboard';
+    } else {
+      // Normal role-based routing
+      if (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN' || user.role === 'CLUB_LEADER') {
+        redirectUrl = '/admin/dashboard';
+      } else if (user.role === 'CLUB_DEPUTY' || user.role === 'CLUB_MEMBER' || user.role === 'OFFICER') {
+        redirectUrl = '/officer/dashboard';
+      } else if (user.role === 'CLUB_STUDENT' || user.role === 'STUDENT') {
+        redirectUrl = '/student/dashboard';
+      }
     }
 
     // Prepare user response with safe field access

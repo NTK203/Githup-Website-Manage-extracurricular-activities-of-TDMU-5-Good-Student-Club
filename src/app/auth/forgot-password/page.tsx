@@ -12,14 +12,12 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [resetLink, setResetLink] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
     setSuccess(null);
-    setResetLink(null);
 
     // Validate email format
     const studentEmailPattern = /^[0-9]{13}@student\.tdmu\.edu\.vn$/;
@@ -46,10 +44,6 @@ export default function ForgotPasswordPage() {
       
       if (data.success) {
         setSuccess(data.message);
-        // In development, show reset link
-        if (data.resetLink) {
-          setResetLink(data.resetLink);
-        }
       } else {
         setError(data.message || 'Có lỗi xảy ra. Vui lòng thử lại.');
       }
@@ -62,31 +56,59 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-violet-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Logo and Header */}
-        <div className="text-center mb-6">
-          <div className="flex justify-center mb-4">
-            <Image
-              src="/logo.png"
-              alt="CLB Sinh viên 5 Tốt TDMU"
-              width={80}
-              height={80}
-              className="rounded-full shadow-lg"
-              priority
-            />
+    <div className="min-h-screen relative flex items-center justify-center py-4 px-4 sm:px-6 lg:px-8 overflow-hidden">
+      <style dangerouslySetInnerHTML={{__html: `
+        /* Fix autofill text color */
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus,
+        input:-webkit-autofill:active {
+          -webkit-text-fill-color: #111827 !important;
+          -webkit-box-shadow: 0 0 0 30px #f9fafb inset !important;
+          transition: background-color 5000s ease-in-out 0s;
+        }
+      `}} />
+      
+      {/* Neutral Gradient Background */}
+      <div className="absolute inset-0 bg-gradient-to-br from-gray-50 via-slate-50 to-gray-100"></div>
+      
+      {/* Subtle Grid Pattern Overlay */}
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,#00000005_1px,transparent_1px),linear-gradient(to_bottom,#00000005_1px,transparent_1px)] bg-[size:24px_24px] opacity-30"></div>
+      
+      {/* Glassmorphism Card */}
+      <div className="relative z-10 w-full max-w-md">
+        <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">
+          {/* Compact Header with Glassmorphism */}
+          <div className="relative bg-gradient-to-r from-purple-600 via-violet-600 to-fuchsia-600 px-6 py-8 text-center text-white overflow-hidden shadow-lg">
+            {/* Animated background pattern */}
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_40%,rgba(255,255,255,0.15),transparent_50%)]"></div>
+            <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff0a_1px,transparent_1px),linear-gradient(to_bottom,#ffffff0a_1px,transparent_1px)] bg-[size:20px_20px] opacity-40"></div>
+            
+            <div className="relative z-10">
+              <div className="flex justify-center mb-4">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-white/20 rounded-xl blur-xl"></div>
+                  <Image
+                    src="/logo_clb_sv_5T.jpg"
+                    alt="CLB Sinh viên 5 Tốt TDMU"
+                    width={80}
+                    height={80}
+                    className="relative rounded-xl shadow-2xl border-2 border-white/40"
+                  />
+                </div>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-bold mb-1 drop-shadow-lg">
+                Quên mật khẩu
+              </h1>
+              <p className="text-purple-100 text-sm drop-shadow-md">
+                Nhập email để nhận link đặt lại mật khẩu
+              </p>
+            </div>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
-            Quên mật khẩu
-          </h1>
-          <p className="text-sm text-gray-600">
-            Nhập email để nhận link đặt lại mật khẩu
-          </p>
-        </div>
 
-        {/* Form Card */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8">
-          <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Compact Form Section */}
+          <div className="px-6 py-6 sm:px-8 sm:py-8">
+          <form onSubmit={handleSubmit} className="space-y-4" suppressHydrationWarning>
             {/* Email Field */}
             <div>
               <label htmlFor="email" className="block text-xs font-semibold text-gray-700 mb-1.5">
@@ -102,7 +124,7 @@ export default function ForgotPasswordPage() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="block w-full pl-9 pr-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all duration-200 bg-gray-50 hover:bg-white"
+                  className="block w-full pl-9 pr-3 py-2.5 text-sm text-gray-900 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all duration-200 bg-gray-50 hover:bg-white placeholder:text-gray-400"
                   placeholder="21100011@student.tdmu.edu.vn"
                   suppressHydrationWarning
                 />
@@ -123,19 +145,6 @@ export default function ForgotPasswordPage() {
                 <CheckCircle2 size={16} strokeWidth={2.5} className="mt-0.5 flex-shrink-0" />
                 <div className="text-xs flex-1">
                   <p>{success}</p>
-                  {resetLink && (
-                    <div className="mt-3 p-3 bg-white rounded border border-green-200">
-                      <p className="text-xs font-semibold mb-2 text-gray-700">Link đặt lại mật khẩu (Development):</p>
-                      <a 
-                        href={resetLink} 
-                        className="text-xs text-purple-600 hover:text-purple-700 underline break-all"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {resetLink}
-                      </a>
-                    </div>
-                  )}
                 </div>
               </div>
             )}
@@ -167,9 +176,17 @@ export default function ForgotPasswordPage() {
                 <span>Quay lại đăng nhập</span>
               </Link>
             </div>
+
+            {/* Footer */}
+            <div className="pt-2 text-center">
+              <p className="text-[10px] text-gray-400">
+                © 2025 CLB Sinh viên 5 Tốt TDMU
+              </p>
+            </div>
           </form>
         </div>
       </div>
+    </div>
     </div>
   );
 }

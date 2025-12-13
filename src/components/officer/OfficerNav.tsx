@@ -470,28 +470,18 @@ export default function OfficerNav() {
   const getMenuItems = (): MenuItem[] => {
     const items: MenuItem[] = [
       { name: 'Trang chủ', href: '/officer/dashboard', icon: Home },
-      // Dropdown "Hoạt động"
       {
         name: 'Hoạt động',
+        href: '/officer/activities',
         icon: Target,
-        isDropdown: true,
-        children: [
-          { name: 'Quản lý hoạt động', href: '/officer/activities', icon: Target },
-          { name: 'Điểm danh', href: '/officer/attendance', icon: CheckCircle2 },
-          { name: 'Báo cáo', href: '/officer/reports', icon: BarChart3 },
-        ]
       },
-      // Dropdown "Người dùng"
       {
-        name: 'Người dùng',
+        name: 'Thành viên',
+        href: '/officer/participants',
         icon: Users,
-        isDropdown: true,
-        children: [
-          { name: 'Quản lý người tham gia', href: '/officer/participants', icon: Users },
-          { name: 'Danh sách sinh viên', href: '/officer/students', icon: Users },
-        ]
       },
       { name: 'Bản tin', href: '/officer/news', icon: Newspaper },
+      { name: 'Báo cáo', href: '/officer/reports', icon: BarChart3 },
     ];
 
     // Thêm dropdown CLB nếu có thông tin bị xóa/duyệt lại
@@ -512,12 +502,21 @@ export default function OfficerNav() {
         });
       }
 
-      items.push({
-        name: 'CLB',
-        icon: Building2,
-        isDropdown: true,
-        children: clubChildren
-      });
+      // Nếu CLB chỉ có 1 mục, không dùng dropdown
+      if (clubChildren.length === 1) {
+        items.push({
+          name: clubChildren[0].name,
+          href: clubChildren[0].href,
+          icon: clubChildren[0].icon,
+        });
+      } else {
+        items.push({
+          name: 'CLB',
+          icon: Building2,
+          isDropdown: true,
+          children: clubChildren
+        });
+      }
     }
 
     return items;

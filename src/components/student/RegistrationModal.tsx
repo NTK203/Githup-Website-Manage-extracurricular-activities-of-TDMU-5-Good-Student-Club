@@ -138,7 +138,7 @@ export default function RegistrationModal({
               
               return (
                 <div
-                  key={dayData.day}
+                  key={`day-${dayData.day}-${dayData.date}`}
                   className={`rounded border ${
                     isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-300'
                   }`}
@@ -181,7 +181,7 @@ export default function RegistrationModal({
                       
                         return (
                           <button
-                            key={slotKey}
+                            key={`day-${dayData.day}-slot-${slotKey}`}
                             onClick={() => isActive && canRegisterSlot && onToggleSlot(dayData.day, slotKey as 'morning' | 'afternoon' | 'evening')}
                             disabled={!isActive || !canRegisterSlot}
                             className={`p-3 rounded border text-left transition-all ${

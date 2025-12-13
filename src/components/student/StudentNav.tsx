@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import {
   Home,
   Target,
@@ -51,6 +51,7 @@ interface MenuItem {
 export default function StudentNav() {
   const { user, logout, isAuthenticated } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
@@ -155,6 +156,16 @@ export default function StudentNav() {
 
   const checkMembershipStatus = async () => {
     try {
+      // Chỉ kiểm tra membership status nếu user đã đăng nhập
+      if (!isAuthenticated || !user) {
+        if (typeof window !== 'undefined') {
+          setMembershipStatus(null);
+          setHasRestorationInfo(false);
+          setLoading(false);
+        }
+        return;
+      }
+
       setLoading(true);
       
       // Kiểm tra xem có đang ở trang profile không
@@ -174,9 +185,19 @@ export default function StudentNav() {
       const isOnActivitiesPage = isOnActivityDetailPage || isOnActivitiesSubPage;
       const isOnNewsPage = currentPath.includes('/student/news');
       
+      const token = localStorage.getItem('token');
+      if (!token) {
+        if (typeof window !== 'undefined') {
+          setMembershipStatus(null);
+          setHasRestorationInfo(false);
+          setLoading(false);
+        }
+        return;
+      }
+      
       const response = await fetch(`/api/auth/check-status`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         }
       });
 
@@ -282,10 +303,20 @@ export default function StudentNav() {
           }
         }
       } else {
-        console.error('API response not ok:', response.status);
-        if (typeof window !== 'undefined') {
-          setMembershipStatus(null);
-          setHasRestorationInfo(false);
+        // Xử lý 401 (Unauthorized) như một trường hợp bình thường - user chưa đăng nhập hoặc token hết hạn
+        if (response.status === 401) {
+          // Không log error cho 401 vì đây là trường hợp bình thường
+          if (typeof window !== 'undefined') {
+            setMembershipStatus(null);
+            setHasRestorationInfo(false);
+          }
+        } else {
+          // Chỉ log error cho các status code khác (500, 404, etc.)
+          console.error('API response not ok:', response.status);
+          if (typeof window !== 'undefined') {
+            setMembershipStatus(null);
+            setHasRestorationInfo(false);
+          }
         }
       }
     } catch (err) {
@@ -749,7 +780,7 @@ export default function StudentNav() {
             <div className="hidden lg:flex items-center gap-x-1">
               {menuItems.map((item) => {
                 const IconComponent = item.icon;
-                const isActive = typeof window !== 'undefined' && window.location.pathname === item.href;
+                const isActive = pathname === item.href;
                 return item.isDropdown ? (
                   <div key={item.name} className="relative activities-dropdown">
                     <button
@@ -782,7 +813,7 @@ export default function StudentNav() {
                       <div className={`absolute top-full left-0 mt-3 w-72 ${isDarkMode ? 'bg-gray-900/95 border-gray-700/50' : 'bg-white/95 border-gray-200/50'} rounded-2xl shadow-2xl border backdrop-blur-xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-300`}>
                         {item.children?.map((child) => {
                           const ChildIcon = child.icon;
-                          const isChildActive = typeof window !== 'undefined' && window.location.pathname === child.href;
+                          const isChildActive = pathname === child.href;
                           return (
                             <button
                               key={child.name}
@@ -809,7 +840,7 @@ export default function StudentNav() {
                       <div className={`absolute top-full left-0 mt-3 w-72 ${isDarkMode ? 'bg-gray-900/95 border-gray-700/50' : 'bg-white/95 border-gray-200/50'} rounded-2xl shadow-2xl border backdrop-blur-xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-300`}>
                         {item.children?.map((child) => {
                           const ChildIcon = child.icon;
-                          const isChildActive = typeof window !== 'undefined' && window.location.pathname === child.href;
+                          const isChildActive = pathname === child.href;
                           return (
                             <button
                               key={child.name}
@@ -1357,7 +1388,7 @@ export default function StudentNav() {
               <div className="px-4 py-4 space-y-2">
                 {menuItems.map((item) => {
                   const IconComponent = item.icon;
-                  const isActive = typeof window !== 'undefined' && window.location.pathname === item.href;
+                  const isActive = pathname === item.href;
                   return (
                     <a
                       key={item.name}

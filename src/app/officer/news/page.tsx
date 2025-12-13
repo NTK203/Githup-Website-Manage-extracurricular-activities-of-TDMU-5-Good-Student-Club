@@ -902,28 +902,32 @@ export default function OfficerNewsPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => handleEdit(post)}
-                          className={`p-2 rounded-lg transition-all duration-200 ${
-                            isDarkMode
-                              ? 'hover:bg-gray-700 text-gray-400 hover:text-purple-400'
-                              : 'hover:bg-gray-100 text-gray-500 hover:text-purple-600'
-                          }`}
-                          title="Chỉnh sửa"
-                        >
-                          <Edit size={18} />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(post._id)}
-                          className={`p-2 rounded-lg transition-all duration-200 ${
-                            isDarkMode
-                              ? 'hover:bg-red-900/20 text-red-400 hover:text-red-300'
-                              : 'hover:bg-red-50 text-red-500 hover:text-red-700'
-                          }`}
-                          title="Xóa"
-                        >
-                          <Trash2 size={18} />
-                        </button>
+                        {user?._id === post.author?._id && (
+                          <>
+                            <button
+                              onClick={() => handleEdit(post)}
+                              className={`p-2 rounded-lg transition-all duration-200 ${
+                                isDarkMode
+                                  ? 'hover:bg-gray-700 text-gray-400 hover:text-purple-400'
+                                  : 'hover:bg-gray-100 text-gray-500 hover:text-purple-600'
+                              }`}
+                              title="Chỉnh sửa"
+                            >
+                              <Edit size={18} />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(post._id)}
+                              className={`p-2 rounded-lg transition-all duration-200 ${
+                                isDarkMode
+                                  ? 'hover:bg-red-900/20 text-red-400 hover:text-red-300'
+                                  : 'hover:bg-red-50 text-red-500 hover:text-red-700'
+                              }`}
+                              title="Xóa"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>

@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import ExcelJS from 'exceljs';
 import { RadialBarChart, RadialBar, PieChart, Pie, Cell, ResponsiveContainer, Legend } from 'recharts';
+import toastr from 'toastr';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -42,6 +43,8 @@ import {
   Zap,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   CalendarRange,
   Sunrise,
   XCircle,
@@ -264,6 +267,7 @@ export default function StudentAttendancePage() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [expandedAttendanceDetails, setExpandedAttendanceDetails] = useState<{ [key: string]: boolean }>({});
   
   // Helper function to get verifier name
   const getVerifierName = (verifiedBy: any, verifiedByName?: string | null): string => {
@@ -368,6 +372,8 @@ export default function StudentAttendancePage() {
   // Multiple days states
   const [selectedDaySlot, setSelectedDaySlot] = useState<{ day: number; slot: 'morning' | 'afternoon' | 'evening' } | null>(null);
   const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
+  // Single day selected slot state
+  const [selectedSlotName, setSelectedSlotName] = useState<string | null>(null);
   const [hasInitialized, setHasInitialized] = useState(false);
   const [registeredDaySlots, setRegisteredDaySlots] = useState<Array<{ day: number; slot: 'morning' | 'afternoon' | 'evening' }>>([]);
   const [parsedScheduleData, setParsedScheduleData] = useState<Array<{
@@ -395,6 +401,29 @@ export default function StudentAttendancePage() {
     };
     dayDetailedLocation?: string;
   }>>([]);
+
+  // Configure Toastr
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      toastr.options = {
+        closeButton: true,
+        debug: false,
+        newestOnTop: true,
+        progressBar: true,
+        positionClass: 'toast-top-right',
+        preventDuplicates: false,
+        onclick: undefined,
+        showDuration: 300,
+        hideDuration: 1000,
+        timeOut: 5000,
+        extendedTimeOut: 1000,
+        showEasing: 'swing',
+        hideEasing: 'linear',
+        showMethod: 'fadeIn',
+        hideMethod: 'fadeOut'
+      };
+    }
+  }, []);
 
   // Handle ESC key to close image modal
   useEffect(() => {
@@ -426,7 +455,7 @@ export default function StudentAttendancePage() {
       }
 
       if (!isAuthenticated || !token || !activityId || !user) {
-        setError('Bạn cần đăng nhập để điểm danh');
+        toastr.error('Bạn cần đăng nhập để điểm danh');
         setLoading(false);
         return;
       }
@@ -460,13 +489,13 @@ export default function StudentAttendancePage() {
         );
 
         if (!userParticipant) {
-          setError('Bạn chưa đăng ký tham gia hoạt động này');
+          toastr.error('Bạn chưa đăng ký tham gia hoạt động này');
           setLoading(false);
           return;
         }
 
         if (userParticipant.approvalStatus !== 'approved') {
-          setError('Bạn chưa được duyệt tham gia hoạt động này');
+          toastr.error('Bạn chưa được duyệt tham gia hoạt động này');
           setLoading(false);
           return;
         }
@@ -705,7 +734,7 @@ export default function StudentAttendancePage() {
         
         setLoading(false);
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : 'Có lỗi xảy ra');
+        toastr.error(err instanceof Error ? err.message : 'Có lỗi xảy ra');
         setLoading(false);
       }
     };
@@ -864,7 +893,11 @@ export default function StudentAttendancePage() {
           (r) => r.timeSlot === daySlotKey && r.checkInType === 'end'
         );
         
-        const slotDate = new Date(dayData.date);
+        // Parse date string (YYYY-MM-DD) to local timezone to avoid timezone issues
+        const dateParts = dayData.date.split('-');
+        const slotDate = dateParts.length === 3
+          ? new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]))
+          : new Date(dayData.date);
         const [startHours, startMinutes] = slot.startTime.split(':').map(Number);
         const [endHours, endMinutes] = slot.endTime.split(':').map(Number);
         
@@ -909,42 +942,14 @@ export default function StudentAttendancePage() {
 
     // Handle multiple days activities
     if (activity.type === 'multiple_days') {
-      // Check if there's a slot currently open for check-in
-      const availableSlot = findAvailableCheckInSlot();
-      
-      // If there's a slot currently open, ONLY check against that slot
-      if (availableSlot && availableSlot.location) {
-        const location = availableSlot.location;
-        if (location.lat && location.lng) {
-          const distance = calculateDistance(
-            userLat,
-            userLng,
-            location.lat,
-            location.lng
-          );
-          
-          const slotName = availableSlot.slot === 'morning' ? 'Buổi Sáng' : availableSlot.slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
-          const radius = location.radius || 200;
-          
-          if (distance <= radius) {
-            return { valid: true, distance };
-          } else {
-            return {
-              valid: false,
-              distance,
-              message: `Bạn đang cách vị trí điểm danh (Ngày ${availableSlot.day} - ${slotName}) ${distance.toFixed(0)}m. Vui lòng đến đúng vị trí (trong bán kính ${radius}m) để điểm danh.`
-            };
-          }
-        }
-      }
-      
-      // If no slot is currently open, allow user to select a day/slot and check against selected slot
       // Priority 1: Check against the specific slot that user wants to check-in (if provided)
+      // This is the most important - always check against targetSlot if provided
       if (targetSlot) {
         const dayData = parsedScheduleData.find(d => d.day === targetSlot.day);
         if (dayData) {
           const slot = dayData.slots.find(s => s.slotKey === targetSlot.slot);
           const location = slot?.mapLocation || dayData.dayMapLocation;
+          
           
           if (location && location.lat && location.lng) {
             const distance = calculateDistance(
@@ -957,6 +962,7 @@ export default function StudentAttendancePage() {
             const slotName = targetSlot.slot === 'morning' ? 'Buổi Sáng' : targetSlot.slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
             const radius = location.radius || 200;
             
+            
             if (distance <= radius) {
               return { valid: true, distance };
             } else {
@@ -964,6 +970,38 @@ export default function StudentAttendancePage() {
                 valid: false,
                 distance,
                 message: `Bạn đang cách vị trí điểm danh (Ngày ${targetSlot.day} - ${slotName}) ${distance.toFixed(0)}m. Vui lòng đến đúng vị trí (trong bán kính ${radius}m) để điểm danh.`
+              };
+            }
+          }
+        }
+      }
+      
+      // Priority 2: Check if there's a slot currently open for check-in
+      // Only use this if targetSlot is not provided
+      if (!targetSlot) {
+        const availableSlot = findAvailableCheckInSlot();
+        
+        // If there's a slot currently open, ONLY check against that slot
+        if (availableSlot && availableSlot.location) {
+          const location = availableSlot.location;
+          if (location.lat && location.lng) {
+            const distance = calculateDistance(
+              userLat,
+              userLng,
+              location.lat,
+              location.lng
+            );
+            
+            const slotName = availableSlot.slot === 'morning' ? 'Buổi Sáng' : availableSlot.slot === 'afternoon' ? 'Buổi Chiều' : 'Buổi Tối';
+            const radius = location.radius || 200;
+            
+            if (distance <= radius) {
+              return { valid: true, distance };
+            } else {
+              return {
+                valid: false,
+                distance,
+                message: `Bạn đang cách vị trí điểm danh (Ngày ${availableSlot.day} - ${slotName}) ${distance.toFixed(0)}m. Vui lòng đến đúng vị trí (trong bán kính ${radius}m) để điểm danh.`
               };
             }
           }
@@ -1001,8 +1039,12 @@ export default function StudentAttendancePage() {
         }
       }
       
-      // If no location found, allow check-in
-      return { valid: true, message: 'Hoạt động không yêu cầu vị trí cụ thể cho buổi này' };
+      // If no location found for multiple days activity, don't fallback to activity.locationData
+      // Instead, return error to force user to be at correct location
+      return { 
+        valid: false, 
+        message: 'Không tìm thấy vị trí điểm danh cho buổi này. Vui lòng liên hệ quản trị viên.' 
+      };
     }
 
     // If no location data is required, allow check-in
@@ -1010,13 +1052,14 @@ export default function StudentAttendancePage() {
       return { valid: true, message: 'Hoạt động không yêu cầu vị trí cụ thể' };
     }
 
-    // Check single location
-    if (activity.locationData) {
+    // Check single location (only for single day activities)
+    if (activity.locationData && activity.type === 'single_day') {
       const distance = calculateDistance(
         userLat,
         userLng,
         activity.locationData.lat,
-        activity.locationData.lng
+        activity.locationData.lng 
+        
       );
       
       if (distance <= activity.locationData.radius) {
@@ -1288,7 +1331,11 @@ export default function StudentAttendancePage() {
       // Try to find current day
       const currentDay = registeredScheduleData.find(d => {
         if (!d.date) return false;
-        const scheduleDate = new Date(d.date);
+        // Parse date string (YYYY-MM-DD) to local timezone to avoid timezone issues
+        const dateParts = d.date.split('-');
+        const scheduleDate = dateParts.length === 3
+          ? new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]))
+          : new Date(d.date);
         scheduleDate.setHours(0, 0, 0, 0);
         return scheduleDate.getTime() === today.getTime();
       });
@@ -1303,7 +1350,11 @@ export default function StudentAttendancePage() {
         const upcomingDays = registeredScheduleData
           .map(d => {
             if (!d.date) return null;
-            const scheduleDate = new Date(d.date);
+            // Parse date string (YYYY-MM-DD) to local timezone to avoid timezone issues
+            const dateParts = d.date.split('-');
+            const scheduleDate = dateParts.length === 3
+              ? new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]))
+              : new Date(d.date);
             scheduleDate.setHours(0, 0, 0, 0);
             return { day: d, date: scheduleDate };
           })
@@ -1408,14 +1459,6 @@ export default function StudentAttendancePage() {
       if (dayData) {
         const slot = dayData.slots.find(s => s.slotKey === selectedDaySlot.slot);
         const location = slot?.mapLocation || dayData.dayMapLocation;
-        console.log('Updating map center for slot:', {
-          selectedDaySlot,
-          slotKey: slot?.slotKey,
-          slotName: slot?.name,
-          hasSlotLocation: !!slot?.mapLocation,
-          hasDayLocation: !!dayData.dayMapLocation,
-          location: location
-        });
         if (location && location.lat && location.lng &&
             typeof location.lat === 'number' && 
             typeof location.lng === 'number' &&
@@ -1443,7 +1486,13 @@ export default function StudentAttendancePage() {
       
       // Handle multiple days - use slotDate if provided
       if (activity.type === 'multiple_days' && slotDate) {
-        activityDate = new Date(slotDate);
+        // Parse date string (YYYY-MM-DD) to local timezone to avoid timezone issues
+        const dateParts = slotDate.split('-');
+        if (dateParts.length === 3) {
+          activityDate = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
+        } else {
+          activityDate = new Date(slotDate);
+        }
       } else if (activity.type === 'single_day') {
         const dateParts = activity.date.split('/');
         if (dateParts.length === 3) {
@@ -1541,7 +1590,13 @@ export default function StudentAttendancePage() {
         const slot = dayData.slots.find(s => s.slotKey === slotKey);
         if (!slot) return null;
         
-        activityDate = new Date(dayData.date);
+        // Parse date string (YYYY-MM-DD) to local timezone to avoid timezone issues
+        const dateParts = dayData.date.split('-');
+        if (dateParts.length === 3) {
+          activityDate = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
+        } else {
+          activityDate = new Date(dayData.date);
+        }
         const [startHours, startMinutes] = slot.startTime.split(':').map(Number);
         const [endHours, endMinutes] = slot.endTime.split(':').map(Number);
         
@@ -1577,8 +1632,11 @@ export default function StudentAttendancePage() {
       let targetTime: Date;
       if (record.checkInType === 'start') {
         targetTime = slotStartTime;
-      } else {
+      } else if (record.checkInType === 'end') {
         targetTime = slotEndTime;
+      } else {
+        // Fallback to start if checkInType is invalid
+        targetTime = slotStartTime;
       }
       
       // On-time window: 15 minutes before to 15 minutes after target time (auto-approve)
@@ -1678,7 +1736,13 @@ export default function StudentAttendancePage() {
         return { isLate: false, isValid: false };
       }
       
-      activityDate = new Date(dayData.date);
+      // Parse date string (YYYY-MM-DD) to local timezone to avoid timezone issues
+      const dateParts = dayData.date.split('-');
+      if (dateParts.length === 3) {
+        activityDate = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
+      } else {
+        activityDate = new Date(dayData.date);
+      }
       const activityDateOnly = new Date(activityDate.getFullYear(), activityDate.getMonth(), activityDate.getDate());
       const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
@@ -1971,7 +2035,6 @@ export default function StudentAttendancePage() {
       setStream(mediaStream);
       setShowCamera(true);
       setCapturedPhoto(null);
-      setError(null); // Clear any previous errors
     } catch (err: any) {
       console.error('Error accessing camera:', err);
       let errorMessage = 'Không thể truy cập camera. ';
@@ -1986,7 +2049,7 @@ export default function StudentAttendancePage() {
         errorMessage += err.message || 'Vui lòng thử lại sau.';
       }
       
-      setError(errorMessage);
+      toastr.error(errorMessage);
       setShowCamera(false);
     }
   };
@@ -2177,7 +2240,7 @@ export default function StudentAttendancePage() {
       setIsCapturing(false);
     } catch (err) {
       console.error('Error capturing photo:', err);
-      setError('Không thể chụp ảnh. Vui lòng thử lại.');
+      toastr.error('Không thể chụp ảnh. Vui lòng thử lại.');
       setIsCapturing(false);
     }
   };
@@ -2223,7 +2286,7 @@ export default function StudentAttendancePage() {
   // Handle check-in for specific time slot and check-in type
   const handleSlotCheckIn = async (slotName: string, checkInType: string) => {
     if (!isAuthenticated || !token || !activity || !user) {
-      setError("Bạn cần đăng nhập để điểm danh.");
+      toastr.error("Bạn cần đăng nhập để điểm danh.");
       return;
     }
 
@@ -2260,7 +2323,6 @@ export default function StudentAttendancePage() {
                 typeof location.lng === 'number' &&
                 !isNaN(location.lat) &&
                 !isNaN(location.lng)) {
-              console.log('Updating map center immediately:', { lat: location.lat, lng: location.lng });
               setMapCenter([location.lat, location.lng]);
             }
           }
@@ -2314,7 +2376,7 @@ export default function StudentAttendancePage() {
     if (userLocation) {
       const locationCheck = checkLocationValidity(userLocation.lat, userLocation.lng, targetSlot);
       if (!locationCheck.valid) {
-        setError(locationCheck.message || 'Vị trí của bạn không đúng. Vui lòng đến đúng vị trí hoạt động để điểm danh.');
+        toastr.error(locationCheck.message || 'Vị trí của bạn không đúng. Vui lòng đến đúng vị trí hoạt động để điểm danh.');
         return;
       }
     } else {
@@ -2339,7 +2401,7 @@ export default function StudentAttendancePage() {
         );
 
         if (!locationCheck.valid) {
-          setError(locationCheck.message || 'Vị trí của bạn không đúng. Vui lòng đến đúng vị trí hoạt động để điểm danh.');
+          toastr.error(locationCheck.message || 'Vị trí của bạn không đúng. Vui lòng đến đúng vị trí hoạt động để điểm danh.');
           return;
         }
 
@@ -2350,7 +2412,7 @@ export default function StudentAttendancePage() {
         });
       } catch (geoError) {
         console.error('Could not get location:', geoError);
-        setError('Không thể xác định vị trí. Vui lòng bật GPS và thử lại.');
+        toastr.error('Không thể xác định vị trí. Vui lòng bật GPS và thử lại.');
         return;
       }
     }
@@ -2362,14 +2424,14 @@ export default function StudentAttendancePage() {
       (window as any).pendingCheckIn = { slotName, checkInType };
     } catch (err) {
       console.error('Error opening camera:', err);
-      setError('Không thể mở camera. Vui lòng kiểm tra quyền truy cập camera.');
+      toastr.error('Không thể mở camera. Vui lòng kiểm tra quyền truy cập camera.');
     }
   };
 
   // Handle delete attendance record
   const handleDeleteAttendance = async (slotName: string, checkInType: string) => {
     if (!isAuthenticated || !token || !activity || !user) {
-      setError("Bạn cần đăng nhập để thực hiện thao tác này.");
+      toastr.error("Bạn cần đăng nhập để thực hiện thao tác này.");
       return;
     }
 
@@ -2379,8 +2441,6 @@ export default function StudentAttendancePage() {
     }
 
         setIsCheckingIn(true);
-    setError(null);
-    setSuccessMessage(null);
 
     try {
         const response = await fetch(`/api/activities/${activityId}/attendance`, {
@@ -2402,14 +2462,13 @@ export default function StudentAttendancePage() {
         throw new Error(data.message || 'Lỗi khi xóa điểm danh');
         }
 
-      setSuccessMessage('Đã xóa ảnh điểm danh thành công');
-        setError(null);
+      toastr.success('Đã xóa ảnh điểm danh thành công');
         
         // Reload attendance status from API
         await loadAttendanceStatus();
       } catch (err) {
       console.error('Error deleting attendance:', err);
-      setError(err instanceof Error ? err.message : 'Lỗi khi xóa điểm danh');
+      toastr.error(err instanceof Error ? err.message : 'Lỗi khi xóa điểm danh');
       } finally {
         setIsCheckingIn(false);
     }
@@ -2417,7 +2476,7 @@ export default function StudentAttendancePage() {
 
   const handleCheckIn = async () => {
     if (!isAuthenticated || !token || !activity || !user) {
-      setError("Bạn cần đăng nhập để điểm danh.");
+      toastr.error("Bạn cần đăng nhập để điểm danh.");
       return;
     }
 
@@ -2437,7 +2496,7 @@ export default function StudentAttendancePage() {
         await openCamera();
       } catch (err) {
         console.error('Error opening camera:', err);
-        setError('Không thể mở camera. Vui lòng kiểm tra quyền truy cập camera.');
+        toastr.error('Không thể mở camera. Vui lòng kiểm tra quyền truy cập camera.');
       }
       return; // Don't proceed until photo is captured
     }
@@ -2448,7 +2507,7 @@ export default function StudentAttendancePage() {
 
   const proceedWithCheckIn = async (photoDataUrl: string | null, slotName?: string, checkInType?: string, lateReasonValue?: string) => {
     if (!isAuthenticated || !token || !activity || !user) {
-      setError("Bạn cần đăng nhập để điểm danh.");
+      toastr.error("Bạn cần đăng nhập để điểm danh.");
       return;
     }
 
@@ -2456,16 +2515,6 @@ export default function StudentAttendancePage() {
     const pendingCheckIn = (window as any).pendingCheckIn;
     const finalSlotName = slotName || pendingCheckIn?.slotName;
     const finalCheckInType = checkInType || pendingCheckIn?.checkInType;
-    
-    // Debug logging
-    console.log('proceedWithCheckIn - Debug:', {
-      slotName,
-      checkInType,
-      pendingCheckIn,
-      finalSlotName,
-      finalCheckInType,
-      activityType: activity?.type
-    });
     
     // Get check-in time from when photo was captured (stored in window)
     // This is the actual time the photo was taken, not when the request is sent
@@ -2484,7 +2533,7 @@ export default function StudentAttendancePage() {
           : timeCheck.isLate
           ? `Điểm danh quá trễ ${timeCheck.minutesLate !== undefined ? formatMinutesToHours(timeCheck.minutesLate) : ''}. Thời gian điểm danh đã kết thúc.`
           : 'Thời gian điểm danh không hợp lệ.';
-        setError(errorMessage);
+        toastr.error(errorMessage);
         setIsCheckingIn(false);
         // Clear photo check-in time
         (window as any).photoCheckInTime = null;
@@ -2498,8 +2547,6 @@ export default function StudentAttendancePage() {
     }
 
     setIsCheckingIn(true);
-    setError(null);
-    setSuccessMessage(null);
 
     try {
       // Get current location with high accuracy (verify location again)
@@ -2533,6 +2580,17 @@ export default function StudentAttendancePage() {
             }
           }
           
+          // If targetSlot is not parsed from finalSlotName, use selectedDaySlot as fallback
+          // This ensures we check against the correct location even if parsing fails
+          if (!targetSlot && activity?.type === 'multiple_days' && selectedDaySlot) {
+            targetSlot = selectedDaySlot;
+          }
+          
+          // If targetSlot is still not set, try to use selectedDaySlot
+          if (!targetSlot && activity?.type === 'multiple_days' && selectedDaySlot) {
+            targetSlot = selectedDaySlot;
+          }
+          
           const locationCheck = checkLocationValidity(
             position.coords.latitude,
             position.coords.longitude,
@@ -2540,7 +2598,7 @@ export default function StudentAttendancePage() {
           );
 
           if (!locationCheck.valid) {
-            setError(locationCheck.message || 'Vị trí của bạn không đúng. Vui lòng đến đúng vị trí hoạt động để điểm danh.');
+            toastr.error(locationCheck.message || 'Vị trí của bạn không đúng. Vui lòng đến đúng vị trí hoạt động để điểm danh.');
             setIsCheckingIn(false);
             return;
           }
@@ -2572,12 +2630,12 @@ export default function StudentAttendancePage() {
           };
         } catch (geoError) {
           console.error('Could not get location:', geoError);
-          setError('Không thể xác định vị trí. Vui lòng bật GPS và thử lại.');
+          toastr.error('Không thể xác định vị trí. Vui lòng bật GPS và thử lại.');
           setIsCheckingIn(false);
           return;
         }
       } else {
-        setError('Trình duyệt không hỗ trợ định vị GPS.');
+        toastr.error('Trình duyệt không hỗ trợ định vị GPS.');
         setIsCheckingIn(false);
         return;
       }
@@ -2586,7 +2644,7 @@ export default function StudentAttendancePage() {
       if (!location || typeof location.lat !== 'number' || typeof location.lng !== 'number' || 
           isNaN(location.lat) || isNaN(location.lng)) {
         console.error('Invalid location data:', location);
-        setError('Vị trí không hợp lệ. Vui lòng thử lại.');
+        toastr.error('Vị trí không hợp lệ. Vui lòng thử lại.');
         setIsCheckingIn(false);
         return;
       }
@@ -2633,7 +2691,7 @@ export default function StudentAttendancePage() {
           }
         } catch (uploadError: any) {
           console.error('Error uploading photo:', uploadError);
-          setError(uploadError.message || 'Lỗi khi tải ảnh. Vui lòng thử lại.');
+          toastr.error(uploadError.message || 'Lỗi khi tải ảnh. Vui lòng thử lại.');
           setIsCheckingIn(false);
           return;
         }
@@ -2642,7 +2700,7 @@ export default function StudentAttendancePage() {
       // Validate required fields before preparing request body
       if (!finalSlotName || !finalCheckInType) {
         console.error('Missing required fields:', { finalSlotName, finalCheckInType });
-        setError('Dữ liệu điểm danh không hợp lệ. Vui lòng thử lại.');
+        toastr.error('Dữ liệu điểm danh không hợp lệ. Vui lòng thử lại.');
         setIsCheckingIn(false);
         closeCamera();
         delete (window as any).pendingCheckIn;
@@ -2654,7 +2712,7 @@ export default function StudentAttendancePage() {
       const userId = (user as any).userId || (user as any)._id;
       if (!userId) {
         console.error('Missing userId');
-        setError('Không tìm thấy thông tin người dùng. Vui lòng đăng nhập lại.');
+        toastr.error('Không tìm thấy thông tin người dùng. Vui lòng đăng nhập lại.');
         setIsCheckingIn(false);
         closeCamera();
         delete (window as any).pendingCheckIn;
@@ -2687,7 +2745,7 @@ export default function StudentAttendancePage() {
           }
         } else {
           console.error('Invalid timeSlot format for multiple days:', finalSlotName);
-          setError('Định dạng buổi điểm danh không hợp lệ. Vui lòng thử lại.');
+          toastr.error('Định dạng buổi điểm danh không hợp lệ. Vui lòng thử lại.');
           setIsCheckingIn(false);
           closeCamera();
           delete (window as any).pendingCheckIn;
@@ -2758,7 +2816,7 @@ export default function StudentAttendancePage() {
         // If rejected due to invalid location, show error but don't throw
         // The record is still saved with status = 'rejected' for officer review
         if (data.data?.status === 'rejected' || data.message?.includes('Vị trí không đúng')) {
-          setError(data.message || data.data?.reason || 'Vị trí không đúng. Điểm danh đã bị từ chối.');
+          toastr.error(data.message || data.data?.reason || 'Vị trí không đúng. Điểm danh đã bị từ chối.');
           // Reload attendance status to show the rejected record
           await loadAttendanceStatus();
           setIsCheckingIn(false);
@@ -2786,20 +2844,20 @@ export default function StudentAttendancePage() {
         
         // Set success message based on status
         if (attendanceStatusFromResponse === 'approved') {
-          setSuccessMessage(`✅ Đã điểm danh ${finalCheckInType === 'start' ? 'đầu' : 'cuối'} buổi ${finalSlotName} và được tự động duyệt!`);
+          toastr.success(`✅ Đã điểm danh ${finalCheckInType === 'start' ? 'đầu' : 'cuối'} buổi ${finalSlotName} và được tự động duyệt!`);
         } else if (attendanceStatusFromResponse === 'pending') {
-          setSuccessMessage(`⏳ Đã điểm danh ${finalCheckInType === 'start' ? 'đầu' : 'cuối'} buổi ${finalSlotName}. Đang chờ xét duyệt.`);
+          toastr.info(`⏳ Đã điểm danh ${finalCheckInType === 'start' ? 'đầu' : 'cuối'} buổi ${finalSlotName}. Đang chờ xét duyệt.`);
         } else {
-          setSuccessMessage(`⚠️ Đã điểm danh ${finalCheckInType === 'start' ? 'đầu' : 'cuối'} buổi ${finalSlotName} nhưng bị từ chối.`);
+          toastr.warning(`⚠️ Đã điểm danh ${finalCheckInType === 'start' ? 'đầu' : 'cuối'} buổi ${finalSlotName} nhưng bị từ chối.`);
         }
       } else {
         setCheckedIn(true);
         if (attendanceStatusFromResponse === 'approved') {
-          setSuccessMessage('✅ Đã điểm danh và được tự động duyệt!');
+          toastr.success('✅ Đã điểm danh và được tự động duyệt!');
         } else if (attendanceStatusFromResponse === 'pending') {
-          setSuccessMessage('⏳ Đã điểm danh. Đang chờ xét duyệt.');
+          toastr.info('⏳ Đã điểm danh. Đang chờ xét duyệt.');
         } else {
-          setSuccessMessage('⚠️ Đã điểm danh nhưng bị từ chối.');
+          toastr.warning('⚠️ Đã điểm danh nhưng bị từ chối.');
         }
       }
       
@@ -2809,7 +2867,6 @@ export default function StudentAttendancePage() {
       // Clear pending check-in
       delete (window as any).pendingCheckIn;
       delete (window as any).photoCheckInTime;
-      setError(null);
       closeCamera();
       setShowLateModal(false);
       setLateReason('');
@@ -2826,7 +2883,7 @@ export default function StudentAttendancePage() {
 
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Có lỗi xảy ra khi điểm danh';
-      setError(errorMessage);
+      toastr.error(errorMessage);
       console.error('Check-in error:', err);
     } finally {
       setIsCheckingIn(false);
@@ -3922,39 +3979,39 @@ export default function StudentAttendancePage() {
     <div className={`min-h-screen flex flex-col ${isDarkMode ? 'bg-gray-900' : 'bg-gradient-to-br from-blue-50 via-white to-purple-50'}`}>
       <StudentNav />
       
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 md:px-8 py-4 sm:py-5 md:py-6">
+      <main className="flex-1 w-full max-w-4xl mx-auto px-3 sm:px-4 py-3 sm:py-4">
         {/* Header - Compact Design */}
-        <div className="mb-4">
+        <div className="mb-3">
           <button
             onClick={() => router.back()}
-            className={`mb-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            className={`mb-2 flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-all ${
               isDarkMode 
                 ? 'text-gray-300 hover:text-white border border-gray-700' 
                 : 'text-gray-600 hover:text-gray-900 border border-gray-200'
             }`}
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
+            <ArrowLeft className="w-3 h-3" />
             <span>Quay lại</span>
           </button>
 
           {/* Compact Header Card */}
-          <div className={`relative overflow-hidden rounded-xl ${
+          <div className={`relative overflow-hidden rounded-lg ${
             isDarkMode 
               ? 'border border-gray-700 bg-gray-800/50' 
               : 'border border-gray-200 bg-white'
           }`}>
-            <div className="relative p-3 sm:p-4">
-              <div className="flex items-center gap-2.5">
-                <CheckCircle2 className={`w-4 h-4 flex-shrink-0 ${
+            <div className="relative p-2.5">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className={`w-3.5 h-3.5 flex-shrink-0 ${
                   isDarkMode ? 'text-blue-400' : 'text-blue-600'
                 }`} />
                 <div className="flex-1 min-w-0">
-                  <h1 className={`text-base sm:text-lg font-bold mb-1 truncate ${
+                  <h1 className={`text-sm sm:text-base font-bold mb-0.5 truncate ${
                       isDarkMode ? 'text-white' : 'text-gray-900'
                     }`}>
                     {activity.name}
                   </h1>
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-1.5 text-[10px] sm:text-xs">
                     <div className={`flex items-center gap-1 ${
                       isDarkMode ? 'text-gray-400' : 'text-gray-600'
                     }`}>
@@ -3980,75 +4037,32 @@ export default function StudentAttendancePage() {
           </div>
         </div>
 
-        {/* Success/Error Messages - Compact Design */}
-        {(successMessage || error) && !showSuccessModal && (
-          <div className="mb-3">
-            {successMessage && (
-              <div className={`p-2 rounded-lg border text-xs ${isDarkMode ? 'border-green-500/30 bg-green-500/10' : 'border-green-200 bg-green-50'}`}>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className={`w-3.5 h-3.5 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
-                  <p className={`font-medium flex-1 ${isDarkMode ? 'text-green-300' : 'text-green-700'}`}>
-                    {successMessage}
-                  </p>
-                  <button
-                    onClick={() => setSuccessMessage(null)}
-                    className={`transition-all ${
-                      isDarkMode ? 'text-green-400 hover:text-green-300' : 'text-green-600 hover:text-green-700'
-                    }`}
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {error && (
-              <div className={`p-2 rounded-lg border text-xs ${isDarkMode ? 'border-red-500/30 bg-red-500/10' : 'border-red-200 bg-red-50'}`}>
-                <div className="flex items-center gap-2">
-                  <AlertCircle className={`w-3.5 h-3.5 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />
-                  <p className={`font-medium flex-1 ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>
-                    {error}
-                  </p>
-                  <button
-                    onClick={() => setError(null)}
-                    className={`transition-all ${
-                      isDarkMode ? 'text-red-400 hover:text-red-300' : 'text-red-600 hover:text-red-700'
-                    }`}
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Dashboard Header - Compact Design */}
-        <div className="space-y-3">
-          <div className={`relative overflow-hidden rounded-xl ${
+        <div className="space-y-2">
+          <div className={`relative overflow-hidden rounded-lg ${
             isDarkMode 
               ? 'border border-gray-700 bg-gray-800/50' 
               : 'border border-gray-200 bg-white'
           }`}>
-            <div className="relative p-3 sm:p-4">
+            <div className="relative p-2.5">
               {/* Header Info */}
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="flex items-center gap-2.5">
-                  <MapPin className={`w-5 h-5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <MapPin className={`w-4 h-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
                   <div>
-                    <h2 className={`text-lg sm:text-xl font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                    <h2 className={`text-sm sm:text-base font-bold mb-0.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                       Điểm danh 
                     </h2>
-                    <p className={`text-xs flex items-center gap-1.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      <Clock className="w-3 h-3" />
+                    <p className={`text-[10px] sm:text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      <Clock className="w-2.5 h-2.5" />
                       {formattedTime} • {formattedDate}
                     </p>
                   </div>
                 </div>
              
                 {/* Status Badges */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className={`px-2.5 py-1.5 rounded-lg border text-xs ${
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <div className={`px-2 py-1 rounded border text-[10px] sm:text-xs ${
                     isAllCompleted
                       ? isDarkMode ? 'border-green-500/30 bg-green-500/10' : 'border-green-200 bg-green-50'
                       : isDarkMode ? 'border-gray-600 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
@@ -4113,7 +4127,7 @@ export default function StudentAttendancePage() {
                     }
                     
                     return (
-                      <div className={`px-2.5 py-1.5 rounded-lg border text-xs ${
+                      <div className={`px-2 py-1 rounded border text-[10px] sm:text-xs ${
                         locationStatus.valid
                           ? isDarkMode ? 'border-green-500/30 bg-green-500/10' : 'border-green-200 bg-green-50'
                           : isDarkMode ? 'border-red-500/30 bg-red-500/10' : 'border-red-200 bg-red-50'
@@ -4171,8 +4185,8 @@ export default function StudentAttendancePage() {
 
           {/* Schedule Section for Multiple Days */}
           {activity.type === 'multiple_days' && parsedScheduleData.length > 0 && (
-            <div className={`mb-3 rounded-xl border-2 p-3 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
-              <div className="flex items-center justify-between mb-3">
+            <div className={`mb-2 rounded-lg border-2 p-2 ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
+              <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-blue-500/20' : 'bg-blue-50'}`}>
                     <Calendar size={18} className="text-blue-500" />
@@ -4220,10 +4234,12 @@ export default function StudentAttendancePage() {
                              timeSlot === daySlotKey2 || 
                              timeSlot === daySlotKey3 || 
                              timeSlot === daySlotKey4 ||
-                             timeSlot.includes(`Ngày ${dayData.day}`) && timeSlot.includes(slotName);
+                             (timeSlot.includes(`Ngày ${dayData.day}`) && timeSlot.includes(slotName));
                     };
                     
                     // Check if both start and end check-ins are completed
+                    // Count as completed if both are approved OR pending (not rejected)
+                    // Pending means user has checked in but waiting for approval (e.g., late check-in)
                     const startRecord = (attendanceRecords || []).find(
                       (r) => matchesTimeSlot(r) && 
                              r.checkInType === 'start' && 
@@ -4235,17 +4251,28 @@ export default function StudentAttendancePage() {
                              (r.status === 'approved' || r.status === 'pending')
                     );
                     
-                    // A slot is considered completed only if both start and end check-ins are done
-                    if (startRecord && endRecord) {
+                    // A slot is considered completed if both start and end check-ins are done (approved or pending)
+                    // Rejected records are not counted as completed
+                    // Note: We require BOTH start AND end to be approved/pending to count as completed
+                    // If only one exists, it's not considered fully completed
+                    if (startRecord && endRecord && startRecord.status !== 'rejected' && endRecord.status !== 'rejected') {
                       totalCompletedSlots++;
                     }
                   });
                 });
                 
                 // Calculate overall percentage based on completed slots vs total registered slots
-                const overallPercentage = totalRegisteredSlots > 0 
+                const calculatedPercentage = totalRegisteredSlots > 0 
                   ? Math.round((totalCompletedSlots / totalRegisteredSlots) * 100 * 10) / 10 
                   : 0;
+                
+                
+                // Ensure values are valid numbers for chart
+                const validPercentage = isNaN(calculatedPercentage) || !isFinite(calculatedPercentage) ? 0 : Math.max(0, Math.min(100, calculatedPercentage));
+                const remainingPercentage = 100 - validPercentage;
+                
+                // Use validPercentage for all display purposes
+                const overallPercentage = validPercentage;
                 const hasParticipated = overallPercentage >= 70; // >= 70% is considered "participated"
                 
                 // Prepare data for Recharts
@@ -4255,27 +4282,29 @@ export default function StudentAttendancePage() {
                 const bgColor = isDarkMode ? '#1e293b' : '#f1f5f9';
                 
                 const radialBarData = [
-                  { name: 'Hoàn thành', value: overallPercentage, fill: progressColor },
-                  { name: 'Còn lại', value: 100 - overallPercentage, fill: bgColor }
+                  { name: 'Hoàn thành', value: validPercentage, fill: progressColor },
+                  { name: 'Còn lại', value: remainingPercentage, fill: bgColor }
                 ];
                 
+                
+                // Ensure pie chart data has valid values
                 const pieChartData = [
                   { 
                     name: 'Đã tham gia', 
-                    value: totalCompletedSlots, 
+                    value: Math.max(0, totalCompletedSlots), 
                     fill: hasParticipated 
                       ? (isDarkMode ? '#10b981' : '#059669') 
                       : (isDarkMode ? '#3b82f6' : '#2563eb')
                   },
                   { 
                     name: 'Vắng mặt', 
-                    value: totalRegisteredSlots - totalCompletedSlots, 
+                    value: Math.max(0, totalRegisteredSlots - totalCompletedSlots), 
                     fill: isDarkMode ? '#475569' : '#e2e8f0' 
                   }
                 ];
                 
                 return (
-                  <div className={`mb-3 p-4 rounded-xl border-2 shadow-lg transition-all duration-300 ${
+                  <div className={`mb-2 p-2.5 rounded-lg border-2 shadow-md transition-all duration-300 ${
                     hasParticipated
                       ? isDarkMode 
                         ? 'border-green-500/40 bg-gradient-to-br from-slate-800/90 via-slate-800/95 to-slate-900' 
@@ -4284,10 +4313,10 @@ export default function StudentAttendancePage() {
                         ? 'border-blue-500/40 bg-gradient-to-br from-slate-800/90 via-slate-800/95 to-slate-900' 
                         : 'border-blue-400/50 bg-gradient-to-br from-white via-slate-50 to-gray-50'
                   }`}>
-                    <div className="flex flex-col md:flex-row items-center md:items-start gap-4">
+                    <div className="flex flex-col md:flex-row items-center md:items-start gap-2.5">
                       {/* Recharts RadialBarChart - Circular Progress */}
-                      <div className="relative flex-shrink-0 w-[180px] h-[180px] sm:w-[200px] sm:h-[200px]">
-                        <ResponsiveContainer width="100%" height="100%">
+                      <div className="relative flex-shrink-0 w-[140px] h-[140px] sm:w-[160px] sm:h-[160px] min-w-[140px] min-h-[140px]">
+                        <ResponsiveContainer width="100%" height="100%" minHeight={140}>
                           <RadialBarChart 
                             cx="50%" 
                             cy="50%" 
@@ -4313,20 +4342,27 @@ export default function StudentAttendancePage() {
                         {/* Center content */}
                         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                           {hasParticipated ? (
-                            <Award className={`w-6 h-6 sm:w-7 sm:h-7 mb-1 ${
+                            <Award className={`w-5 h-5 sm:w-6 sm:h-6 mb-0.5 ${
                               isDarkMode ? 'text-green-400' : 'text-green-600'
                             }`} strokeWidth={2.5} />
                           ) : (
-                            <TrendingUp className={`w-6 h-6 sm:w-7 sm:h-7 mb-1 ${
+                            <TrendingUp className={`w-5 h-5 sm:w-6 sm:h-6 mb-0.5 ${
                               isDarkMode ? 'text-blue-400' : 'text-blue-600'
                             }`} strokeWidth={2.5} />
                           )}
-                          <span className={`text-2xl sm:text-3xl font-black leading-tight ${
+                          <span className={`text-xl sm:text-2xl font-black leading-tight ${
                             isDarkMode ? 'text-blue-300' : 'text-blue-700'
                           }`}>
-                            {overallPercentage % 1 === 0 ? overallPercentage.toFixed(0) : overallPercentage.toFixed(1)}%
+                            {(() => {
+                              const displayPercentage = isNaN(overallPercentage) || !isFinite(overallPercentage) 
+                                ? 0 
+                                : overallPercentage;
+                              return displayPercentage % 1 === 0 
+                                ? displayPercentage.toFixed(0) + '%' 
+                                : displayPercentage.toFixed(1) + '%';
+                            })()}
                           </span>
-                          <span className={`text-[10px] sm:text-xs font-semibold mt-0.5 ${
+                          <span className={`text-[9px] sm:text-[10px] font-semibold mt-0.5 ${
                             isDarkMode ? 'text-blue-400/80' : 'text-blue-600/80'
                           }`}>
                             Hoàn thành
@@ -4336,11 +4372,11 @@ export default function StudentAttendancePage() {
                       
                       {/* Pie Chart for detailed breakdown */}
                       <div className="flex-1 min-w-0 w-full md:w-auto flex flex-col items-center md:items-start">
-                        <h4 className={`text-xs font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                        <h4 className={`text-[10px] font-bold mb-1.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                           Chi tiết điểm danh
                         </h4>
-                        <div className="w-[160px] h-[160px] sm:w-[180px] sm:h-[180px]">
-                          <ResponsiveContainer width="100%" height="100%">
+                        <div className="w-[120px] h-[120px] sm:w-[140px] sm:h-[140px] min-w-[120px] min-h-[120px]">
+                          <ResponsiveContainer width="100%" height="100%" minHeight={120}>
                             <PieChart>
                               <Pie
                                 data={pieChartData}
@@ -4359,8 +4395,8 @@ export default function StudentAttendancePage() {
                                       fill={isDarkMode ? '#ffffff' : '#1e293b'}
                                       textAnchor="middle"
                                       dominantBaseline="central"
-                                      fontSize="12"
-                                      fontWeight="bold"
+                                      fontSize="10"
+                                      fontWeight="600"
                                     >
                                       {percentageValue}%
                                     </text>
@@ -4376,38 +4412,40 @@ export default function StudentAttendancePage() {
                                   <Cell key={`cell-${index}`} fill={entry.fill} />
                                 ))}
                               </Pie>
-                              <Legend 
-                                verticalAlign="bottom" 
-                                height={50}
-                                iconType="circle"
-                                wrapperStyle={{ fontSize: '11px' }}
-                                formatter={(value, entry: any) => {
-                                  const data = pieChartData.find(d => d.name === value);
-                                  const total = pieChartData.reduce((sum, d) => sum + d.value, 0);
-                                  const percentage = data && total > 0 ? ((data.value / total) * 100).toFixed(1) : '0';
-                                  return (
-                                    <span className={isDarkMode ? 'text-white' : 'text-gray-900'}>
-                                      {value}: <strong>{percentage}%</strong>
-                                    </span>
-                                  );
-                                }}
-                              />
                             </PieChart>
                           </ResponsiveContainer>
+                        </div>
+                        {/* Custom Legend */}
+                        <div className="mt-2 space-y-1">
+                          {pieChartData.map((entry, index) => {
+                            const total = pieChartData.reduce((sum, d) => sum + d.value, 0);
+                            const percentage = total > 0 ? ((entry.value / total) * 100).toFixed(1) : '0.0';
+                            return (
+                              <div key={index} className="flex items-center gap-1.5">
+                                <div 
+                                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: entry.fill }}
+                                />
+                                <span className={`text-[9px] ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                  {entry.name}: <span className="font-semibold text-[8px]">{percentage}%</span>
+                                </span>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                       
                       {/* Info Section */}
                       <div className="flex-1 min-w-0 w-full sm:w-auto">
-                        <div className="flex items-center gap-2 sm:gap-2.5 mb-2 sm:mb-3">
-                          <div className={`p-1.5 sm:p-2 rounded-lg sm:rounded-xl ${
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <div className={`p-1 rounded ${
                             isDarkMode ? 'bg-blue-500/25' : 'bg-blue-100'
                           }`}>
-                            <Activity className={`w-4 h-4 sm:w-5 sm:h-5 ${
+                            <Activity className={`w-3.5 h-3.5 ${
                               isDarkMode ? 'text-blue-400' : 'text-blue-600'
                             }`} strokeWidth={2.5} />
                           </div>
-                          <h3 className={`text-sm sm:text-base font-bold ${
+                          <h3 className={`text-xs sm:text-sm font-bold ${
                             isDarkMode ? 'text-white' : 'text-gray-900'
                           }`}>
                             Tổng quan tham gia hoạt động
@@ -4415,10 +4453,10 @@ export default function StudentAttendancePage() {
                         </div>
                         
                         {/* Export Buttons */}
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           <button
                             onClick={exportToExcel}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] sm:text-xs font-medium transition-all ${
                               isDarkMode
                                 ? 'bg-green-600/20 text-green-300 hover:bg-green-600/30 border border-green-500/30'
                                 : 'bg-green-50 text-green-700 hover:bg-green-100 border border-green-200'
@@ -4430,7 +4468,7 @@ export default function StudentAttendancePage() {
                           </button>
                           <button
                             onClick={exportToPDF}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] sm:text-xs font-medium transition-all ${
                               isDarkMode
                                 ? 'bg-red-600/20 text-red-300 hover:bg-red-600/30 border border-red-500/30'
                                 : 'bg-red-50 text-red-700 hover:bg-red-100 border border-red-200'
@@ -4467,12 +4505,19 @@ export default function StudentAttendancePage() {
                             <p className={`text-sm font-bold ${
                               isDarkMode ? 'text-blue-300' : 'text-blue-700'
                             }`}>
-                              {overallPercentage % 1 === 0 ? overallPercentage.toFixed(0) : overallPercentage.toFixed(1)}%
+                              {(() => {
+                                const displayPercentage = isNaN(overallPercentage) || !isFinite(overallPercentage) 
+                                  ? 0 
+                                  : overallPercentage;
+                                return displayPercentage % 1 === 0 
+                                  ? displayPercentage.toFixed(0) + '%' 
+                                  : displayPercentage.toFixed(1) + '%';
+                              })()}
                             </p>
                           </div>
                         </div>
                         
-                        <div className={`flex items-center gap-2.5 px-3 py-2 rounded-xl ${
+                        <div className={`flex items-center gap-2 px-2 py-1.5 rounded-lg ${
                           isDarkMode ? 'bg-slate-800/60' : 'bg-gray-100'
                         }`}>
                           <Clock className={`w-4 h-4 ${
@@ -4492,8 +4537,8 @@ export default function StudentAttendancePage() {
               
               {/* Week Navigation */}
               {weeks.length > 0 && (
-                <div className={`mb-3 rounded-lg border ${isDarkMode ? 'border-gray-600 bg-gray-800/50' : 'border-gray-300 bg-gray-50'} p-2`}>
-                  <div className="flex items-center justify-between gap-3">
+                <div className={`mb-2 rounded-lg border ${isDarkMode ? 'border-gray-600 bg-gray-800/50' : 'border-gray-300 bg-gray-50'} p-1.5`}>
+                  <div className="flex items-center justify-between gap-2">
                     {/* Nút Previous */}
                     <button
                       onClick={() => setCurrentWeekIndex(prev => Math.max(0, prev - 1))}
@@ -4513,7 +4558,7 @@ export default function StudentAttendancePage() {
                     </button>
                     
                     {/* Week Info Card */}
-                    <div className={`flex-1 flex items-center justify-center gap-3 px-4 py-3 rounded-lg ${
+                    <div className={`flex-1 flex items-center justify-center gap-2 px-2.5 py-1.5 rounded-lg ${
                       isDarkMode 
                         ? 'bg-gradient-to-r from-purple-500/20 to-indigo-500/20 border border-purple-500/30' 
                         : 'bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200'
@@ -4561,7 +4606,7 @@ export default function StudentAttendancePage() {
               )}
 
               {/* Day Tabs */}
-              <div data-day-tabs-section className="flex justify-center overflow-x-auto gap-1.5 mb-3 no-scrollbar">
+              <div data-day-tabs-section className="flex justify-center overflow-x-auto gap-1 mb-2 no-scrollbar">
                 {currentWeekDays.map((weekDay, idx) => {
                   const dayLabel = dayLabels[idx];
                   const dayData = weekDay.data;
@@ -4589,7 +4634,7 @@ export default function StudentAttendancePage() {
                   }
 
                   const scheduleDate = new Date(dayData.date);
-                  const dayDateShort = `${scheduleDate.getDate()}/${scheduleDate.getMonth() + 1}`;
+                  const dayDateShort = `${scheduleDate.getDate()}/${scheduleDate.getMonth() + 1}/${scheduleDate.getFullYear()}`;
                   
                   // Calculate attendance percentage for this day
                   // Only count slots that user has registered for
@@ -4662,7 +4707,11 @@ export default function StudentAttendancePage() {
                               (r) => r.timeSlot === daySlotKey && r.checkInType === 'end'
                             );
                             
-                            const slotDate = new Date(dayData.date);
+                            // Parse date string (YYYY-MM-DD) to local timezone to avoid timezone issues
+                            const dateParts = dayData.date.split('-');
+                            const slotDate = dateParts.length === 3
+                              ? new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]))
+                              : new Date(dayData.date);
                             const [startHours, startMinutes] = slot.startTime.split(':').map(Number);
                             const [endHours, endMinutes] = slot.endTime.split(':').map(Number);
                             
@@ -4789,7 +4838,11 @@ export default function StudentAttendancePage() {
                     (r) => r.timeSlot === daySlotKey && r.checkInType === 'end'
                   );
                   
-                  const slotDate = new Date(dayData.date);
+                  // Parse date string (YYYY-MM-DD) to local timezone to avoid timezone issues
+                  const dateParts = dayData.date.split('-');
+                  const slotDate = dateParts.length === 3
+                    ? new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]))
+                    : new Date(dayData.date);
                   const [startHours, startMinutes] = slot.startTime.split(':').map(Number);
                   const [endHours, endMinutes] = slot.endTime.split(':').map(Number);
                   
@@ -4884,7 +4937,7 @@ export default function StudentAttendancePage() {
                           <div className={`h-1 flex-1 rounded-full ${isDarkMode ? 'bg-blue-500/30' : 'bg-blue-200'}`}></div>
                         </div>
                         )}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5 items-stretch overflow-visible w-full">
+                        <div className="grid grid-cols-3 gap-1.5 items-stretch overflow-visible w-full">
                           {slotOrder.map((slotKey) => {
                             // Check if user has registered for this specific slot
                             const isRegisteredForThisSlot = hasRegisteredForSlot(dayData.day, slotKey as 'morning' | 'afternoon' | 'evening');
@@ -4930,7 +4983,11 @@ export default function StudentAttendancePage() {
                       let canCheckInEnd = false;
                       
                       if (slot) {
-                        const slotDate = new Date(dayData.date);
+                        // Parse date string (YYYY-MM-DD) to local timezone to avoid timezone issues
+                        const dateParts = dayData.date.split('-');
+                        const slotDate = dateParts.length === 3
+                          ? new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]))
+                          : new Date(dayData.date);
                         const [startHours, startMinutes] = slot.startTime.split(':').map(Number);
                         const [endHours, endMinutes] = slot.endTime.split(':').map(Number);
                         
@@ -5020,39 +5077,37 @@ export default function StudentAttendancePage() {
                             }
                             // Location status will be updated automatically via useEffect
                           }}
-                          className={`rounded-xl border-2 p-2.5 md:p-3 transition-all duration-200 min-w-[260px] max-w-full overflow-hidden w-full h-full flex flex-col cursor-pointer ${
+                          className={`rounded-lg border-2 p-1.5 transition-all duration-200 overflow-hidden flex flex-col cursor-pointer flex-shrink-0 ${
                             isSelected
                               ? isDarkMode 
-                                ? 'bg-blue-900/30 border-blue-400 shadow-lg shadow-blue-500/30 ring-2 ring-blue-500/50' 
-                                : 'bg-blue-50 border-blue-500 shadow-lg shadow-blue-500/20 ring-2 ring-blue-500/30'
+                                ? 'bg-blue-900/30 border-blue-400 shadow-sm ring-1 ring-blue-500/50' 
+                                : 'bg-blue-50 border-blue-500 shadow-sm ring-1 ring-blue-500/30'
                               : isDarkMode 
-                                ? 'bg-gray-800/50 border-blue-400 shadow-lg shadow-blue-500/20 hover:border-blue-300 hover:shadow-blue-500/30' 
-                                : 'bg-white border-blue-500 shadow-lg shadow-blue-500/10 hover:border-blue-400 hover:shadow-blue-500/20'
+                                ? 'bg-gray-800/50 border-blue-400 hover:border-blue-300' 
+                                : 'bg-white border-blue-500 hover:border-blue-400'
                           }`}
                           style={{
                                 borderColor: isSelected 
                                   ? (isDarkMode ? '#60a5fa' : '#3b82f6')
-                                  : (isDarkMode ? '#60a5fa' : '#3b82f6'),
-                                borderWidth: isSelected ? '3px' : '2px',
-                                minHeight: '400px'
+                                  : (isDarkMode ? '#60a5fa' : '#3b82f6')
                           }}
                         >
                           {/* Slot Header */}
-                          <div className="flex items-start justify-between mb-2.5 md:mb-3 gap-1.5 min-w-0 w-full flex-shrink-0">
-                            <div className="flex items-center gap-1.5 md:gap-2 flex-1 min-w-0 max-w-full">
-                              <SlotIcon className={`w-4 h-4 md:w-5 md:h-5 ${isActive ? (slotKey === 'morning' ? (isDarkMode ? 'text-yellow-400' : 'text-yellow-600') : slotKey === 'afternoon' ? (isDarkMode ? 'text-blue-400' : 'text-blue-600') : (isDarkMode ? 'text-purple-400' : 'text-purple-600')) : (isDarkMode ? 'text-gray-500' : 'text-gray-400')} flex-shrink-0`} />
-                              <div className="flex-1 min-w-0 max-w-full overflow-hidden">
-                                <h3 className={`text-sm md:text-base font-bold mb-0.5 md:mb-1 w-full ${isActive ? (isDarkMode ? 'text-white' : 'text-gray-900') : (isDarkMode ? 'text-gray-500' : 'text-gray-400')}`}>
+                          <div className="flex items-center justify-between mb-1.5 gap-1 min-w-0 flex-shrink-0">
+                            <div className="flex items-center gap-1 flex-1 min-w-0">
+                              <SlotIcon className={`w-3 h-3 ${isActive ? (slotKey === 'morning' ? (isDarkMode ? 'text-yellow-400' : 'text-yellow-600') : slotKey === 'afternoon' ? (isDarkMode ? 'text-blue-400' : 'text-blue-600') : (isDarkMode ? 'text-purple-400' : 'text-purple-600')) : (isDarkMode ? 'text-gray-500' : 'text-gray-400')} flex-shrink-0`} />
+                              <div className="flex-1 min-w-0 overflow-hidden">
+                                <h3 className={`text-[10px] font-bold mb-0.5 truncate ${isActive ? (isDarkMode ? 'text-white' : 'text-gray-900') : (isDarkMode ? 'text-gray-500' : 'text-gray-400')}`}>
                                   {slotName}
                                 </h3>
                                 {slot && (
-                                  <div className="flex items-center gap-1 flex-wrap min-w-0">
-                                    <div className={`px-1.5 md:px-2 py-0.5 md:py-1 rounded border text-[10px] md:text-xs flex-shrink-0 ${
+                                  <div className="flex items-center gap-0.5 min-w-0">
+                                    <div className={`px-0.5 py-0.5 rounded border text-[8px] flex-shrink-0 ${
                                       isDarkMode ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
                                     }`}>
-                                      <span className={`font-semibold flex items-center gap-0.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                        <Clock className="w-2.5 h-2.5 md:w-3 md:h-3 flex-shrink-0" />
-                                        <span className="whitespace-nowrap">{slot.startTime}-{slot.endTime}</span>
+                                      <span className={`font-medium flex items-center gap-0.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                        <Clock className="w-1.5 h-1.5 flex-shrink-0" />
+                                        <span className="whitespace-nowrap text-[8px]">{slot.startTime}-{slot.endTime}</span>
                                       </span>
                                     </div>
                                   </div>
@@ -5063,54 +5118,79 @@ export default function StudentAttendancePage() {
                           
                           {isActive && slot ? (
                             <>
-                              {/* Location Info */}
+                              {/* Location Info - Compact */}
                               {location && location.lat && location.lng ? (
-                                <div className={`mb-2.5 md:mb-3 p-2 md:p-2.5 rounded-lg border text-[10px] md:text-xs min-w-0 w-full overflow-hidden flex-shrink-0 ${
+                                <div className={`mb-1.5 p-1 rounded border text-[8px] min-w-0 overflow-hidden flex-shrink-0 ${
                                   isDarkMode ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50'
                                 }`}>
-                                  <div className="flex items-start gap-1.5 md:gap-2 min-w-0 w-full">
-                                    <MapPin className={`w-3 h-3 md:w-3.5 md:h-3.5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} flex-shrink-0 mt-0.5`} />
-                                    <div className="flex-1 min-w-0 max-w-full overflow-hidden">
-                                      <p className={`font-semibold mb-0.5 text-[10px] md:text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                        Vị trí điểm danh
-                                      </p>
-                                      <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} break-words text-[10px] md:text-xs w-full line-clamp-2`}>
-                                        {location.address || `${location.lat?.toFixed(4)}, ${location.lng?.toFixed(4)}`}
-                                      </p>
-                                      {location.radius && (
-                                        <p className={`mt-0.5 font-medium flex items-center gap-1 text-[10px] md:text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                          <Target className="w-2.5 h-2.5 md:w-3 md:h-3 flex-shrink-0 text-blue-500" />
-                                          <span className="whitespace-nowrap">{location.radius}m</span>
-                                        </p>
-                                      )}
-                                    </div>
+                                  <div className="flex items-center gap-0.5 min-w-0">
+                                    <MapPin className={`w-2 h-2 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} flex-shrink-0`} />
+                                    <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} truncate text-[8px]`}>
+                                      {location.address ? (location.address.length > 25 ? location.address.substring(0, 25) + '...' : location.address) : `${location.lat?.toFixed(2)}, ${location.lng?.toFixed(2)}`}
+                                    </p>
+                                    {location.radius && (
+                                      <span className={`text-[8px] flex-shrink-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                        {location.radius}m
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
-                              ) : (
-                                <div className={`mb-2.5 md:mb-3 p-2 md:p-2.5 rounded-lg border text-[10px] md:text-xs min-w-0 w-full overflow-hidden flex-shrink-0 ${
-                                  isDarkMode ? 'border-gray-700/50 bg-gray-800/20' : 'border-gray-200/50 bg-gray-50/50'
-                                }`}>
-                                  <div className="flex items-start gap-1.5 md:gap-2 min-w-0 w-full">
-                                    <MapPin className={`w-3 h-3 md:w-3.5 md:h-3.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} flex-shrink-0 mt-0.5`} />
-                                    <div className="flex-1 min-w-0 max-w-full overflow-hidden">
-                                      <p className={`font-semibold mb-0.5 text-[10px] md:text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                        Vị trí điểm danh
-                                      </p>
-                                      <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-[10px] md:text-xs italic`}>
-                                        Buổi này không yêu cầu vị trí cụ thể
-                                      </p>
+                              ) : null}
+
+                              {/* Attendance Statistics for this specific slot */}
+                              {(() => {
+                                // Count valid check-ins (approved or pending only)
+                                // Rejected or missing check-ins don't count
+                                let validCheckIns = 0;
+                                
+                                if (startRecord && (startRecord.status === 'approved' || startRecord.status === 'pending')) {
+                                  validCheckIns++;
+                                }
+                                
+                                if (endRecord && (endRecord.status === 'approved' || endRecord.status === 'pending')) {
+                                  validCheckIns++;
+                                }
+                                
+                                // Total is always 2 (start + end)
+                                const totalCheckIns = 2;
+                                
+                                return (
+                                  <div className={`mb-1.5 p-1.5 rounded border text-[8px] min-w-0 overflow-hidden flex-shrink-0 ${
+                                    isDarkMode ? 'border-blue-500/40 bg-blue-500/10' : 'border-blue-300 bg-blue-50/50'
+                                  }`}>
+                                    <div className="flex items-center justify-between gap-1">
+                                      <span className={`font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                        Điểm danh:
+                                      </span>
+                                      <span className={`text-[10px] font-bold ${
+                                        validCheckIns === totalCheckIns
+                                          ? isDarkMode ? 'text-green-400' : 'text-green-600'
+                                          : validCheckIns > 0
+                                          ? isDarkMode ? 'text-yellow-400' : 'text-yellow-600'
+                                          : isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                                      }`}>
+                                        {validCheckIns}/{totalCheckIns}
+                                      </span>
                                     </div>
                                   </div>
-                                </div>
-                              )}
+                                );
+                              })()}
 
                               {/* Check-in Actions */}
-                              <div className="flex justify-center items-center flex-1 w-full">
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-2.5 place-items-center" style={{ maxWidth: '100%' }}>
+                              <div className="flex justify-center items-center flex-1 min-w-0">
+                                <div className="grid grid-cols-2 gap-1 place-items-center w-full">
                                 {/* Start Check-in */}
                                 {(() => {
                                   const startWindow = slot ? getCheckInTimeWindow(slot, 'start', dayData.date) : null;
-                                  const visualStatus = startRecord ? 'done' : startStatus;
+                                  const visualStatus = startRecord 
+                                    ? (startRecord.status === 'rejected' ? 'rejected' : 'done')
+                                    : startStatus;
+                                  
+                                  // Calculate late info for rejected records
+                                  const lateEarlyInfo = startRecord && startRecord.status === 'rejected' 
+                                    ? calculateLateEarlyForRecord(startRecord)
+                                    : null;
+                                  const isLate = lateEarlyInfo && !lateEarlyInfo.isEarly && !lateEarlyInfo.isOnTime;
                                   
                                   const statusStyles: Record<string, { badge: string; badgeClass: string; icon: React.ReactNode; message: string; container: string; text: string; showButton?: boolean }> = {
                                     done: {
@@ -5120,6 +5200,14 @@ export default function StudentAttendancePage() {
                                       message: 'Đã hoàn thành',
                                       container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
                                       text: isDarkMode ? 'text-gray-200' : 'text-gray-700'
+                                    },
+                                    rejected: {
+                                      badge: 'Đã từ chối',
+                                      badgeClass: isDarkMode ? 'bg-red-600 text-white' : 'bg-red-500 text-white',
+                                      icon: <XCircle className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />,
+                                      message: 'Chưa hoàn thành',
+                                      container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                      text: isDarkMode ? 'text-red-300' : 'text-red-700'
                                     },
                                     not_started: {
                                       badge: 'Chưa đến giờ',
@@ -5151,41 +5239,55 @@ export default function StudentAttendancePage() {
                                   const currentConfig = statusStyles[visualStatus];
                                   
                                   return (
-                                    <div className={`p-2 md:p-2.5 rounded-lg border-2 transition-all flex flex-col gap-1.5 md:gap-2 h-full min-h-[180px] min-w-0 max-w-full w-full overflow-hidden ${
+                                    <div className={`p-1.5 rounded border transition-all flex flex-col gap-1 h-full min-w-0 max-w-full w-full overflow-hidden ${
                                       visualStatus === 'done'
                                         ? isDarkMode ? 'border-green-500 bg-gray-800' : 'border-green-500 bg-white'
+                                        : visualStatus === 'rejected'
+                                        ? isDarkMode ? 'border-red-500 bg-gray-800' : 'border-red-500 bg-white'
                                         : visualStatus === 'available'
                                         ? isDarkMode ? 'border-blue-500 bg-gray-800' : 'border-blue-500 bg-white'
                                         : visualStatus === 'missed'
                                         ? isDarkMode ? 'border-red-500 bg-gray-800' : 'border-red-500 bg-white'
                                         : isDarkMode ? 'border-gray-600 bg-gray-800' : 'border-gray-300 bg-white'
                                     }`}>
-                                      <div className="flex items-center justify-between gap-1.5 md:gap-2 min-w-0 w-full">
-                                        <div className="flex items-center gap-1 md:gap-1.5 min-w-0 flex-1">
-                                          <Sun className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-yellow-400' : 'text-yellow-600'} flex-shrink-0`} />
-                                          <span className={`text-[10px] md:text-xs font-bold ${isDarkMode ? 'text-yellow-200' : 'text-yellow-700'}`}>Đầu buổi</span>
+                                      <div className="flex items-center justify-between gap-1 min-w-0 w-full">
+                                        <div className="flex items-center gap-0.5 min-w-0 flex-1">
+                                          <Sun className={`w-3 h-3 ${isDarkMode ? 'text-yellow-400' : 'text-yellow-600'} flex-shrink-0`} />
+                                          <span className={`text-[9px] font-bold truncate ${isDarkMode ? 'text-yellow-200' : 'text-yellow-700'}`}>Đầu</span>
                                         </div>
-                                        <span className={`px-1.5 md:px-2 py-0.5 md:py-1 rounded-full text-[9px] md:text-[10px] font-semibold flex-shrink-0 whitespace-nowrap ${currentConfig.badgeClass}`}>
+                                        <span className={`px-1 py-0.5 rounded-full text-[8px] font-semibold flex-shrink-0 whitespace-nowrap ${currentConfig.badgeClass}`}>
                                           {currentConfig.badge}
                                         </span>
                                       </div>
                                       
                                       {startWindow && (
-                                        <div className="rounded-lg border border-dashed px-2 md:px-2.5 py-1.5 md:py-2 text-[10px] md:text-xs space-y-0.5 min-w-0 w-full overflow-hidden">
-                                          <p className={`flex items-center justify-between gap-1.5 min-w-0 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                                        <div className="rounded border border-dashed px-1 py-1 text-[8px] space-y-0.5 min-w-0 w-full overflow-hidden">
+                                          <p className={`flex items-center justify-between gap-0.5 min-w-0 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
                                             <span className="flex items-center gap-0.5 flex-shrink-0">
-                                              <CheckCircle className="w-2.5 h-2.5 md:w-3 md:h-3 text-green-500" />
-                                              <span className="whitespace-nowrap text-[10px] md:text-xs">Đúng giờ:</span>
+                                              <CheckCircle className="w-2 h-2 text-green-500" />
+                                              <span className="whitespace-nowrap text-[8px]">Đúng:</span>
                                             </span>
-                                            <span className="font-medium whitespace-nowrap text-[10px] md:text-xs">{startWindow.onTimeStart}-{startWindow.onTimeEnd}</span>
+                                            <span className="font-medium whitespace-nowrap text-[8px]">{startWindow.onTimeStart}-{startWindow.onTimeEnd}</span>
                                           </p>
-                                          <p className={`flex items-center justify-between gap-1.5 min-w-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                          <p className={`flex items-center justify-between gap-0.5 min-w-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                             <span className="flex items-center gap-0.5 flex-shrink-0">
-                                              <Timer className="w-2.5 h-2.5 md:w-3 md:h-3 text-orange-500" />
-                                              <span className="whitespace-nowrap text-[10px] md:text-xs">Trễ:</span>
+                                              <Timer className="w-2 h-2 text-orange-500" />
+                                              <span className="whitespace-nowrap text-[8px]">Trễ:</span>
                                             </span>
-                                            <span className="font-medium whitespace-nowrap text-[10px] md:text-xs">{startWindow.lateStart}-{startWindow.lateEnd}</span>
+                                            <span className="font-medium whitespace-nowrap text-[8px]">{startWindow.lateStart}-{startWindow.lateEnd}</span>
                                           </p>
+                                        </div>
+                                      )}
+                                      
+                                      {/* Show "Trễ" badge when rejected and late */}
+                                      {visualStatus === 'rejected' && isLate && lateEarlyInfo && (
+                                        <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-semibold border ${
+                                          isDarkMode 
+                                            ? 'text-pink-300 border-pink-500/40 bg-pink-500/10' 
+                                            : 'text-pink-700 border-pink-300/60 bg-pink-50'
+                                        }`}>
+                                          <Clock className={`w-2.5 h-2.5 ${isDarkMode ? 'text-pink-400' : 'text-pink-600'}`} />
+                                          <span>Trễ {lateEarlyInfo.minutes !== undefined ? formatMinutesToHours(lateEarlyInfo.minutes) : ''}</span>
                                         </div>
                                       )}
                                       
@@ -5229,10 +5331,10 @@ export default function StudentAttendancePage() {
                                           
                                           if (isDoneStatus && hasRecordWithPhoto) {
                                             return (
-                                              <div className="rounded-lg overflow-hidden border-2 flex-shrink-0" style={{
+                                              <div className="rounded overflow-hidden border flex-shrink-0" style={{
                                                 borderColor: isDarkMode ? '#10b981' : '#22c55e',
-                                                width: '60px',
-                                                height: '60px'
+                                                width: '32px',
+                                                height: '32px'
                                               }}>
                                                 <img 
                                                   src={startRecord.photoUrl} 
@@ -5253,17 +5355,17 @@ export default function StudentAttendancePage() {
                                               <button
                                                 onClick={() => handleSlotCheckIn(daySlotKey, 'start')}
                                                 disabled={isCheckingIn || (visualStatus === 'available' && locationStatus !== null && !locationStatus.valid)}
-                                                className={`px-2.5 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap flex-shrink-0 ${
+                                                className={`px-1 py-0.5 rounded text-[8px] font-semibold transition-all flex items-center gap-0.5 whitespace-nowrap flex-shrink-0 ${
                                                   isDarkMode 
                                                     ? 'bg-blue-600 text-white hover:bg-blue-500' 
                                                     : 'bg-blue-600 text-white hover:bg-blue-500'
-                                                } ${isCheckingIn || (visualStatus === 'available' && locationStatus && !locationStatus.valid) ? 'opacity-50 cursor-not-allowed' : 'shadow-sm hover:shadow-md'}`}
+                                                } ${isCheckingIn || (visualStatus === 'available' && locationStatus && !locationStatus.valid) ? 'opacity-50 cursor-not-allowed' : ''}`}
                                               >
                                                 {isCheckingIn ? (
-                                                  <Loader className="w-3 h-3 md:w-3.5 md:h-3.5 animate-spin" />
+                                                  <Loader className="w-2 h-2 animate-spin" />
                                                 ) : (
                                                   <>
-                                                    <Camera className="w-3 h-3 md:w-3.5 md:h-3.5 flex-shrink-0" />
+                                                    <Camera className="w-2 h-2 flex-shrink-0" />
                                                     <span>Điểm danh</span>
                                                   </>
                                                 )}
@@ -5281,7 +5383,15 @@ export default function StudentAttendancePage() {
                                 {/* End Check-in */}
                                 {(() => {
                                   const endWindow = slot ? getCheckInTimeWindow(slot, 'end', dayData.date) : null;
-                                  const visualStatus = endRecord ? 'done' : endStatus;
+                                  const visualStatus = endRecord 
+                                    ? (endRecord.status === 'rejected' ? 'rejected' : 'done')
+                                    : endStatus;
+                                  
+                                  // Calculate late info for rejected records
+                                  const lateEarlyInfo = endRecord && endRecord.status === 'rejected' 
+                                    ? calculateLateEarlyForRecord(endRecord)
+                                    : null;
+                                  const isLate = lateEarlyInfo && !lateEarlyInfo.isEarly && !lateEarlyInfo.isOnTime;
                                   
                                   const statusStyles: Record<string, { badge: string; badgeClass: string; icon: React.ReactNode; message: string; container: string; text: string; showButton?: boolean }> = {
                                     done: {
@@ -5291,6 +5401,14 @@ export default function StudentAttendancePage() {
                                       message: 'Đã hoàn thành',
                                       container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
                                       text: isDarkMode ? 'text-gray-200' : 'text-gray-700'
+                                    },
+                                    rejected: {
+                                      badge: 'Đã từ chối',
+                                      badgeClass: isDarkMode ? 'bg-red-600 text-white' : 'bg-red-500 text-white',
+                                      icon: <XCircle className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />,
+                                      message: 'Chưa hoàn thành',
+                                      container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                      text: isDarkMode ? 'text-red-300' : 'text-red-700'
                                     },
                                     not_started: {
                                       badge: 'Chưa đến giờ',
@@ -5322,62 +5440,70 @@ export default function StudentAttendancePage() {
                                   const currentConfig = statusStyles[visualStatus];
                                   
                                   return (
-                                    <div className={`p-2 md:p-2.5 rounded-lg border-2 transition-all flex flex-col gap-1.5 md:gap-2 h-full min-h-[180px] min-w-0 max-w-full w-full overflow-hidden ${
+                                    <div className={`p-1 rounded border transition-all flex flex-col gap-0.5 h-full min-w-0 w-full overflow-hidden ${
                                       visualStatus === 'done'
                                         ? isDarkMode ? 'border-green-500 bg-gray-800' : 'border-green-500 bg-white'
+                                        : visualStatus === 'rejected'
+                                        ? isDarkMode ? 'border-red-500 bg-gray-800' : 'border-red-500 bg-white'
                                         : visualStatus === 'available'
                                         ? isDarkMode ? 'border-blue-500 bg-gray-800' : 'border-blue-500 bg-white'
                                         : visualStatus === 'missed'
                                         ? isDarkMode ? 'border-red-500 bg-gray-800' : 'border-red-500 bg-white'
                                         : isDarkMode ? 'border-gray-600 bg-gray-800' : 'border-gray-300 bg-white'
                                     }`}>
-                                      <div className="flex items-center justify-between gap-1.5 md:gap-2 min-w-0 w-full">
-                                        <div className="flex items-center gap-1 md:gap-1.5 min-w-0 flex-1">
-                                          <Moon className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-purple-400' : 'text-purple-600'} flex-shrink-0`} />
-                                          <span className={`text-[10px] md:text-xs font-bold ${isDarkMode ? 'text-purple-200' : 'text-purple-700'}`}>Cuối buổi</span>
+                                      <div className="flex items-center justify-between gap-0.5 min-w-0">
+                                        <div className="flex items-center gap-0.5 min-w-0 flex-1">
+                                          <Moon className={`w-2.5 h-2.5 ${isDarkMode ? 'text-purple-400' : 'text-purple-600'} flex-shrink-0`} />
+                                          <span className={`text-[8px] font-bold truncate ${isDarkMode ? 'text-purple-200' : 'text-purple-700'}`}>Cuối</span>
                                         </div>
-                                        <span className={`px-1.5 md:px-2 py-0.5 md:py-1 rounded-full text-[9px] md:text-[10px] font-semibold flex-shrink-0 whitespace-nowrap ${currentConfig.badgeClass}`}>
+                                        <span className={`px-0.5 py-0.5 rounded-full text-[7px] font-semibold flex-shrink-0 whitespace-nowrap ${currentConfig.badgeClass}`}>
                                           {currentConfig.badge}
                                         </span>
                                       </div>
                                       
                                       {endWindow && (
-                                        <div className="rounded-lg border border-dashed px-2 md:px-2.5 py-1.5 md:py-2 text-[10px] md:text-xs space-y-0.5 min-w-0 w-full overflow-hidden">
-                                          <p className={`flex items-center justify-between gap-1.5 min-w-0 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                                            <span className="flex items-center gap-0.5 flex-shrink-0">
-                                              <CheckCircle className="w-2.5 h-2.5 md:w-3 md:h-3 text-green-500" />
-                                              <span className="whitespace-nowrap text-[10px] md:text-xs">Đúng giờ:</span>
-                                            </span>
-                                            <span className="font-medium whitespace-nowrap text-[10px] md:text-xs">{endWindow.onTimeStart}-{endWindow.onTimeEnd}</span>
+                                        <div className="rounded border border-dashed px-0.5 py-0.5 text-[7px] space-y-0.5 min-w-0 w-full overflow-hidden">
+                                          <p className={`flex items-center justify-between gap-0.5 min-w-0 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                                            <span className="text-[7px]">Đúng:</span>
+                                            <span className="font-medium text-[7px]">{endWindow.onTimeStart}-{endWindow.onTimeEnd}</span>
                                           </p>
-                                          <p className={`flex items-center justify-between gap-1.5 min-w-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                            <span className="flex items-center gap-0.5 flex-shrink-0">
-                                              <Timer className="w-2.5 h-2.5 md:w-3 md:h-3 text-orange-500" />
-                                              <span className="whitespace-nowrap text-[10px] md:text-xs">Trễ:</span>
-                                            </span>
-                                            <span className="font-medium whitespace-nowrap text-[10px] md:text-xs">{endWindow.lateStart}-{endWindow.lateEnd}</span>
+                                          <p className={`flex items-center justify-between gap-0.5 min-w-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                            <span className="text-[7px]">Trễ:</span>
+                                            <span className="font-medium text-[7px]">{endWindow.lateStart}-{endWindow.lateEnd}</span>
                                           </p>
+                                        </div>
+                                      )}
+                                      
+                                      {/* Show "Trễ" badge when rejected and late */}
+                                      {visualStatus === 'rejected' && isLate && lateEarlyInfo && (
+                                        <div className={`inline-flex items-center gap-1 px-1 py-0.5 rounded text-[7px] font-semibold border ${
+                                          isDarkMode 
+                                            ? 'text-pink-300 border-pink-500/40 bg-pink-500/10' 
+                                            : 'text-pink-700 border-pink-300/60 bg-pink-50'
+                                        }`}>
+                                          <Clock className={`w-2 h-2 ${isDarkMode ? 'text-pink-400' : 'text-pink-600'}`} />
+                                          <span>Trễ {lateEarlyInfo.minutes !== undefined ? formatMinutesToHours(lateEarlyInfo.minutes) : ''}</span>
                                         </div>
                                       )}
                                       
                                       {/* Location validity warning for available slots */}
                                       {visualStatus === 'available' && locationStatus && !locationStatus.valid && (
-                                        <div className={`rounded-lg border-2 px-2 md:px-2.5 py-1.5 md:py-2 flex items-center gap-1.5 md:gap-2 min-w-0 w-full overflow-hidden ${
+                                        <div className={`rounded border px-0.5 py-0.5 flex items-center gap-0.5 min-w-0 w-full overflow-hidden ${
                                           isDarkMode 
                                             ? 'bg-red-500/20 border-red-500/50 text-red-300' 
                                             : 'bg-red-50 border-red-300 text-red-700'
                                         }`}>
-                                          <AlertTriangle className="w-3.5 h-3.5 md:w-4 md:h-4 flex-shrink-0" />
-                                          <p className={`text-[10px] md:text-xs font-semibold flex-1 min-w-0 ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>
+                                          <AlertTriangle className="w-2 h-2 flex-shrink-0" />
+                                          <p className={`text-[7px] font-semibold flex-1 min-w-0 truncate ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>
                                             Vị trí không hợp lệ{locationStatus.distance !== undefined ? ` (${locationStatus.distance.toFixed(0)}m)` : ''}
                                           </p>
                                         </div>
                                       )}
                                       
-                                      <div className={`flex items-center justify-between gap-1.5 md:gap-2 rounded-lg border px-2 md:px-2.5 py-1.5 md:py-2 min-w-0 w-full overflow-hidden ${currentConfig.container}`}>
-                                        <div className="flex items-center gap-1 md:gap-1.5 min-w-0 flex-1 overflow-hidden">
-                                          <div className="flex-shrink-0">{currentConfig.icon}</div>
-                                          <p className={`text-[10px] md:text-xs font-semibold ${currentConfig.text}`}>{currentConfig.message}</p>
+                                      <div className={`flex items-center justify-between gap-0.5 rounded border px-1 py-0.5 min-w-0 w-full overflow-hidden ${currentConfig.container}`}>
+                                        <div className="flex items-center gap-0.5 min-w-0 flex-1 overflow-hidden">
+                                          <div className="flex-shrink-0 scale-75">{currentConfig.icon}</div>
+                                          <p className={`text-[9px] font-semibold break-words leading-tight ${currentConfig.text}`}>{currentConfig.message}</p>
                                         </div>
                                         {/* Show photo if already checked in, otherwise show button */}
                                         {(() => {
@@ -5400,10 +5526,10 @@ export default function StudentAttendancePage() {
                                           
                                           if (isDoneStatus && hasRecordWithPhoto) {
                                             return (
-                                              <div className="rounded-lg overflow-hidden border-2 flex-shrink-0" style={{
+                                              <div className="rounded overflow-hidden border flex-shrink-0" style={{
                                                 borderColor: isDarkMode ? '#10b981' : '#22c55e',
-                                                width: '60px',
-                                                height: '60px'
+                                                width: '32px',
+                                                height: '32px'
                                               }}>
                                                 <img 
                                                   src={endRecord.photoUrl} 
@@ -5424,17 +5550,17 @@ export default function StudentAttendancePage() {
                                               <button
                                                 onClick={() => handleSlotCheckIn(daySlotKey, 'end')}
                                                 disabled={isCheckingIn || (visualStatus === 'available' && locationStatus !== null && !locationStatus.valid)}
-                                                className={`px-2.5 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap flex-shrink-0 ${
+                                                className={`px-1 py-0.5 rounded text-[8px] font-semibold transition-all flex items-center gap-0.5 whitespace-nowrap flex-shrink-0 ${
                                                   isDarkMode 
                                                     ? 'bg-blue-600 text-white hover:bg-blue-500' 
                                                     : 'bg-blue-600 text-white hover:bg-blue-500'
-                                                } ${isCheckingIn || (visualStatus === 'available' && locationStatus && !locationStatus.valid) ? 'opacity-50 cursor-not-allowed' : 'shadow-sm hover:shadow-md'}`}
+                                                } ${isCheckingIn || (visualStatus === 'available' && locationStatus && !locationStatus.valid) ? 'opacity-50 cursor-not-allowed' : ''}`}
                                               >
                                                 {isCheckingIn ? (
-                                                  <Loader className="w-3 h-3 md:w-3.5 md:h-3.5 animate-spin" />
+                                                  <Loader className="w-2 h-2 animate-spin" />
                                                 ) : (
                                                   <>
-                                                    <Camera className="w-3 h-3 md:w-3.5 md:h-3.5 flex-shrink-0" />
+                                                    <Camera className="w-2 h-2 flex-shrink-0" />
                                                     <span>Điểm danh</span>
                                                   </>
                                                 )}
@@ -5452,12 +5578,42 @@ export default function StudentAttendancePage() {
                               </div>
 
                               {/* Attendance Records */}
-                              {(startRecord || endRecord) && (
-                                <div className={`mt-3 pt-3 border-t border-dashed flex-shrink-0`} style={{
-                                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
-                                }}>
-                                  <div className="space-y-2">
-                                    {startRecord && (
+                              {(startRecord || endRecord) && (() => {
+                                const detailKey = `${daySlotKey}-details`;
+                                const isExpanded = expandedAttendanceDetails[detailKey] || false;
+                                
+                                return (
+                                  <div className={`mt-3 pt-3 border-t border-dashed flex-shrink-0`} style={{
+                                    borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+                                  }}>
+                                    {/* Toggle Button */}
+                                    <button
+                                      onClick={() => {
+                                        setExpandedAttendanceDetails(prev => ({
+                                          ...prev,
+                                          [detailKey]: !prev[detailKey]
+                                        }));
+                                      }}
+                                      className={`w-full flex items-center justify-between gap-2 mb-2 px-2 py-1.5 rounded-lg border transition-all ${
+                                        isDarkMode 
+                                          ? 'bg-gray-800/50 border-gray-600 hover:bg-gray-700/50' 
+                                          : 'bg-gray-50 border-gray-300 hover:bg-gray-100'
+                                      }`}
+                                    >
+                                      <span className={`text-xs font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                        Thông tin điểm danh
+                                      </span>
+                                      {isExpanded ? (
+                                        <ChevronUp className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
+                                      ) : (
+                                        <ChevronDown className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
+                                      )}
+                                    </button>
+                                    
+                                    {/* Details Content */}
+                                    {isExpanded && (
+                                      <div className="space-y-2">
+                                        {startRecord && (
                                       <div className={`p-2 rounded-lg border text-xs ${
                                         isDarkMode ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
                                       }`}>
@@ -5521,33 +5677,60 @@ export default function StudentAttendancePage() {
                                                     )}
                                                   </>
                                                 )}
-                                                {startRecord.status !== 'rejected' && (
-                                                  <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
-                                                    startRecord.status === 'approved'
-                                                      ? isDarkMode 
-                                                        ? 'text-green-300 border-green-500/40' 
-                                                        : 'text-green-700 border-green-300/60'
-                                                      : isDarkMode 
-                                                        ? 'text-amber-300 border-amber-500/40' 
-                                                        : 'text-amber-700 border-amber-300/60'
+                                                <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                  startRecord.status === 'approved'
+                                                    ? isDarkMode 
+                                                      ? 'text-green-300 border-green-500/40' 
+                                                      : 'text-green-700 border-green-300/60'
+                                                    : startRecord.status === 'rejected'
+                                                    ? isDarkMode 
+                                                      ? 'text-red-300 border-red-500/40' 
+                                                      : 'text-red-700 border-red-300/60'
+                                                    : isDarkMode 
+                                                      ? 'text-amber-300 border-amber-500/40' 
+                                                      : 'text-amber-700 border-amber-300/60'
+                                                }`}>
+                                                  {startRecord.status === 'approved' ? (
+                                                    <CheckCircle2 className={`w-4 h-4 ${
+                                                      isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                    }`} />
+                                                  ) : startRecord.status === 'rejected' ? (
+                                                    <XCircle className={`w-4 h-4 ${
+                                                      isDarkMode ? 'text-red-400' : 'text-red-600'
+                                                    }`} />
+                                                  ) : (
+                                                    <Timer className={`w-4 h-4 ${
+                                                      isDarkMode ? 'text-amber-400' : 'text-amber-600'
+                                                    }`} />
+                                                  )}
+                                                  <span className="font-bold">
+                                                    {startRecord.status === 'approved' 
+                                                      ? (isManualCheckInRecord(startRecord) && ((startRecord as any).verifiedByName || startRecord.verifiedBy)
+                                                          ? `Đã được điểm danh bởi ${getVerifierName(startRecord.verifiedBy, (startRecord as any).verifiedByName)}`
+                                                          : 'Đã xác nhận')
+                                                      : startRecord.status === 'rejected'
+                                                      ? 'Đã từ chối'
+                                                      : 'Chờ xác nhận'}
+                                                  </span>
+                                                </div>
+                                                {startRecord.status === 'rejected' && (startRecord.cancelReason || (startRecord as any).rejectionReason) && (
+                                                  <div className={`mt-2 p-2 rounded-lg border text-xs ${
+                                                    isDarkMode 
+                                                      ? 'bg-red-500/10 border-red-500/30 text-red-300' 
+                                                      : 'bg-red-50 border-red-300 text-red-700'
                                                   }`}>
-                                                    {startRecord.status === 'approved' ? (
-                                                      <CheckCircle2 className={`w-4 h-4 ${
-                                                        isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                    <div className="flex items-start gap-2">
+                                                      <AlertTriangle className={`w-4 h-4 flex-shrink-0 mt-0.5 ${
+                                                        isDarkMode ? 'text-red-400' : 'text-red-600'
                                                       }`} />
-                                                    ) : (
-                                                      <Timer className={`w-4 h-4 ${
-                                                        isDarkMode ? 'text-amber-400' : 'text-amber-600'
-                                                      }`} />
-                                                    )}
-                                                    <span className="font-bold">
-                                                      {startRecord.status === 'approved' 
-                                                        ? (isManualCheckInRecord(startRecord) && ((startRecord as any).verifiedByName || startRecord.verifiedBy)
-                                                            ? `Đã được điểm danh bởi ${getVerifierName(startRecord.verifiedBy, (startRecord as any).verifiedByName)}`
-                                                            : 'Đã xác nhận')
-                                                        : 'Chờ xác nhận'}
-                                                    </span>
-                                    </div>
+                                                      <div className="flex-1">
+                                                        <p className="font-semibold mb-1">Lý do từ chối:</p>
+                                                        <p className="text-xs leading-relaxed">
+                                                          {startRecord.cancelReason || (startRecord as any).rejectionReason || 'Không có lý do'}
+                                                        </p>
+                                                      </div>
+                                                    </div>
+                                                  </div>
                                                 )}
                                               </>
                                             );
@@ -5646,32 +5829,59 @@ export default function StudentAttendancePage() {
                                                     )}
                                                   </>
                                                 )}
-                                                {endRecord.status !== 'rejected' && (
-                                                  <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
-                                                    endRecord.status === 'approved'
-                                                      ? isDarkMode 
-                                                        ? 'text-green-300 border-green-500/40' 
-                                                        : 'text-green-700 border-green-300/60'
-                                                      : isDarkMode 
-                                                        ? 'text-amber-300 border-amber-500/40' 
-                                                        : 'text-amber-700 border-amber-300/60'
+                                                <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                  endRecord.status === 'approved'
+                                                    ? isDarkMode 
+                                                      ? 'text-green-300 border-green-500/40' 
+                                                      : 'text-green-700 border-green-300/60'
+                                                    : endRecord.status === 'rejected'
+                                                    ? isDarkMode 
+                                                      ? 'text-red-300 border-red-500/40' 
+                                                      : 'text-red-700 border-red-300/60'
+                                                    : isDarkMode 
+                                                      ? 'text-amber-300 border-amber-500/40' 
+                                                      : 'text-amber-700 border-amber-300/60'
+                                                }`}>
+                                                  {endRecord.status === 'approved' ? (
+                                                    <CheckCircle2 className={`w-4 h-4 ${
+                                                      isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                    }`} />
+                                                  ) : endRecord.status === 'rejected' ? (
+                                                    <XCircle className={`w-4 h-4 ${
+                                                      isDarkMode ? 'text-red-400' : 'text-red-600'
+                                                    }`} />
+                                                  ) : (
+                                                    <Timer className={`w-4 h-4 ${
+                                                      isDarkMode ? 'text-amber-400' : 'text-amber-600'
+                                                    }`} />
+                                                  )}
+                                                  <span className="font-bold">
+                                                    {endRecord.status === 'approved' 
+                                                      ? (isManualCheckInRecord(endRecord) && ((endRecord as any).verifiedByName || endRecord.verifiedBy)
+                                                          ? `Đã được điểm danh bởi ${getVerifierName(endRecord.verifiedBy, (endRecord as any).verifiedByName)}`
+                                                          : 'Đã xác nhận')
+                                                      : endRecord.status === 'rejected'
+                                                      ? 'Đã từ chối'
+                                                      : 'Chờ xác nhận'}
+                                                  </span>
+                                                </div>
+                                                {endRecord.status === 'rejected' && (endRecord.cancelReason || (endRecord as any).rejectionReason) && (
+                                                  <div className={`mt-2 p-2 rounded-lg border text-xs w-full ${
+                                                    isDarkMode 
+                                                      ? 'bg-red-500/10 border-red-500/30 text-red-300' 
+                                                      : 'bg-red-50 border-red-300 text-red-700'
                                                   }`}>
-                                                    {endRecord.status === 'approved' ? (
-                                                      <CheckCircle2 className={`w-4 h-4 ${
-                                                        isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                    <div className="flex items-start gap-2">
+                                                      <AlertTriangle className={`w-4 h-4 flex-shrink-0 mt-0.5 ${
+                                                        isDarkMode ? 'text-red-400' : 'text-red-600'
                                                       }`} />
-                                                    ) : (
-                                                      <Timer className={`w-4 h-4 ${
-                                                        isDarkMode ? 'text-amber-400' : 'text-amber-600'
-                                                      }`} />
-                                                    )}
-                                                    <span className="font-bold">
-                                                      {endRecord.status === 'approved' 
-                                                        ? (isManualCheckInRecord(endRecord) && ((endRecord as any).verifiedByName || endRecord.verifiedBy)
-                                                            ? `Đã được điểm danh bởi ${getVerifierName(endRecord.verifiedBy, (endRecord as any).verifiedByName)}`
-                                                            : 'Đã xác nhận')
-                                                        : 'Chờ xác nhận'}
-                                                    </span>
+                                                      <div className="flex-1">
+                                                        <p className="font-semibold mb-1">Lý do từ chối:</p>
+                                                        <p className="text-xs leading-relaxed">
+                                                          {endRecord.cancelReason || (endRecord as any).rejectionReason || 'Không có lý do'}
+                                                        </p>
+                                                      </div>
+                                                    </div>
                                                   </div>
                                                 )}
                                               </>
@@ -5707,9 +5917,11 @@ export default function StudentAttendancePage() {
                                         )}
                                       </div>
                                     )}
+                                    </div>
+                                    )}
                                   </div>
-                                </div>
-                              )}
+                                );
+                              })()}
                             </>
                           ) : (
                             <div className={`text-center py-8 rounded-lg flex-1 flex flex-col items-center justify-center ${
@@ -5744,7 +5956,7 @@ export default function StudentAttendancePage() {
                       if (!hasOtherSlots) return null;
                       
                       return (
-                      <div className="space-y-3">
+                      <div className="space-y-3 w-full">
                         <div className="flex items-center gap-2 px-2">
                           <div className={`h-1 flex-1 rounded-full ${isDarkMode ? 'bg-gray-500/30' : 'bg-gray-200'}`}></div>
                           <span className={`text-xs font-bold px-3 py-1 rounded-full ${isDarkMode ? 'bg-gray-500/20 text-gray-300' : 'bg-gray-100 text-gray-700'}`}>
@@ -5752,7 +5964,7 @@ export default function StudentAttendancePage() {
                           </span>
                           <div className={`h-1 flex-1 rounded-full ${isDarkMode ? 'bg-gray-500/30' : 'bg-gray-200'}`}></div>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5 items-stretch overflow-visible w-full">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 items-start w-full">
                             {slotOrder.map((slotKey) => {
                               // Check if user has registered for this specific slot
                               const isRegisteredForThisSlot = hasRegisteredForSlot(dayData.day, slotKey as 'morning' | 'afternoon' | 'evening');
@@ -5772,31 +5984,28 @@ export default function StudentAttendancePage() {
                                 return (
                                   <div
                                     key={slotKey}
-                                    className={`rounded-xl border-2 p-2.5 md:p-3 transition-all duration-200 min-w-[260px] max-w-full overflow-hidden w-full h-full flex flex-col ${
+                                    className={`rounded-lg border-2 p-1.5 transition-all duration-200 w-full flex flex-col relative ${
                                       isDarkMode 
                                         ? 'bg-gray-800/30 border-gray-600/50 opacity-60' 
                                         : 'bg-gray-100 border-gray-300 opacity-60'
                                     }`}
-                                    style={{
-                                      minHeight: '400px'
-                                    }}
                                   >
                                     {/* Slot Header */}
-                                    <div className="flex items-start justify-between mb-2.5 md:mb-3 gap-1.5 min-w-0 w-full flex-shrink-0">
-                                      <div className="flex items-center gap-1.5 md:gap-2 flex-1 min-w-0 max-w-full">
-                                        <SlotIcon className={`w-4 h-4 md:w-5 md:h-5 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} flex-shrink-0`} />
+                                    <div className="flex items-center justify-between mb-2 gap-1 min-w-0 w-full flex-shrink-0">
+                                      <div className="flex items-center gap-1.5 flex-1 min-w-0 max-w-full">
+                                        <SlotIcon className={`w-3.5 h-3.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} flex-shrink-0`} />
                                         <div className="flex-1 min-w-0 max-w-full overflow-hidden">
-                                          <h3 className={`text-sm md:text-base font-bold mb-0.5 md:mb-1 w-full ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                                          <h3 className={`text-xs font-bold mb-0.5 w-full truncate ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
                                             {slotName}
                                           </h3>
                                           {slot && (
-                                            <div className="flex items-center gap-1 flex-wrap min-w-0">
-                                              <div className={`px-1.5 md:px-2 py-0.5 md:py-1 rounded border text-[10px] md:text-xs flex-shrink-0 ${
+                                            <div className="flex items-center gap-0.5 min-w-0">
+                                              <div className={`px-1 py-0.5 rounded border text-[9px] flex-shrink-0 ${
                                                 isDarkMode ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
                                               }`}>
-                                                <span className={`font-semibold flex items-center gap-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                                  <Clock className="w-2.5 h-2.5 md:w-3 md:h-3 flex-shrink-0" />
-                                                  <span className="whitespace-nowrap">{slot.startTime}-{slot.endTime}</span>
+                                                <span className={`font-medium flex items-center gap-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                  <Clock className="w-2 h-2 flex-shrink-0" />
+                                                  <span className="whitespace-nowrap text-[9px]">{slot.startTime}-{slot.endTime}</span>
                                                 </span>
                                               </div>
                                             </div>
@@ -5806,17 +6015,17 @@ export default function StudentAttendancePage() {
                                     </div>
                                     
                                     {/* Not Registered Message */}
-                                    <div className={`flex-1 flex items-center justify-center p-4 rounded-lg border-2 border-dashed ${
+                                    <div className={`flex-1 flex items-center justify-center p-2 rounded-lg border-2 border-dashed ${
                                       isDarkMode 
                                         ? 'bg-gray-800/50 border-gray-600/50' 
                                         : 'bg-gray-50 border-gray-300'
                                     }`}>
                                       <div className="text-center">
-                                        <XCircle className={`w-12 h-12 md:w-16 md:h-16 mx-auto mb-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} strokeWidth={1.5} />
-                                        <p className={`text-sm md:text-base font-semibold mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                        <XCircle className={`w-8 h-8 mx-auto mb-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} strokeWidth={1.5} />
+                                        <p className={`text-[10px] font-semibold mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                           Không đăng ký
                                         </p>
-                                        <p className={`text-xs md:text-sm ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                                        <p className={`text-[9px] ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
                                           Bạn chưa đăng ký tham gia buổi này
                                         </p>
                                       </div>
@@ -5855,7 +6064,11 @@ export default function StudentAttendancePage() {
                             let canCheckInEnd = false;
                             
                             if (slot) {
-                              const slotDate = new Date(dayData.date);
+                              // Parse date string (YYYY-MM-DD) to local timezone to avoid timezone issues
+                              const dateParts = dayData.date.split('-');
+                              const slotDate = dateParts.length === 3
+                                ? new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]))
+                                : new Date(dayData.date);
                               const [startHours, startMinutes] = slot.startTime.split(':').map(Number);
                               const [endHours, endMinutes] = slot.endTime.split(':').map(Number);
                               
@@ -5945,7 +6158,7 @@ export default function StudentAttendancePage() {
                                   }
                                   // Location status will be updated automatically via useEffect
                                 }}
-                                className={`rounded-xl border-2 p-2.5 md:p-3 transition-all duration-200 min-w-[260px] max-w-full overflow-hidden w-full h-full flex flex-col cursor-pointer ${
+                                className={`rounded-xl border-2 p-2.5 md:p-3 transition-all duration-200 w-full flex flex-col cursor-pointer relative ${
                                   isSelected
                                     ? isDarkMode 
                                       ? 'bg-blue-900/30 border-blue-400 shadow-lg shadow-blue-500/30 ring-2 ring-blue-500/50' 
@@ -5959,24 +6172,24 @@ export default function StudentAttendancePage() {
                                         ? (isDarkMode ? '#60a5fa' : '#3b82f6')
                                         : (isDarkMode ? '#4b5563' : '#d1d5db'),
                                       borderWidth: isSelected ? '3px' : '2px',
-                                      minHeight: '400px'
+                                      zIndex: isSelected ? 10 : 1
                                 }}
                               >
                                 {/* Slot Header */}
-                                <div className="flex items-start justify-between mb-2.5 md:mb-3 gap-1.5 min-w-0 w-full">
-                                  <div className="flex items-center gap-1.5 md:gap-2 flex-1 min-w-0 max-w-full">
-                                    <SlotIcon className={`w-4 h-4 md:w-5 md:h-5 ${isActive ? (slotKey === 'morning' ? (isDarkMode ? 'text-yellow-400' : 'text-yellow-600') : slotKey === 'afternoon' ? (isDarkMode ? 'text-blue-400' : 'text-blue-600') : (isDarkMode ? 'text-purple-400' : 'text-purple-600')) : (isDarkMode ? 'text-gray-500' : 'text-gray-400')} flex-shrink-0`} />
-                                    <div className="flex-1 min-w-0 max-w-full overflow-visible">
-                                      <h3 className={`text-sm md:text-base font-bold mb-0.5 md:mb-1 w-full ${isActive ? (isDarkMode ? 'text-white' : 'text-gray-900') : (isDarkMode ? 'text-gray-500' : 'text-gray-400')}`}>
+                                <div className="flex items-start justify-between mb-2 gap-1 min-w-0 w-full">
+                                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                    <SlotIcon className={`w-3.5 h-3.5 ${isActive ? (slotKey === 'morning' ? (isDarkMode ? 'text-yellow-400' : 'text-yellow-600') : slotKey === 'afternoon' ? (isDarkMode ? 'text-blue-400' : 'text-blue-600') : (isDarkMode ? 'text-purple-400' : 'text-purple-600')) : (isDarkMode ? 'text-gray-500' : 'text-gray-400')} flex-shrink-0`} />
+                                    <div className="flex-1 min-w-0">
+                                      <h3 className={`text-xs font-bold mb-0.5 ${isActive ? (isDarkMode ? 'text-white' : 'text-gray-900') : (isDarkMode ? 'text-gray-500' : 'text-gray-400')}`}>
                                         {slotName}
                                       </h3>
                                       {slot && (
-                                        <div className="flex items-center gap-1 flex-wrap min-w-0">
-                                          <div className={`px-1.5 md:px-2 py-0.5 md:py-1 rounded border text-[10px] md:text-xs flex-shrink-0 ${
+                                        <div className="flex items-center gap-0.5 flex-wrap">
+                                          <div className={`px-1 py-0.5 rounded border text-[9px] flex-shrink-0 ${
                                             isDarkMode ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
                                           }`}>
-                                            <span className={`font-semibold flex items-center gap-0.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                              <Clock className="w-2.5 h-2.5 md:w-3 md:h-3 flex-shrink-0" />
+                                            <span className={`font-medium flex items-center gap-0.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                              <Clock className="w-2 h-2 flex-shrink-0" />
                                               <span className="whitespace-nowrap">{slot.startTime}-{slot.endTime}</span>
                                             </span>
                                           </div>
@@ -5990,21 +6203,21 @@ export default function StudentAttendancePage() {
                                   <>
                                     {/* Location Info */}
                                     {location && (
-                                      <div className={`mb-2.5 md:mb-3 p-2 md:p-2.5 rounded-lg border text-[10px] md:text-xs min-w-0 w-full overflow-visible ${
+                                      <div className={`mb-2 p-1.5 rounded-lg border text-[9px] min-w-0 w-full ${
                                         isDarkMode ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50'
                                       }`}>
-                                        <div className="flex items-start gap-1.5 md:gap-2 min-w-0 w-full">
-                                          <MapPin className={`w-3 h-3 md:w-3.5 md:h-3.5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} flex-shrink-0 mt-0.5`} />
-                                          <div className="flex-1 min-w-0 max-w-full overflow-visible">
-                                            <p className={`font-semibold mb-0.5 text-[10px] md:text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                        <div className="flex items-start gap-1.5 min-w-0 w-full">
+                                          <MapPin className={`w-2.5 h-2.5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} flex-shrink-0 mt-0.5`} />
+                                          <div className="flex-1 min-w-0">
+                                            <p className={`font-semibold mb-0.5 text-[9px] ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                                               Vị trí điểm danh
                                             </p>
-                                            <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} break-words text-[10px] md:text-xs w-full`}>
+                                            <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} break-words text-[8px] leading-tight`}>
                                               {location.address || `${location.lat?.toFixed(4)}, ${location.lng?.toFixed(4)}`}
                                             </p>
                                             {location.radius && (
-                                              <p className={`mt-0.5 font-medium flex items-center gap-1 text-[10px] md:text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                <Target className="w-2.5 h-2.5 md:w-3 md:h-3 flex-shrink-0 text-blue-500" />
+                                              <p className={`mt-0.5 font-medium flex items-center gap-0.5 text-[8px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                <Target className="w-2 h-2 flex-shrink-0 text-blue-500" />
                                                 <span className="whitespace-nowrap">{location.radius}m</span>
                                               </p>
                                             )}
@@ -6013,26 +6226,81 @@ export default function StudentAttendancePage() {
                                       </div>
                                     )}
 
+                                    {/* Attendance Statistics for this specific slot */}
+                                    {(() => {
+                                      // Count valid check-ins for THIS specific slot only (approved or pending)
+                                      // Rejected or missing check-ins don't count
+                                      let validCheckIns = 0;
+                                      
+                                      if (startRecord && (startRecord.status === 'approved' || startRecord.status === 'pending')) {
+                                        validCheckIns++;
+                                      }
+                                      
+                                      if (endRecord && (endRecord.status === 'approved' || endRecord.status === 'pending')) {
+                                        validCheckIns++;
+                                      }
+                                      
+                                      // Total is always 2 (start + end)
+                                      const totalCheckIns = 2;
+                                      
+                                      return (
+                                        <div className={`mb-2 p-1.5 rounded-lg border text-[9px] min-w-0 w-full ${
+                                          isDarkMode ? 'border-blue-500/40 bg-blue-500/10' : 'border-blue-300 bg-blue-50/50'
+                                        }`}>
+                                          <div className="flex items-center justify-between gap-1">
+                                            <span className={`font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                              Điểm danh:
+                                            </span>
+                                            <span className={`text-[11px] font-bold ${
+                                              validCheckIns === totalCheckIns
+                                                ? isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                : validCheckIns > 0
+                                                ? isDarkMode ? 'text-yellow-400' : 'text-yellow-600'
+                                                : isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                                            }`}>
+                                              {validCheckIns}/{totalCheckIns}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
+
                                     {/* Check-in Actions */}
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-2.5 w-full min-w-0">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 md:gap-3 w-full">
                                       {/* Start Check-in */}
                                       {(() => {
                                         const startWindow = slot ? getCheckInTimeWindow(slot, 'start', dayData.date) : null;
-                                        const visualStatus = startRecord ? 'done' : startStatus;
+                                        const visualStatus = startRecord 
+                                          ? (startRecord.status === 'rejected' ? 'rejected' : 'done')
+                                          : startStatus;
+                                        
+                                        // Calculate late info for rejected records
+                                        const lateEarlyInfo = startRecord && startRecord.status === 'rejected' 
+                                          ? calculateLateEarlyForRecord(startRecord)
+                                          : null;
+                                        const isLate = lateEarlyInfo && !lateEarlyInfo.isEarly && !lateEarlyInfo.isOnTime;
                                         
                                         const statusStyles: Record<string, { badge: string; badgeClass: string; icon: React.ReactNode; message: string; container: string; text: string; showButton?: boolean }> = {
                                           done: {
                                             badge: 'Đã điểm danh',
                                             badgeClass: isDarkMode ? 'bg-green-600 text-white' : 'bg-green-500 text-white',
-                                            icon: <CheckCircle2 className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />,
+                                            icon: <CheckCircle2 className={`w-2.5 h-2.5 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />,
                                             message: 'Đã hoàn thành',
                                             container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
                                             text: isDarkMode ? 'text-gray-200' : 'text-gray-700'
                                           },
+                                          rejected: {
+                                            badge: 'Đã từ chối',
+                                            badgeClass: isDarkMode ? 'bg-red-600 text-white' : 'bg-red-500 text-white',
+                                            icon: <XCircle className={`w-2.5 h-2.5 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />,
+                                            message: 'Chưa hoàn thành',
+                                            container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                            text: isDarkMode ? 'text-red-300' : 'text-red-700'
+                                          },
                                           not_started: {
                                             badge: 'Chưa đến giờ',
                                             badgeClass: isDarkMode ? 'bg-gray-600 text-white' : 'bg-gray-400 text-white',
-                                            icon: <Timer className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />,
+                                            icon: <Timer className={`w-2.5 h-2.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />,
                                             message: 'Chưa đến thời gian điểm danh',
                                             container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
                                             text: isDarkMode ? 'text-gray-300' : 'text-gray-600'
@@ -6040,7 +6308,7 @@ export default function StudentAttendancePage() {
                                           available: {
                                             badge: 'Đang mở',
                                             badgeClass: isDarkMode ? 'bg-blue-600 text-white' : 'bg-blue-500 text-white',
-                                            icon: <Clock className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />,
+                                            icon: <Clock className={`w-2.5 h-2.5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />,
                                             message: 'Có thể điểm danh',
                                             container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
                                             text: isDarkMode ? 'text-gray-200' : 'text-gray-700',
@@ -6049,7 +6317,7 @@ export default function StudentAttendancePage() {
                                           missed: {
                                             badge: 'Đã hết hạn',
                                             badgeClass: isDarkMode ? 'bg-red-600 text-white' : 'bg-red-500 text-white',
-                                            icon: <AlertTriangle className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />,
+                                            icon: <AlertTriangle className={`w-2.5 h-2.5 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />,
                                             message: 'Đã bỏ lỡ điểm danh',
                                             container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
                                             text: isDarkMode ? 'text-gray-200' : 'text-gray-700'
@@ -6059,55 +6327,69 @@ export default function StudentAttendancePage() {
                                         const currentConfig = statusStyles[visualStatus];
                                         
                                         return (
-                                          <div className={`p-2 md:p-2.5 rounded-lg border-2 transition-all flex flex-col gap-1.5 md:gap-2 h-full min-h-[180px] min-w-0 max-w-full w-full overflow-hidden ${
+                                          <div className={`p-1.5 rounded-lg border-2 transition-all flex flex-col gap-1.5 min-h-[140px] min-w-0 w-full ${
                                             visualStatus === 'done'
                                               ? isDarkMode ? 'border-green-500 bg-gray-800' : 'border-green-500 bg-white'
+                                              : visualStatus === 'rejected'
+                                              ? isDarkMode ? 'border-red-500 bg-gray-800' : 'border-red-500 bg-white'
                                               : visualStatus === 'available'
                                               ? isDarkMode ? 'border-blue-500 bg-gray-800' : 'border-blue-500 bg-white'
                                               : visualStatus === 'missed'
                                               ? isDarkMode ? 'border-red-500 bg-gray-800' : 'border-red-500 bg-white'
                                               : isDarkMode ? 'border-gray-600 bg-gray-800' : 'border-gray-300 bg-white'
                                           }`}>
-                                            <div className="flex items-center justify-between gap-1.5 md:gap-2 min-w-0 w-full">
-                                              <div className="flex items-center gap-1 md:gap-1.5 min-w-0 flex-1">
-                                                <Sun className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-yellow-400' : 'text-yellow-600'} flex-shrink-0`} />
-                                                <span className={`text-[10px] md:text-xs font-bold ${isDarkMode ? 'text-yellow-200' : 'text-yellow-700'}`}>Đầu buổi</span>
+                                            <div className="flex items-center justify-between gap-1.5 min-w-0 w-full">
+                                              <div className="flex items-center gap-1 min-w-0 flex-1">
+                                                <Sun className={`w-3 h-3 ${isDarkMode ? 'text-yellow-400' : 'text-yellow-600'} flex-shrink-0`} />
+                                                <span className={`text-[9px] font-bold ${isDarkMode ? 'text-yellow-200' : 'text-yellow-700'}`}>Đầu buổi</span>
                                               </div>
-                                              <span className={`px-1.5 md:px-2 py-0.5 md:py-1 rounded-full text-[9px] md:text-[10px] font-semibold flex-shrink-0 whitespace-nowrap ${currentConfig.badgeClass}`}>
+                                              <span className={`px-1 py-0.5 rounded-full text-[8px] font-semibold flex-shrink-0 whitespace-nowrap ${currentConfig.badgeClass}`}>
                                                 {currentConfig.badge}
                                               </span>
                                             </div>
                                             
                                             {startWindow && (
-                                              <div className="rounded-lg border border-dashed px-2 md:px-2.5 py-1.5 md:py-2 text-[10px] md:text-xs space-y-0.5 min-w-0 w-full overflow-visible">
-                                                <p className={`flex items-center justify-between gap-1.5 min-w-0 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                                              <div className="rounded-lg border border-dashed px-1.5 py-1 text-[8px] space-y-0.5 min-w-0 w-full">
+                                                <p className={`flex items-center justify-between gap-1 min-w-0 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
                                                   <span className="flex items-center gap-0.5 flex-shrink-0">
-                                                    <CheckCircle className="w-2.5 h-2.5 md:w-3 md:h-3 text-green-500" />
-                                                    <span className="whitespace-nowrap text-[10px] md:text-xs">Đúng giờ:</span>
+                                                    <CheckCircle className="w-2 h-2 text-green-500" />
+                                                    <span className="whitespace-nowrap text-[8px]">Đúng giờ:</span>
                                                   </span>
-                                                  <span className="font-medium whitespace-nowrap text-[10px] md:text-xs">{startWindow.onTimeStart}-{startWindow.onTimeEnd}</span>
+                                                  <span className="font-medium whitespace-nowrap text-[8px]">{startWindow.onTimeStart}-{startWindow.onTimeEnd}</span>
                                                 </p>
-                                                <p className={`flex items-center justify-between gap-1.5 min-w-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                <p className={`flex items-center justify-between gap-1 min-w-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                                   <span className="flex items-center gap-0.5 flex-shrink-0">
-                                                    <Timer className="w-2.5 h-2.5 md:w-3 md:h-3 text-orange-500" />
-                                                    <span className="whitespace-nowrap text-[10px] md:text-xs">Trễ:</span>
+                                                    <Timer className="w-2 h-2 text-orange-500" />
+                                                    <span className="whitespace-nowrap text-[8px]">Trễ:</span>
                                                   </span>
-                                                  <span className="font-medium whitespace-nowrap text-[10px] md:text-xs">{startWindow.lateStart}-{startWindow.lateEnd}</span>
+                                                  <span className="font-medium whitespace-nowrap text-[8px]">{startWindow.lateStart}-{startWindow.lateEnd}</span>
                                                 </p>
                                               </div>
                                             )}
                                             
-                                            <div className={`flex items-center justify-between gap-1.5 md:gap-2 rounded-lg border px-2 md:px-2.5 py-1.5 md:py-2 min-w-0 w-full overflow-visible ${currentConfig.container}`}>
-                                              <div className="flex items-center gap-1 md:gap-1.5 min-w-0 flex-1 overflow-visible">
+                                            {/* Show "Trễ" badge when rejected and late */}
+                                            {visualStatus === 'rejected' && isLate && lateEarlyInfo && (
+                                              <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-semibold border ${
+                                                isDarkMode 
+                                                  ? 'text-pink-300 border-pink-500/40 bg-pink-500/10' 
+                                                  : 'text-pink-700 border-pink-300/60 bg-pink-50'
+                                              }`}>
+                                                <Clock className={`w-2 h-2 ${isDarkMode ? 'text-pink-400' : 'text-pink-600'}`} />
+                                                <span>Trễ {lateEarlyInfo.minutes !== undefined ? formatMinutesToHours(lateEarlyInfo.minutes) : ''}</span>
+                                              </div>
+                                            )}
+                                            
+                                            <div className={`flex items-center justify-between gap-1.5 rounded-lg border px-1.5 py-1 min-w-0 w-full ${currentConfig.container}`}>
+                                              <div className="flex items-center gap-1 min-w-0 flex-1">
                                                 <div className="flex-shrink-0">{currentConfig.icon}</div>
-                                                <p className={`text-[10px] md:text-xs font-semibold ${currentConfig.text}`}>{currentConfig.message}</p>
+                                                <p className={`text-[9px] font-semibold break-words leading-tight ${currentConfig.text}`}>{currentConfig.message}</p>
                                               </div>
                                               {/* Show photo if already checked in, otherwise show button */}
                                               {visualStatus === 'done' && startRecord && startRecord.photoUrl ? (
                                                 <div className="rounded-lg overflow-hidden border-2 flex-shrink-0" style={{
                                                   borderColor: isDarkMode ? '#10b981' : '#22c55e',
-                                                  width: '60px',
-                                                  height: '60px'
+                                                  width: '45px',
+                                                  height: '45px'
                                                 }}>
                                                   <img 
                                                     src={startRecord.photoUrl} 
@@ -6123,17 +6405,17 @@ export default function StudentAttendancePage() {
                                                 <button
                                                   onClick={() => handleSlotCheckIn(daySlotKey, 'start')}
                                                   disabled={isCheckingIn}
-                                                  className={`px-2.5 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap flex-shrink-0 ${
+                                                  className={`px-1.5 py-0.5 rounded-lg text-[8px] font-semibold transition-all flex items-center gap-0.5 whitespace-nowrap flex-shrink-0 ${
                                                     isDarkMode 
                                                       ? 'bg-blue-600 text-white hover:bg-blue-500' 
                                                       : 'bg-blue-600 text-white hover:bg-blue-500'
                                                   } ${isCheckingIn ? 'opacity-50 cursor-not-allowed' : 'shadow-sm hover:shadow-md'}`}
                                                 >
                                                   {isCheckingIn ? (
-                                                    <Loader className="w-3 h-3 md:w-3.5 md:h-3.5 animate-spin" />
+                                                    <Loader className="w-2.5 h-2.5 animate-spin" />
                                                   ) : (
                                                     <>
-                                                      <Camera className="w-3 h-3 md:w-3.5 md:h-3.5 flex-shrink-0" />
+                                                      <Camera className="w-2.5 h-2.5 flex-shrink-0" />
                                                       <span>Điểm danh</span>
                                                     </>
                                                   )}
@@ -6147,21 +6429,37 @@ export default function StudentAttendancePage() {
                                 {/* End Check-in */}
                                 {(() => {
                                   const endWindow = slot ? getCheckInTimeWindow(slot, 'end', dayData.date) : null;
-                                        const visualStatus = endRecord ? 'done' : endStatus;
+                                        const visualStatus = endRecord 
+                                          ? (endRecord.status === 'rejected' ? 'rejected' : 'done')
+                                          : endStatus;
+                                        
+                                        // Calculate late info for rejected records
+                                        const lateEarlyInfo = endRecord && endRecord.status === 'rejected' 
+                                          ? calculateLateEarlyForRecord(endRecord)
+                                          : null;
+                                        const isLate = lateEarlyInfo && !lateEarlyInfo.isEarly && !lateEarlyInfo.isOnTime;
                                         
                                         const statusStyles: Record<string, { badge: string; badgeClass: string; icon: React.ReactNode; message: string; container: string; text: string; showButton?: boolean }> = {
                                           done: {
                                             badge: 'Đã điểm danh',
                                             badgeClass: isDarkMode ? 'bg-green-600 text-white' : 'bg-green-500 text-white',
-                                            icon: <CheckCircle2 className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />,
+                                            icon: <CheckCircle2 className={`w-2.5 h-2.5 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />,
                                             message: 'Đã hoàn thành',
                                             container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
                                             text: isDarkMode ? 'text-gray-200' : 'text-gray-700'
                                           },
+                                          rejected: {
+                                            badge: 'Đã từ chối',
+                                            badgeClass: isDarkMode ? 'bg-red-600 text-white' : 'bg-red-500 text-white',
+                                            icon: <XCircle className={`w-2.5 h-2.5 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />,
+                                            message: 'Chưa hoàn thành',
+                                            container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
+                                            text: isDarkMode ? 'text-red-300' : 'text-red-700'
+                                          },
                                           not_started: {
                                             badge: 'Chưa đến giờ',
                                             badgeClass: isDarkMode ? 'bg-gray-600 text-white' : 'bg-gray-400 text-white',
-                                            icon: <Timer className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />,
+                                            icon: <Timer className={`w-2.5 h-2.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />,
                                             message: 'Chưa đến thời gian điểm danh',
                                             container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
                                             text: isDarkMode ? 'text-gray-300' : 'text-gray-600'
@@ -6169,7 +6467,7 @@ export default function StudentAttendancePage() {
                                           available: {
                                             badge: 'Đang mở',
                                             badgeClass: isDarkMode ? 'bg-blue-600 text-white' : 'bg-blue-500 text-white',
-                                            icon: <Clock className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />,
+                                            icon: <Clock className={`w-2.5 h-2.5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />,
                                             message: 'Có thể điểm danh',
                                             container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
                                             text: isDarkMode ? 'text-gray-200' : 'text-gray-700',
@@ -6178,7 +6476,7 @@ export default function StudentAttendancePage() {
                                           missed: {
                                             badge: 'Đã hết hạn',
                                             badgeClass: isDarkMode ? 'bg-red-600 text-white' : 'bg-red-500 text-white',
-                                            icon: <AlertTriangle className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />,
+                                            icon: <AlertTriangle className={`w-2.5 h-2.5 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />,
                                             message: 'Đã bỏ lỡ điểm danh',
                                             container: isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300',
                                             text: isDarkMode ? 'text-gray-200' : 'text-gray-700'
@@ -6188,55 +6486,69 @@ export default function StudentAttendancePage() {
                                         const currentConfig = statusStyles[visualStatus];
                                         
                                   return (
-                                          <div className={`p-2 md:p-2.5 rounded-lg border-2 transition-all flex flex-col gap-1.5 md:gap-2 h-full min-h-[180px] min-w-0 max-w-full w-full overflow-hidden ${
+                                          <div className={`p-1.5 rounded-lg border-2 transition-all flex flex-col gap-1.5 min-h-[140px] min-w-0 w-full ${
                                             visualStatus === 'done'
                                               ? isDarkMode ? 'border-green-500 bg-gray-800' : 'border-green-500 bg-white'
+                                              : visualStatus === 'rejected'
+                                              ? isDarkMode ? 'border-red-500 bg-gray-800' : 'border-red-500 bg-white'
                                               : visualStatus === 'available'
                                               ? isDarkMode ? 'border-blue-500 bg-gray-800' : 'border-blue-500 bg-white'
                                               : visualStatus === 'missed'
                                               ? isDarkMode ? 'border-red-500 bg-gray-800' : 'border-red-500 bg-white'
                                               : isDarkMode ? 'border-gray-600 bg-gray-800' : 'border-gray-300 bg-white'
                                           }`}>
-                                            <div className="flex items-center justify-between gap-1.5 md:gap-2 min-w-0 w-full">
-                                              <div className="flex items-center gap-1 md:gap-1.5 min-w-0 flex-1">
-                                                <Moon className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isDarkMode ? 'text-purple-400' : 'text-purple-600'} flex-shrink-0`} />
-                                                <span className={`text-[10px] md:text-xs font-bold ${isDarkMode ? 'text-purple-200' : 'text-purple-700'}`}>Cuối buổi</span>
+                                            <div className="flex items-center justify-between gap-1.5 min-w-0 w-full">
+                                              <div className="flex items-center gap-1 min-w-0 flex-1">
+                                                <Moon className={`w-3 h-3 ${isDarkMode ? 'text-purple-400' : 'text-purple-600'} flex-shrink-0`} />
+                                                <span className={`text-[9px] font-bold ${isDarkMode ? 'text-purple-200' : 'text-purple-700'}`}>Cuối buổi</span>
                                               </div>
-                                              <span className={`px-1.5 md:px-2 py-0.5 md:py-1 rounded-full text-[9px] md:text-[10px] font-semibold flex-shrink-0 whitespace-nowrap ${currentConfig.badgeClass}`}>
+                                              <span className={`px-1 py-0.5 rounded-full text-[8px] font-semibold flex-shrink-0 whitespace-nowrap ${currentConfig.badgeClass}`}>
                                                 {currentConfig.badge}
-                                        </span>
-                                      </div>
+                                              </span>
+                                            </div>
                                             
-                                      {endWindow && (
-                                              <div className="rounded-lg border border-dashed px-2 md:px-2.5 py-1.5 md:py-2 text-[10px] md:text-xs space-y-0.5 min-w-0 w-full overflow-visible">
-                                                <p className={`flex items-center justify-between gap-1.5 min-w-0 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                                            {endWindow && (
+                                              <div className="rounded-lg border border-dashed px-1.5 py-1 text-[8px] space-y-0.5 min-w-0 w-full">
+                                                <p className={`flex items-center justify-between gap-1 min-w-0 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
                                                   <span className="flex items-center gap-0.5 flex-shrink-0">
-                                                    <CheckCircle className="w-2.5 h-2.5 md:w-3 md:h-3 text-green-500" />
-                                                    <span className="whitespace-nowrap text-[10px] md:text-xs">Đúng giờ:</span>
+                                                    <CheckCircle className="w-2 h-2 text-green-500" />
+                                                    <span className="whitespace-nowrap text-[8px]">Đúng giờ:</span>
                                                   </span>
-                                                  <span className="font-medium whitespace-nowrap text-[10px] md:text-xs">{endWindow.onTimeStart}-{endWindow.onTimeEnd}</span>
+                                                  <span className="font-medium whitespace-nowrap text-[8px]">{endWindow.onTimeStart}-{endWindow.onTimeEnd}</span>
                                                 </p>
-                                                <p className={`flex items-center justify-between gap-1.5 min-w-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                <p className={`flex items-center justify-between gap-1 min-w-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                                   <span className="flex items-center gap-0.5 flex-shrink-0">
-                                                    <Timer className="w-2.5 h-2.5 md:w-3 md:h-3 text-orange-500" />
-                                                    <span className="whitespace-nowrap text-[10px] md:text-xs">Trễ:</span>
+                                                    <Timer className="w-2 h-2 text-orange-500" />
+                                                    <span className="whitespace-nowrap text-[8px]">Trễ:</span>
                                                   </span>
-                                                  <span className="font-medium whitespace-nowrap text-[10px] md:text-xs">{endWindow.lateStart}-{endWindow.lateEnd}</span>
-                                          </p>
-                                        </div>
-                                      )}
+                                                  <span className="font-medium whitespace-nowrap text-[8px]">{endWindow.lateStart}-{endWindow.lateEnd}</span>
+                                                </p>
+                                              </div>
+                                            )}
                                             
-                                            <div className={`flex items-center justify-between gap-1.5 md:gap-2 rounded-lg border px-2 md:px-2.5 py-1.5 md:py-2 min-w-0 w-full overflow-visible ${currentConfig.container}`}>
-                                              <div className="flex items-center gap-1 md:gap-1.5 min-w-0 flex-1 overflow-visible">
+                                            {/* Show "Trễ" badge when rejected and late */}
+                                            {visualStatus === 'rejected' && isLate && lateEarlyInfo && (
+                                              <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-semibold border ${
+                                                isDarkMode 
+                                                  ? 'text-pink-300 border-pink-500/40 bg-pink-500/10' 
+                                                  : 'text-pink-700 border-pink-300/60 bg-pink-50'
+                                              }`}>
+                                                <Clock className={`w-2 h-2 ${isDarkMode ? 'text-pink-400' : 'text-pink-600'}`} />
+                                                <span>Trễ {lateEarlyInfo.minutes !== undefined ? formatMinutesToHours(lateEarlyInfo.minutes) : ''}</span>
+                                              </div>
+                                            )}
+                                            
+                                            <div className={`flex items-center justify-between gap-1.5 rounded-lg border px-1.5 py-1 min-w-0 w-full ${currentConfig.container}`}>
+                                              <div className="flex items-center gap-1 min-w-0 flex-1">
                                                 <div className="flex-shrink-0">{currentConfig.icon}</div>
-                                                <p className={`text-[10px] md:text-xs font-semibold ${currentConfig.text}`}>{currentConfig.message}</p>
+                                                <p className={`text-[9px] font-semibold break-words ${currentConfig.text}`}>{currentConfig.message}</p>
                                               </div>
                                               {/* Show photo if already checked in, otherwise show button */}
                                               {visualStatus === 'done' && endRecord && endRecord.photoUrl ? (
                                                 <div className="rounded-lg overflow-hidden border-2 flex-shrink-0" style={{
                                                   borderColor: isDarkMode ? '#10b981' : '#22c55e',
-                                                  width: '60px',
-                                                  height: '60px'
+                                                  width: '45px',
+                                                  height: '45px'
                                                 }}>
                                                   <img 
                                                     src={endRecord.photoUrl} 
@@ -6252,17 +6564,17 @@ export default function StudentAttendancePage() {
                                                 <button
                                                   onClick={() => handleSlotCheckIn(daySlotKey, 'end')}
                                                   disabled={isCheckingIn}
-                                                  className={`px-2.5 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap flex-shrink-0 ${
+                                                  className={`px-1.5 py-0.5 rounded-lg text-[8px] font-semibold transition-all flex items-center gap-0.5 whitespace-nowrap flex-shrink-0 ${
                                                     isDarkMode 
                                                       ? 'bg-blue-600 text-white hover:bg-blue-500' 
                                                       : 'bg-blue-600 text-white hover:bg-blue-500'
                                                   } ${isCheckingIn ? 'opacity-50 cursor-not-allowed' : 'shadow-sm hover:shadow-md'}`}
                                                 >
                                                   {isCheckingIn ? (
-                                                    <Loader className="w-3 h-3 md:w-3.5 md:h-3.5 animate-spin" />
+                                                    <Loader className="w-2.5 h-2.5 animate-spin" />
                                                   ) : (
                                                     <>
-                                                      <Camera className="w-3 h-3 md:w-3.5 md:h-3.5 flex-shrink-0" />
+                                                      <Camera className="w-2.5 h-2.5 flex-shrink-0" />
                                                       <span>Điểm danh</span>
                                                     </>
                                                   )}
@@ -6275,11 +6587,41 @@ export default function StudentAttendancePage() {
                               </div>
 
                               {/* Attendance Records */}
-                              {(startRecord || endRecord) && (
-                                <div className={`mt-3 pt-3 border-t border-dashed`} style={{
-                                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
-                                }}>
-                                  <div className="space-y-2">
+                              {(startRecord || endRecord) && (() => {
+                                const detailKey = `${daySlotKey}-other-details`;
+                                const isExpanded = expandedAttendanceDetails[detailKey] || false;
+                                
+                                return (
+                                  <div className={`mt-3 pt-3 border-t border-dashed`} style={{
+                                    borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+                                  }}>
+                                    {/* Toggle Button */}
+                                    <button
+                                      onClick={() => {
+                                        setExpandedAttendanceDetails(prev => ({
+                                          ...prev,
+                                          [detailKey]: !prev[detailKey]
+                                        }));
+                                      }}
+                                      className={`w-full flex items-center justify-between gap-2 mb-2 px-2 py-1.5 rounded-lg border transition-all ${
+                                        isDarkMode 
+                                          ? 'bg-gray-800/50 border-gray-600 hover:bg-gray-700/50' 
+                                          : 'bg-gray-50 border-gray-300 hover:bg-gray-100'
+                                      }`}
+                                    >
+                                      <span className={`text-xs font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                        Thông tin điểm danh
+                                      </span>
+                                      {isExpanded ? (
+                                        <ChevronUp className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
+                                      ) : (
+                                        <ChevronDown className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
+                                      )}
+                                    </button>
+                                    
+                                    {/* Details Content */}
+                                    {isExpanded && (
+                                      <div className="space-y-2">
                                     {startRecord && (
                                       <div className={`p-2 rounded-lg border text-xs ${
                                         isDarkMode ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
@@ -6465,32 +6807,59 @@ export default function StudentAttendancePage() {
                                                     )}
                                                   </>
                                                 )}
-                                                {endRecord.status !== 'rejected' && (
-                                                  <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
-                                                    endRecord.status === 'approved'
-                                                      ? isDarkMode 
-                                                        ? 'text-green-300 border-green-500/40' 
-                                                        : 'text-green-700 border-green-300/60'
-                                                      : isDarkMode 
-                                                        ? 'text-amber-300 border-amber-500/40' 
-                                                        : 'text-amber-700 border-amber-300/60'
+                                                <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                  endRecord.status === 'approved'
+                                                    ? isDarkMode 
+                                                      ? 'text-green-300 border-green-500/40' 
+                                                      : 'text-green-700 border-green-300/60'
+                                                    : endRecord.status === 'rejected'
+                                                    ? isDarkMode 
+                                                      ? 'text-red-300 border-red-500/40' 
+                                                      : 'text-red-700 border-red-300/60'
+                                                    : isDarkMode 
+                                                      ? 'text-amber-300 border-amber-500/40' 
+                                                      : 'text-amber-700 border-amber-300/60'
+                                                }`}>
+                                                  {endRecord.status === 'approved' ? (
+                                                    <CheckCircle2 className={`w-4 h-4 ${
+                                                      isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                    }`} />
+                                                  ) : endRecord.status === 'rejected' ? (
+                                                    <XCircle className={`w-4 h-4 ${
+                                                      isDarkMode ? 'text-red-400' : 'text-red-600'
+                                                    }`} />
+                                                  ) : (
+                                                    <Timer className={`w-4 h-4 ${
+                                                      isDarkMode ? 'text-amber-400' : 'text-amber-600'
+                                                    }`} />
+                                                  )}
+                                                  <span className="font-bold">
+                                                    {endRecord.status === 'approved' 
+                                                      ? (isManualCheckInRecord(endRecord) && ((endRecord as any).verifiedByName || endRecord.verifiedBy)
+                                                          ? `Đã được điểm danh bởi ${getVerifierName(endRecord.verifiedBy, (endRecord as any).verifiedByName)}`
+                                                          : 'Đã xác nhận')
+                                                      : endRecord.status === 'rejected'
+                                                      ? 'Đã từ chối'
+                                                      : 'Chờ xác nhận'}
+                                                  </span>
+                                                </div>
+                                                {endRecord.status === 'rejected' && (endRecord.cancelReason || (endRecord as any).rejectionReason) && (
+                                                  <div className={`mt-2 p-2 rounded-lg border text-xs w-full ${
+                                                    isDarkMode 
+                                                      ? 'bg-red-500/10 border-red-500/30 text-red-300' 
+                                                      : 'bg-red-50 border-red-300 text-red-700'
                                                   }`}>
-                                                    {endRecord.status === 'approved' ? (
-                                                      <CheckCircle2 className={`w-4 h-4 ${
-                                                        isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                    <div className="flex items-start gap-2">
+                                                      <AlertTriangle className={`w-4 h-4 flex-shrink-0 mt-0.5 ${
+                                                        isDarkMode ? 'text-red-400' : 'text-red-600'
                                                       }`} />
-                                                    ) : (
-                                                      <Timer className={`w-4 h-4 ${
-                                                        isDarkMode ? 'text-amber-400' : 'text-amber-600'
-                                                      }`} />
-                                                    )}
-                                                    <span className="font-bold">
-                                                      {endRecord.status === 'approved' 
-                                                        ? (isManualCheckInRecord(endRecord) && ((endRecord as any).verifiedByName || endRecord.verifiedBy)
-                                                            ? `Đã được điểm danh bởi ${getVerifierName(endRecord.verifiedBy, (endRecord as any).verifiedByName)}`
-                                                            : 'Đã xác nhận')
-                                                        : 'Chờ xác nhận'}
-                                                    </span>
+                                                      <div className="flex-1">
+                                                        <p className="font-semibold mb-1">Lý do từ chối:</p>
+                                                        <p className="text-xs leading-relaxed">
+                                                          {endRecord.cancelReason || (endRecord as any).rejectionReason || 'Không có lý do'}
+                                                        </p>
+                                                      </div>
+                                                    </div>
                                                   </div>
                                                 )}
                                               </>
@@ -6526,9 +6895,11 @@ export default function StudentAttendancePage() {
                                         )}
                                       </div>
                                     )}
+                                    </div>
+                                    )}
                                   </div>
-                                </div>
-                              )}
+                                );
+                              })()}
                             </>
                           ) : (
                             <div className={`text-center py-8 rounded-lg flex-1 flex flex-col items-center justify-center ${
@@ -6571,14 +6942,14 @@ export default function StudentAttendancePage() {
 
           {/* Timeline View - Main Content */}
           {activity.type === 'single_day' && activity.timeSlots && activity.timeSlots.length > 0 ? (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {/* Timeline Header */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <div className={`h-px flex-1 rounded-full ${
                   isDarkMode ? 'bg-gray-700' : 'bg-gray-200'
                 }`}></div>
-                <h2 className={`text-base sm:text-lg font-bold flex items-center gap-1.5 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                  <Clock className="w-4 h-4" />
+                <h2 className={`text-sm sm:text-base font-bold flex items-center gap-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                  <Clock className="w-3.5 h-3.5" />
                   Lịch trình điểm danh
                 </h2>
                 <div className={`h-px flex-1 rounded-full ${
@@ -6609,7 +6980,7 @@ export default function StudentAttendancePage() {
                 const isCompleted = completedSlots === totalSlots && totalSlots > 0;
 
                 return (
-                  <div className={`p-3 rounded-lg border ${
+                  <div className={`p-2 rounded-lg border ${
                     isCompleted
                       ? isDarkMode 
                         ? 'border-green-500/40 bg-green-500/10' 
@@ -6618,23 +6989,23 @@ export default function StudentAttendancePage() {
                         ? 'border-blue-500/40 bg-blue-500/10' 
                         : 'border-blue-300 bg-blue-50'
                   }`}>
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-2">
                       {isCompleted ? (
-                        <CheckCircle2 className={`w-5 h-5 ${
+                        <CheckCircle2 className={`w-4 h-4 ${
                           isDarkMode ? 'text-green-400' : 'text-green-600'
                         }`} />
                       ) : (
-                        <Timer className={`w-5 h-5 ${
+                        <Timer className={`w-4 h-4 ${
                           isDarkMode ? 'text-blue-400' : 'text-blue-600'
                         }`} />
                       )}
                       <div className="flex-1">
-                        <h3 className={`text-xs font-semibold mb-0.5 ${
+                        <h3 className={`text-[10px] font-semibold mb-0.5 ${
                           isDarkMode ? 'text-gray-300' : 'text-gray-700'
                         }`}>
                           Tổng quan điểm danh
                         </h3>
-                        <p className={`text-sm font-bold ${
+                        <p className={`text-xs font-bold ${
                           isCompleted
                             ? isDarkMode ? 'text-green-300' : 'text-green-700'
                             : isDarkMode ? 'text-blue-300' : 'text-blue-700'
@@ -6646,7 +7017,7 @@ export default function StudentAttendancePage() {
                             : `Đã đi ${completedSlots}/${totalSlots} buổi`}
                         </p>
                         {!isCompleted && totalSlots > 1 && (
-                          <p className={`text-xs mt-0.5 ${
+                          <p className={`text-[10px] mt-0.5 ${
                             isDarkMode ? 'text-gray-400' : 'text-gray-600'
                           }`}>
                             {completedSlots === 0 
@@ -6661,7 +7032,7 @@ export default function StudentAttendancePage() {
               })()}
 
               {/* Timeline Cards - Compact Size */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-1.5">
                 {activity.timeSlots.map((slot, idx) => {
                     // Parse activity date for check-in window calculation
                     let activityDate: Date;
@@ -6732,84 +7103,81 @@ export default function StudentAttendancePage() {
                     const timeSlotKey = slotLocationMap[slot.name];
                     const slotLocation = activity.multiTimeLocations?.find(mtl => mtl.timeSlot === timeSlotKey);
                     
-                    // Color scheme with proper icons
+                    // Color scheme with soft blue tones
                     const slotDesign = {
                       'Buổi Sáng': {
                         icon: Sun,
-                        iconColor: isDarkMode ? 'text-yellow-400' : 'text-yellow-600',
-                        text: isDarkMode ? 'text-yellow-200' : 'text-yellow-800',
-                        accent: isDarkMode ? 'text-yellow-300' : 'text-yellow-600'
+                        iconColor: isDarkMode ? 'text-blue-400' : 'text-blue-500',
+                        text: isDarkMode ? 'text-gray-200' : 'text-gray-800',
+                        accent: isDarkMode ? 'text-blue-400' : 'text-blue-500',
+                        bg: isDarkMode ? 'bg-gray-800/50' : 'bg-white',
+                        border: isDarkMode ? 'border-gray-700' : 'border-gray-200'
                       },
                       'Buổi Chiều': {
                         icon: Sunset,
-                        iconColor: isDarkMode ? 'text-blue-400' : 'text-blue-600',
-                        text: isDarkMode ? 'text-blue-200' : 'text-blue-800',
-                        accent: isDarkMode ? 'text-blue-300' : 'text-blue-600'
+                        iconColor: isDarkMode ? 'text-blue-400' : 'text-blue-500',
+                        text: isDarkMode ? 'text-gray-200' : 'text-gray-800',
+                        accent: isDarkMode ? 'text-blue-400' : 'text-blue-500',
+                        bg: isDarkMode ? 'bg-gray-800/50' : 'bg-white',
+                        border: isDarkMode ? 'border-gray-700' : 'border-gray-200'
                       },
                       'Buổi Tối': {
                         icon: Moon,
-                        iconColor: isDarkMode ? 'text-purple-400' : 'text-purple-600',
-                        text: isDarkMode ? 'text-purple-200' : 'text-purple-800',
-                        accent: isDarkMode ? 'text-purple-300' : 'text-purple-600'
+                        iconColor: isDarkMode ? 'text-blue-400' : 'text-blue-500',
+                        text: isDarkMode ? 'text-gray-200' : 'text-gray-800',
+                        accent: isDarkMode ? 'text-blue-400' : 'text-blue-500',
+                        bg: isDarkMode ? 'bg-gray-800/50' : 'bg-white',
+                        border: isDarkMode ? 'border-gray-700' : 'border-gray-200'
                       }
                     };
                     
                     const design = slotDesign[slot.name as keyof typeof slotDesign] || slotDesign['Buổi Sáng'];
                     const SlotIcon = design.icon;
                     
+                    // Check if this slot is selected
+                    const isSelected = selectedSlotName === slot.name;
+                    
+                    // Get location for this slot
+                    const locationForMap = slotLocation?.location || activity.locationData;
+                    
                     return (
                       <div 
                         key={idx} 
-                        className={`group relative overflow-hidden rounded-xl border-2 transition-all duration-200 ${
-                          isDarkMode ? 'bg-gray-800/50 border-white' : 'bg-white border-black'
-                        }`}
-                        style={{
-                          borderColor: isDarkMode ? '#ffffff' : '#000000',
-                          borderWidth: '2px'
+                        onClick={() => {
+                          // Set selected slot and update map center if location exists
+                          setSelectedSlotName(slot.name);
+                          if (locationForMap && locationForMap.lat && locationForMap.lng) {
+                            setMapCenter([locationForMap.lat, locationForMap.lng]);
+                          }
                         }}
+                        className={`group relative overflow-hidden rounded-lg border transition-all duration-200 cursor-pointer ${
+                          isSelected
+                            ? isDarkMode 
+                              ? 'bg-blue-900/30 border-blue-400 shadow-md ring-2 ring-blue-500/50' 
+                              : 'bg-blue-50 border-blue-500 shadow-md ring-2 ring-blue-500/30'
+                            : isDarkMode 
+                              ? 'bg-gray-800/50 border-gray-700 hover:border-gray-600' 
+                              : 'bg-white border-gray-200 hover:border-gray-300'
+                        }`}
                       >
-                        <div className="relative p-3">
+                        <div className="relative p-2">
                           {/* Header Section */}
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="flex items-center gap-2 flex-1">
-                              <SlotIcon className={`w-5 h-5 ${design.iconColor} flex-shrink-0`} />
-                              <div className="flex-1 min-w-0">
-                                <h3 className={`text-base font-bold mb-1 ${design.text}`}>
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                              <SlotIcon className={`w-4 h-4 ${design.iconColor} flex-shrink-0`} />
+                              <div className="flex-1 min-w-0 overflow-hidden">
+                                <h3 className={`text-xs font-bold mb-0.5 truncate ${design.text}`}>
                                   {slot.name}
                                 </h3>
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <div className={`px-2 py-1 rounded border text-xs ${
-                                    isDarkMode ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'
+                                <div className="flex items-center gap-1 min-w-0">
+                                  <div className={`px-1.5 py-0.5 rounded-md border text-[10px] flex-shrink-0 ${
+                                    isDarkMode ? `${design.border} ${design.bg}` : `${design.border} ${design.bg}`
                                   }`}>
-                                    <span className={`font-semibold flex items-center gap-1 ${design.accent}`}>
-                                      <Clock className="w-3 h-3" />
-                                      {slot.startTime} - {slot.endTime}
+                                    <span className={`font-medium flex items-center gap-1 ${design.accent}`}>
+                                      <Clock className="w-2.5 h-2.5" />
+                                      <span className="text-[10px]">{slot.startTime}-{slot.endTime}</span>
                                     </span>
                                   </div>
-                                  {isDuringSlot && (
-                                    <span className={`px-2 py-1 rounded text-xs font-semibold border flex items-center gap-1 ${
-                                      isDarkMode ? 'border-green-500/30 text-green-300 bg-green-500/10' : 'border-green-200 text-green-700 bg-green-50'
-                                    }`}>
-                                      <PlayCircle className="w-3 h-3" />
-                                      Đang diễn ra
-                                    </span>
-                                  )}
-                                  {isBeforeSlot && (
-                                    <span className={`px-2 py-1 rounded text-xs font-semibold border flex items-center gap-1 ${
-                                      isDarkMode ? 'border-gray-600 text-gray-400 bg-gray-800/50' : 'border-gray-200 text-gray-600 bg-gray-50'
-                                    }`}>
-                                      <Timer className="w-3 h-3" />
-                                      Sắp tới
-                                    </span>
-                                  )}
-                                  {isAfterSlot && (
-                                    <span className={`px-2 py-1 rounded text-xs font-semibold border flex items-center gap-1 ${
-                                      isDarkMode ? 'border-gray-600 text-gray-500 bg-gray-800/50' : 'border-gray-200 text-gray-500 bg-gray-50'
-                                    }`}>
-                                      <Square className="w-3 h-3" />
-                                      Đã kết thúc
-                                    </span>
-                                  )}
                                 </div>
                               </div>
                             </div>
@@ -6817,202 +7185,65 @@ export default function StudentAttendancePage() {
                           
                           {/* Location Info - Compact Design */}
                           {(slotLocation || activity.locationData) && (
-                            <div className={`mb-3 p-2 rounded-lg border text-xs ${
+                            <div className={`mb-2 p-1.5 rounded border text-[10px] min-w-0 overflow-hidden ${
                               isDarkMode ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50'
                             }`}>
-                              <div className="flex items-start gap-2">
-                                <MapPin className={`w-3.5 h-3.5 ${design.iconColor} flex-shrink-0 mt-0.5`} />
-                                <div className="flex-1 min-w-0">
-                                  <p className={`font-semibold mb-0.5 ${design.accent}`}>
-                                    Vị trí điểm danh
-                                  </p>
-                                  <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} truncate`}>
-                                    {slotLocation?.location.address || 
-                                     activity.locationData?.address || 
-                                     (slotLocation ? `${slotLocation.location.lat.toFixed(4)}, ${slotLocation.location.lng.toFixed(4)}` : 
-                                      activity.locationData ? `${activity.locationData.lat.toFixed(4)}, ${activity.locationData.lng.toFixed(4)}` : 
-                                      'Chưa có thông tin')}
-                                  </p>
-                                  {(slotLocation?.radius || activity.locationData?.radius) && (
-                                    <p className={`mt-0.5 font-medium flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                      <Target className="w-3 h-3" />
-                                      {(slotLocation?.radius || activity.locationData?.radius)}m
-                                    </p>
-                                  )}
-                                </div>
+                              <div className="flex items-center gap-1 min-w-0">
+                                <MapPin className={`w-3 h-3 ${design.iconColor} flex-shrink-0`} />
+                                <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} truncate text-[10px]`}>
+                                  {slotLocation?.location.address ? (slotLocation.location.address.length > 25 ? slotLocation.location.address.substring(0, 25) + '...' : slotLocation.location.address) : 
+                                   activity.locationData?.address ? (activity.locationData.address.length > 25 ? activity.locationData.address.substring(0, 25) + '...' : activity.locationData.address) : 
+                                   (slotLocation ? `${slotLocation.location.lat.toFixed(1)}, ${slotLocation.location.lng.toFixed(1)}` : 
+                                    activity.locationData ? `${activity.locationData.lat.toFixed(1)}, ${activity.locationData.lng.toFixed(1)}` : 
+                                    'Chưa có')}
+                                </p>
+                                {(slotLocation?.radius || activity.locationData?.radius) && (
+                                  <span className={`text-[10px] flex-shrink-0 ${design.accent}`}>
+                                    {(slotLocation?.radius || activity.locationData?.radius)}m
+                                  </span>
+                                )}
                               </div>
                             </div>
                           )}
                           
-                          {/* Check-in Actions - Compact Design */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {/* Start Check-in Button */}
-                            {(() => {
-                              const startWindow = getCheckInTimeWindow(slot, 'start');
-                              return (
-                                <div className={`p-2.5 rounded-lg border transition-all ${
-                                  slotStatus.start
-                                    ? isDarkMode ? 'bg-green-500/20 border-green-500/40' : 'bg-green-50 border-green-300'
-                                    : isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-200'
-                                }`}>
-                                  <div className="flex items-center justify-between mb-1.5">
-                                    <span className={`text-xs font-bold flex items-center gap-1 ${design.accent}`}>
-                                      <Sun className="w-3.5 h-3.5" />
-                                      Đầu buổi
-                                    </span>
-                                    {slotStatus.start && (
-                                      <CheckCircle2 className={`w-4 h-4 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
-                                    )}
-                                  </div>
-                                  {startWindow && (
-                                    <div className="mb-1.5 space-y-0.5 text-xs">
-                                      <p className={`flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                        <CheckCircle className="w-3 h-3" />
-                                        <span>Đúng giờ: {startWindow.onTimeStart} - {startWindow.onTimeEnd}</span>
-                                      </p>
-                                      <p className={`flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-                                        <Timer className="w-3 h-3" />
-                                        <span>Trễ: {startWindow.lateStart} - {startWindow.lateEnd}</span>
-                                      </p>
-                                    </div>
-                                  )}
-                                  {slotStatus.start ? (
-                                    <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                      <CheckCircle2 className="w-3 h-3" />
-                                      Đã điểm danh
-                                    </p>
-                                  ) : canCheckInStart ? (
-                                    <button
-                                      onClick={() => handleSlotCheckIn(slot.name, 'start')}
-                                      disabled={isCheckingIn}
-                                      className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                                        isDarkMode 
-                                          ? 'bg-blue-600 text-white hover:bg-blue-700' 
-                                          : 'bg-blue-600 text-white hover:bg-blue-700'
-                                      } ${isCheckingIn ? 'opacity-50' : ''}`}
-                                    >
-                                      {isCheckingIn ? (
-                                        <Loader className="w-3.5 h-3.5 animate-spin" />
-                                      ) : (
-                                        <>
-                                          <Camera className="w-3.5 h-3.5" />
-                                          Điểm danh
-                                        </>
-                                      )}
-                                    </button>
-                                  ) : (
-                                    <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-                                      <Timer className="w-3 h-3" />
-                                      Chưa đến thời gian
-                                    </p>
-                                  )}
-                                </div>
-                              );
-                            })()}
-                            
-                            {/* End Check-in Button */}
-                            {(() => {
-                              const endWindow = getCheckInTimeWindow(slot, 'end');
-                              return (
-                                <div className={`p-2.5 rounded-lg border transition-all ${
-                                  slotStatus.end
-                                    ? isDarkMode ? 'bg-green-500/20 border-green-500/40' : 'bg-green-50 border-green-300'
-                                    : isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-200'
-                                }`}>
-                                  <div className="flex items-center justify-between mb-1.5">
-                                    <span className={`text-xs font-bold flex items-center gap-1 ${design.accent}`}>
-                                      <Moon className="w-3.5 h-3.5" />
-                                      Cuối buổi
-                                    </span>
-                                    {slotStatus.end && (
-                                      <CheckCircle2 className={`w-4 h-4 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
-                                    )}
-                                  </div>
-                                  {endWindow && (
-                                    <div className="mb-1.5 space-y-0.5 text-xs">
-                                      <p className={`flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                        <CheckCircle className="w-3 h-3" />
-                                        <span>Đúng giờ: {endWindow.onTimeStart} - {endWindow.onTimeEnd}</span>
-                                      </p>
-                                      <p className={`flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-                                        <Timer className="w-3 h-3" />
-                                        <span>Trễ: {endWindow.lateStart} - {endWindow.lateEnd}</span>
-                                      </p>
-                                    </div>
-                                  )}
-                                  {slotStatus.end ? (
-                                    <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                      <CheckCircle2 className="w-3 h-3" />
-                                      Đã điểm danh
-                                    </p>
-                                  ) : canCheckInEnd ? (
-                                    <button
-                                      onClick={() => handleSlotCheckIn(slot.name, 'end')}
-                                      disabled={isCheckingIn}
-                                      className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                                        isDarkMode 
-                                          ? 'bg-blue-600 text-white hover:bg-blue-700' 
-                                          : 'bg-blue-600 text-white hover:bg-blue-700'
-                                      } ${isCheckingIn ? 'opacity-50' : ''}`}
-                                    >
-                                      {isCheckingIn ? (
-                                        <Loader className="w-3.5 h-3.5 animate-spin" />
-                                      ) : (
-                                        <>
-                                          <Camera className="w-3.5 h-3.5" />
-                                          Điểm danh
-                                        </>
-                                      )}
-                                    </button>
-                                  ) : (
-                                    <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-                                      <Timer className="w-3 h-3" />
-                                      Chưa đến thời gian
-                                    </p>
-                                  )}
-                                </div>
-                              );
-                            })()}
-                          </div>
-                          
                           {/* Attendance Records Section - Compact Design */}
-                          <div className={`mt-4 pt-4 border-t border-dashed`} style={{
+                          <div className={`mt-2.5 pt-2.5 border-t`} style={{
                             borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
                           }}>
-                            <div className="flex items-center gap-2 mb-3">
-                              <ImageIcon className={`w-5 h-5 ${design.iconColor}`} />
-                              <p className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                            <div className="flex items-center gap-1.5 mb-2">
+                              <ImageIcon className={`w-4 h-4 ${design.iconColor}`} />
+                              <p className={`text-xs font-bold ${design.text}`}>
                                 Chi tiết điểm danh
                               </p>
                             </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               {/* Start Photo */}
                               {slotStatus.start ? (() => {
                                   const startRecord = (attendanceRecords || []).find(
                                     (r) => r.timeSlot === slot.name && r.checkInType === 'start'
                                   );
                                   return startRecord ? (
-                                    <div className={`space-y-2 p-3 rounded-xl border ${
+                                    <div className={`space-y-1.5 p-2 rounded-lg border ${
                                       isDarkMode 
                                         ? 'bg-gray-800/50 border-gray-700' 
-                                        : 'bg-white/80 backdrop-blur-sm border-gray-200'
+                                        : 'bg-white border-gray-200'
                                     }`}>
-                                      <div className="flex items-center justify-between mb-2">
+                                      <div className="flex items-center justify-between mb-1.5">
                                         <div className="flex-1">
-                                          <p className={`text-xs font-bold flex items-center gap-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                            <Clock className="w-3 h-3" />
+                                          <p className={`text-xs font-bold flex items-center gap-1 ${design.text}`}>
+                                            <Sun className={`w-3.5 h-3.5 ${design.iconColor}`} />
                                             Đầu buổi
                                           </p>
                                           {(() => {
                                             const startWindow = getCheckInTimeWindow(slot, 'start');
                                             return startWindow ? (
-                                              <div className="mt-0.5 space-y-0.5">
-                                                <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                  <CheckCircle2 className="w-3 h-3" />
+                                              <div className="mt-1 space-y-0.5">
+                                                <p className={`text-[10px] flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                  <CheckCircle2 className={`w-2.5 h-2.5 ${design.iconColor}`} />
                                                   Đúng giờ: {startWindow.onTimeStart} - {startWindow.onTimeEnd}
                                                 </p>
-                                                <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-                                                  <Timer className="w-3 h-3" />
+                                                <p className={`text-[10px] flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                                  <Timer className={`w-2.5 h-2.5 ${design.iconColor}`} />
                                                   Trễ: {startWindow.lateStart} - {startWindow.lateEnd}
                                                 </p>
                                               </div>
@@ -7022,7 +7253,7 @@ export default function StudentAttendancePage() {
                                       </div>
                                       
                                       {/* Status Badges - Compact Design */}
-                                      <div className="flex flex-wrap gap-2 mb-3">
+                                      <div className="flex flex-wrap gap-1.5 mb-2">
                                         {(() => {
                                           const lateEarlyInfo = calculateLateEarlyForRecord(startRecord);
                                           
@@ -7031,30 +7262,30 @@ export default function StudentAttendancePage() {
                                               {lateEarlyInfo && startRecord.status !== 'rejected' && (
                                                 <>
                                                   {lateEarlyInfo.isOnTime ? (
-                                                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                    <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md font-semibold text-[10px] border transition-all duration-200 ${
                                                       isDarkMode 
-                                                        ? 'text-green-300 border-green-500/40' 
-                                                        : 'text-green-700 border-green-300/60'
+                                                        ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10' 
+                                                        : 'text-emerald-700 border-emerald-300 bg-emerald-50'
                                                     }`}>
-                                                      <CheckCircle2 className={`w-4 h-4 ${
-                                                        isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                      <CheckCircle2 className={`w-3 h-3 ${
+                                                        isDarkMode ? 'text-emerald-400' : 'text-emerald-600'
                                                       }`} />
                                                       <span className="font-bold">Đúng giờ</span>
                                                     </div>
                                                   ) : (
-                                                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                    <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md font-semibold text-[10px] border transition-all duration-200 ${
                                                       lateEarlyInfo.isEarly
                                                         ? isDarkMode 
-                                                          ? 'text-blue-300 border-blue-500/40' 
-                                                          : 'text-blue-700 border-blue-300/60'
+                                                          ? 'text-cyan-300 border-cyan-500/40 bg-cyan-500/10' 
+                                                          : 'text-cyan-700 border-cyan-300 bg-cyan-50'
                                                         : isDarkMode 
-                                                          ? 'text-pink-300 border-pink-500/40' 
-                                                          : 'text-pink-700 border-pink-300/60'
+                                                          ? 'text-orange-300 border-orange-500/40 bg-orange-500/10' 
+                                                          : 'text-orange-700 border-orange-300 bg-orange-50'
                                                     }`}>
-                                                      <Clock className={`w-4 h-4 ${
+                                                      <Clock className={`w-3 h-3 ${
                                                         lateEarlyInfo.isEarly
-                                                          ? isDarkMode ? 'text-blue-400' : 'text-blue-600'
-                                                          : isDarkMode ? 'text-pink-400' : 'text-pink-600'
+                                                          ? isDarkMode ? 'text-cyan-400' : 'text-cyan-600'
+                                                          : isDarkMode ? 'text-orange-400' : 'text-orange-600'
                                                       }`} />
                                                       <span className="font-bold">
                                                         {lateEarlyInfo.isEarly ? 'Sớm' : 'Trễ'} {lateEarlyInfo.minutes !== undefined ? formatMinutesToHours(lateEarlyInfo.minutes) : ''}
@@ -7064,21 +7295,21 @@ export default function StudentAttendancePage() {
                                                 </>
                                               )}
                                               {startRecord.status !== 'rejected' && (
-                                                <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                                <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md font-semibold text-[10px] border transition-all duration-200 ${
                                                   startRecord.status === 'approved'
                                                     ? isDarkMode 
-                                                      ? 'text-green-300 border-green-500/40' 
-                                                      : 'text-green-700 border-green-300/60'
+                                                      ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10' 
+                                                      : 'text-emerald-700 border-emerald-300 bg-emerald-50'
                                                     : isDarkMode 
-                                                      ? 'text-amber-300 border-amber-500/40' 
-                                                      : 'text-amber-700 border-amber-300/60'
+                                                      ? 'text-amber-300 border-amber-500/40 bg-amber-500/10' 
+                                                      : 'text-amber-700 border-amber-300 bg-amber-50'
                                                 }`}>
                                                   {startRecord.status === 'approved' ? (
-                                                    <CheckCircle2 className={`w-4 h-4 ${
-                                                      isDarkMode ? 'text-green-400' : 'text-green-600'
+                                                    <CheckCircle2 className={`w-3 h-3 ${
+                                                      isDarkMode ? 'text-emerald-400' : 'text-emerald-600'
                                                     }`} />
                                                   ) : (
-                                                    <Timer className={`w-4 h-4 ${
+                                                    <Timer className={`w-3 h-3 ${
                                                       isDarkMode ? 'text-amber-400' : 'text-amber-600'
                                                     }`} />
                                                   )}
@@ -7095,7 +7326,7 @@ export default function StudentAttendancePage() {
                                       {/* Photo - Premium Design */}
                                       {startRecord.photoUrl ? (
                                         <div 
-                                          className="relative group rounded-xl overflow-hidden border-2 shadow-lg cursor-pointer"
+                                          className="relative group rounded-lg overflow-hidden border shadow-sm cursor-pointer"
                                           onClick={() => {
                                             if (startRecord.photoUrl) {
                                               setSelectedImageUrl(startRecord.photoUrl);
@@ -7106,26 +7337,26 @@ export default function StudentAttendancePage() {
                                           <img
                                             src={startRecord.photoUrl}
                                             alt={`Điểm danh đầu buổi ${slot.name}`}
-                                            className={`w-full h-32 object-cover transition-all duration-300 ${
+                                            className={`w-full h-24 object-cover transition-all duration-300 ${
                                               startRecord.status === 'rejected'
                                                 ? isDarkMode ? 'opacity-50 grayscale' : 'opacity-50 grayscale'
                                                 : 'group-hover:scale-105'
                                             }`}
                                         />
-                                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-2 pointer-events-none">
-                                            <div className="px-3 py-1.5 rounded-lg bg-white/90 backdrop-blur-sm pointer-events-auto flex items-center gap-1">
-                                              <ImageIcon className="w-3 h-3 text-gray-900" />
-                                              <p className="text-xs font-bold text-gray-900">Xem ảnh</p>
+                                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-1.5 pointer-events-none">
+                                            <div className="px-2 py-1 rounded-md bg-white/90 backdrop-blur-sm pointer-events-auto flex items-center gap-1">
+                                              <ImageIcon className="w-2.5 h-2.5 text-gray-900" />
+                                              <p className="text-[10px] font-bold text-gray-900">Xem ảnh</p>
                                             </div>
                                           </div>
                                         </div>
                                       ) : (
-                                        <div className={`w-full h-32 rounded-xl border-2 flex items-center justify-center ${
-                                          isDarkMode ? 'border-gray-600' : 'border-gray-300'
+                                        <div className={`w-full h-24 rounded-lg border flex items-center justify-center ${
+                                          isDarkMode ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50'
                                         }`}>
                                           <div className="text-center">
-                                            <ImageIcon className={`w-8 h-8 mx-auto mb-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
-                                          <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                            <ImageIcon className={`w-6 h-6 mx-auto mb-0.5 ${design.iconColor}`} />
+                                          <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                             Không có ảnh
                                           </p>
                                           </div>
@@ -7133,16 +7364,16 @@ export default function StudentAttendancePage() {
                                       )}
                                       
                                       {/* Timestamp - Ngày giờ chụp ảnh */}
-                                      <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${
-                                        isDarkMode ? 'border-gray-600' : 'border-gray-200'
+                                      <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded border ${
+                                        isDarkMode ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50'
                                       }`}>
-                                        <Camera className={`w-5 h-5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
+                                        <Camera className={`w-4 h-4 ${design.iconColor}`} />
                                         <div className="flex-1">
-                                          <p className={`text-xs font-semibold mb-0.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                          <p className={`text-[10px] font-semibold mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                                             Thời Gian Chụp Ảnh
                                           </p>
-                                          <p className={`text-xs font-bold flex items-center gap-1 ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
-                                            <Clock className="w-3 h-3" />
+                                          <p className={`text-[10px] font-bold flex items-center gap-0.5 ${design.text}`}>
+                                            <Clock className={`w-2.5 h-2.5 ${design.iconColor}`} />
                                             {new Date(startRecord.checkInTime).toLocaleString('vi-VN', { 
                                               hour: '2-digit', 
                                               minute: '2-digit', 
@@ -7157,17 +7388,17 @@ export default function StudentAttendancePage() {
                                       
                                       {/* Show rejected status */}
                                       {startRecord.status === 'rejected' && (
-                                        <div className={`p-2 rounded border-2 ${
+                                        <div className={`p-1.5 rounded border-2 ${
                                           isDarkMode ? 'border-red-500' : 'border-red-500'
                                         }`}>
-                                          <div className="flex items-center gap-1.5 mb-1">
-                                            <AlertTriangle className={`w-4 h-4 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />
-                                            <p className={`text-xs font-semibold ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>
+                                          <div className="flex items-center gap-1 mb-0.5">
+                                            <AlertTriangle className={`w-3.5 h-3.5 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />
+                                            <p className={`text-[10px] font-semibold ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>
                                               Đã bị hủy
                                             </p>
                                           </div>
                                         {(startRecord.cancelReason || startRecord.verificationNote) && (
-                                          <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                          <p className={`text-[10px] ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                                             {startRecord.cancelReason || startRecord.verificationNote}
                                           </p>
                                         )}
@@ -7176,11 +7407,11 @@ export default function StudentAttendancePage() {
                                       
                                       {/* Additional Info */}
                                       {startRecord.lateReason && startRecord.status !== 'rejected' && (
-                                          <div className={`p-2 rounded border-2 text-xs ${
+                                          <div className={`p-1.5 rounded border-2 text-[10px] ${
                                             isDarkMode ? 'border-amber-500' : 'border-amber-500'
                                           }`}>
-                                            <p className={`font-medium mb-1 flex items-center gap-1 ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`}>
-                                              <Clock className="w-3 h-3" />
+                                            <p className={`font-medium mb-0.5 flex items-center gap-0.5 ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`}>
+                                              <Clock className="w-2.5 h-2.5" />
                                               Lý do trễ:
                                             </p>
                                             <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
@@ -7189,36 +7420,36 @@ export default function StudentAttendancePage() {
                                           </div>
                                         )}
                                         {startRecord.verificationNote && startRecord.status === 'approved' && (
-                                          <div className={`p-4 rounded-xl border-2 ${
+                                          <div className={`p-2 rounded-lg border-2 ${
                                             isDarkMode ? 'border-green-500/40' : 'border-green-300'
                                           }`}>
-                                            <div className="flex items-center gap-2 mb-2">
-                                              <FileText className={`w-5 h-5 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
-                                              <p className={`font-bold text-sm ${isDarkMode ? 'text-green-300' : 'text-green-700'}`}>
+                                            <div className="flex items-center gap-1.5 mb-1.5">
+                                              <FileText className={`w-4 h-4 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
+                                              <p className={`font-bold text-xs ${isDarkMode ? 'text-green-300' : 'text-green-700'}`}>
                                                 Ghi chú từ người quản trị
                                               </p>
                                             </div>
-                                            <p className={`text-sm mb-3 ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                                            <p className={`text-xs mb-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
                                               {startRecord.verificationNote}
                                             </p>
                                             {startRecord.verifiedBy && (
-                                              <div className={`flex items-center gap-2 pt-3 border-t ${
+                                              <div className={`flex items-center gap-1.5 pt-2 border-t ${
                                                 isDarkMode ? 'border-green-500/20' : 'border-green-200'
                                               }`}>
-                                                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${
+                                                <div className={`flex items-center gap-1.5 px-2 py-1 rounded border ${
                                                   isDarkMode ? 'border-gray-700' : 'border-gray-200'
                                                 }`}>
-                                                  <UserCircle className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
-                                                  <span className={`text-xs font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                  <UserCircle className={`w-3.5 h-3.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
+                                                  <span className={`text-[10px] font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                                                     {getVerifierName(startRecord.verifiedBy)}
                                                   </span>
                                                 </div>
                                                 {startRecord.verifiedAt && (
-                                                  <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ${
+                                                  <div className={`flex items-center gap-1 px-2 py-1 rounded border ${
                                                     isDarkMode ? 'border-gray-700' : 'border-gray-200'
                                                   }`}>
-                                                    <Clock className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
-                                                    <span className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                    <Clock className={`w-3.5 h-3.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
+                                                    <span className={`text-[10px] font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                                                       {new Date(startRecord.verifiedAt).toLocaleString('vi-VN', { 
                                                   hour: '2-digit', 
                                                   minute: '2-digit', 
@@ -7237,11 +7468,11 @@ export default function StudentAttendancePage() {
                                         
                                         {/* Action buttons for pending/rejected status */}
                                         {(startRecord.status === 'pending' || startRecord.status === 'rejected') && (
-                                          <div className="flex gap-3">
+                                          <div className="flex gap-2">
                                             <button
                                               onClick={() => handleSlotCheckIn(slot.name, 'start')}
                                               disabled={isCheckingIn}
-                                              className={`flex-1 px-4 py-3 rounded-xl text-sm font-bold transition-all duration-200 transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2 ${
+                                              className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-all duration-200 transform hover:scale-105 active:scale-95 flex items-center justify-center gap-1.5 ${
                                                 isDarkMode 
                                                   ? 'bg-orange-600 text-white hover:bg-orange-700' 
                                                   : 'bg-orange-600 text-white hover:bg-orange-700'
@@ -7249,12 +7480,12 @@ export default function StudentAttendancePage() {
                                             >
                                               {isCheckingIn ? (
                                                 <>
-                                                  <Loader className="w-4 h-4 animate-spin" />
+                                                  <Loader className="w-3.5 h-3.5 animate-spin" />
                                                   Đang xử lý...
                                                 </>
                                               ) : (
                                                 <>
-                                                  <Camera className="w-4 h-4" />
+                                                  <Camera className="w-3.5 h-3.5" />
                                                   Chụp lại
                                                 </>
                                               )}
@@ -7262,13 +7493,13 @@ export default function StudentAttendancePage() {
                                             <button
                                               onClick={() => handleDeleteAttendance(slot.name, 'start')}
                                               disabled={isCheckingIn}
-                                              className={`px-4 py-3 rounded-xl text-sm font-bold transition-all duration-200 transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2 ${
+                                              className={`px-3 py-2 rounded-lg text-xs font-bold transition-all duration-200 transform hover:scale-105 active:scale-95 flex items-center justify-center gap-1.5 ${
                                                 isDarkMode 
                                                   ? 'bg-red-600 text-white hover:bg-red-700' 
                                                   : 'bg-red-600 text-white hover:bg-red-700'
                                               } ${isCheckingIn ? 'opacity-50 cursor-not-allowed' : ''}`}
                                             >
-                                              <Trash2 className="w-4 h-4" />
+                                              <Trash2 className="w-3.5 h-3.5" />
                                               Xóa
                                             </button>
                                           </div>
@@ -7277,27 +7508,27 @@ export default function StudentAttendancePage() {
                                   ) : null;
                                 })() : (
                                   // Chưa điểm danh đầu buổi
-                                  <div className={`space-y-2 p-3 rounded-xl border ${
+                                  <div className={`space-y-1.5 p-2 rounded-lg border ${
                                     isDarkMode 
                                       ? 'bg-gray-800/50 border-gray-700' 
-                                      : 'bg-white/80 backdrop-blur-sm border-gray-200'
+                                      : 'bg-white border-gray-200'
                                   }`}>
-                                    <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center justify-between mb-1.5">
                                       <div className="flex-1">
-                                        <p className={`text-xs font-bold flex items-center gap-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                          <Sun className="w-3.5 h-3.5" />
+                                        <p className={`text-xs font-bold flex items-center gap-1 ${design.text}`}>
+                                          <Sun className={`w-3.5 h-3.5 ${design.iconColor}`} />
                                           Đầu buổi
                                         </p>
                                         {(() => {
                                           const startWindow = getCheckInTimeWindow(slot, 'start');
                                           return startWindow ? (
-                                            <div className="mt-0.5 space-y-0.5">
-                                              <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                <CheckCircle className="w-3 h-3" />
+                                            <div className="mt-1 space-y-0.5">
+                                              <p className={`text-[10px] flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                <CheckCircle className={`w-2.5 h-2.5 ${design.iconColor}`} />
                                                 Đúng giờ: {startWindow.onTimeStart} - {startWindow.onTimeEnd}
                                               </p>
-                                              <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-                                                <Timer className="w-3 h-3" />
+                                              <p className={`text-[10px] flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                                <Timer className={`w-2.5 h-2.5 ${design.iconColor}`} />
                                                 Trễ: {startWindow.lateStart} - {startWindow.lateEnd}
                                               </p>
                                             </div>
@@ -7307,24 +7538,58 @@ export default function StudentAttendancePage() {
                                     </div>
                                     
                                     {/* Status Badge - Chưa điểm danh */}
-                                    <div className="flex flex-wrap gap-2 mb-3">
-                                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                    <div className="flex flex-wrap gap-1.5 mb-2">
+                                      <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md font-semibold text-[10px] border transition-all duration-200 ${
                                         isDarkMode 
-                                          ? 'bg-gray-800/50 text-gray-300 border-gray-600' 
+                                          ? 'bg-gray-800/50 text-gray-300 border-gray-700' 
                                           : 'bg-gray-50 text-gray-700 border-gray-200'
                                       }`}>
-                                        <PauseCircle className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
+                                        <PauseCircle className={`w-3 h-3 ${design.iconColor}`} />
                                         <span className="font-bold">Chưa điểm danh</span>
                                       </div>
                                     </div>
                                     
+                                    {/* Check-in Button */}
+                                    {canCheckInStart ? (
+                                      <button
+                                        onClick={() => handleSlotCheckIn(slot.name, 'start')}
+                                        disabled={isCheckingIn}
+                                        className={`w-full px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 mb-2 ${
+                                          isDarkMode 
+                                            ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                                        } ${isCheckingIn ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105 active:scale-95'}`}
+                                      >
+                                        {isCheckingIn ? (
+                                          <>
+                                            <Loader className="w-3.5 h-3.5 animate-spin" />
+                                            Đang xử lý...
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Camera className="w-3.5 h-3.5" />
+                                            Điểm danh đầu buổi
+                                          </>
+                                        )}
+                                      </button>
+                                    ) : (
+                                      <div className={`w-full px-3 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 mb-2 ${
+                                        isDarkMode 
+                                          ? 'bg-gray-800/50 text-gray-400 border border-gray-700' 
+                                          : 'bg-gray-50 text-gray-500 border border-gray-200'
+                                      }`}>
+                                        <Timer className={`w-3.5 h-3.5 ${design.iconColor}`} />
+                                        Chưa đến thời gian điểm danh
+                                      </div>
+                                    )}
+                                    
                                     {/* Empty photo placeholder */}
-                                    <div className={`w-full h-32 rounded-xl border-2 flex items-center justify-center ${
-                                      isDarkMode ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-100 border-gray-300'
+                                    <div className={`w-full h-24 rounded-lg border flex items-center justify-center ${
+                                      isDarkMode ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50'
                                     }`}>
                                       <div className="text-center">
-                                        <ImageIcon className={`w-8 h-8 mx-auto mb-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
-                                        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                        <ImageIcon className={`w-6 h-6 mx-auto mb-0.5 ${design.iconColor}`} />
+                                        <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                           Chưa có ảnh điểm danh
                                         </p>
                                       </div>
@@ -7338,25 +7603,28 @@ export default function StudentAttendancePage() {
                                     (r) => r.timeSlot === slot.name && r.checkInType === 'end'
                                   );
                                   return endRecord ? (
-                                    <div className={`space-y-2 p-3 rounded-xl border ${
+                                    <div className={`space-y-1.5 p-2 rounded-lg border ${
                                       isDarkMode 
                                         ? 'bg-gray-800/50 border-gray-700' 
-                                        : 'bg-white/80 backdrop-blur-sm border-gray-200'
+                                        : 'bg-white border-gray-200'
                                     }`}>
-                                      <div className="flex items-center justify-between mb-2">
+                                      <div className="flex items-center justify-between mb-1.5">
                                         <div className="flex-1">
-                                          <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                            🌙 Cuối buổi
+                                          <p className={`text-xs font-bold flex items-center gap-1 ${design.text}`}>
+                                            <Moon className={`w-3.5 h-3.5 ${design.iconColor}`} />
+                                            Cuối buổi
                                           </p>
                                           {(() => {
                                             const endWindow = getCheckInTimeWindow(slot, 'end');
                                             return endWindow ? (
-                                              <div className="mt-0.5 space-y-0.5">
-                                                <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                  ⏰ Đúng giờ: {endWindow.onTimeStart} - {endWindow.onTimeEnd}
+                                              <div className="mt-1 space-y-0.5">
+                                                <p className={`text-[10px] flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                  <CheckCircle2 className={`w-2.5 h-2.5 ${design.iconColor}`} />
+                                                  Đúng giờ: {endWindow.onTimeStart} - {endWindow.onTimeEnd}
                                                 </p>
-                                                <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-                                                  ⏳ Trễ: {endWindow.lateStart} - {endWindow.lateEnd}
+                                                <p className={`text-[10px] flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                                  <Timer className={`w-2.5 h-2.5 ${design.iconColor}`} />
+                                                  Trễ: {endWindow.lateStart} - {endWindow.lateEnd}
                                                 </p>
                                               </div>
                                             ) : null;
@@ -7365,7 +7633,7 @@ export default function StudentAttendancePage() {
                                       </div>
                                       
                                       {/* Status Badges - Compact Design */}
-                                      <div className="flex flex-wrap gap-2 mb-3">
+                                      <div className="flex flex-wrap gap-1.5 mb-2">
                                         {(() => {
                                           const lateEarlyInfo = calculateLateEarlyForRecord(endRecord);
                                           
@@ -7442,7 +7710,7 @@ export default function StudentAttendancePage() {
                                       {/* Photo - Premium Design */}
                                       {endRecord.photoUrl ? (
                                         <div 
-                                          className="relative group rounded-xl overflow-hidden border-2 shadow-lg cursor-pointer"
+                                          className="relative group rounded-lg overflow-hidden border shadow-sm cursor-pointer"
                                           onClick={() => {
                                             if (endRecord.photoUrl) {
                                               setSelectedImageUrl(endRecord.photoUrl);
@@ -7453,25 +7721,25 @@ export default function StudentAttendancePage() {
                                           <img
                                             src={endRecord.photoUrl}
                                             alt={`Điểm danh cuối buổi ${slot.name}`}
-                                            className={`w-full h-32 object-cover transition-all duration-300 ${
+                                            className={`w-full h-24 object-cover transition-all duration-300 ${
                                               endRecord.status === 'rejected'
                                                 ? isDarkMode ? 'opacity-50 grayscale' : 'opacity-50 grayscale'
                                                 : 'group-hover:scale-105'
                                             }`}
                                         />
-                                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-2 pointer-events-none">
-                                            <div className="px-3 py-1.5 rounded-lg bg-white/90 backdrop-blur-sm pointer-events-auto">
-                                              <p className="text-xs font-bold text-gray-900">🔍 Xem ảnh</p>
+                                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-1.5 pointer-events-none">
+                                            <div className="px-2 py-1 rounded bg-white/90 backdrop-blur-sm pointer-events-auto">
+                                              <p className="text-[10px] font-bold text-gray-900">Xem ảnh</p>
                                             </div>
                                           </div>
                                         </div>
                                       ) : (
-                                        <div className={`w-full h-32 rounded-xl border-2 flex items-center justify-center ${
-                                          isDarkMode ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-100 border-gray-300'
+                                        <div className={`w-full h-24 rounded-lg border flex items-center justify-center ${
+                                          isDarkMode ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50'
                                         }`}>
                                           <div className="text-center">
-                                            <p className={`text-2xl mb-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>📷</p>
-                                          <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                            <ImageIcon className={`w-6 h-6 mx-auto mb-0.5 ${design.iconColor}`} />
+                                          <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                             Không có ảnh
                                           </p>
                                           </div>
@@ -7479,20 +7747,17 @@ export default function StudentAttendancePage() {
                                       )}
                                       
                                       {/* Timestamp - Ngày giờ chụp ảnh */}
-                                      <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${
-                                        isDarkMode ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-50 border-gray-200'
+                                      <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded border ${
+                                        isDarkMode ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50'
                                       }`}>
-                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                                          isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
-                                        }`}>
-                                          <span className="text-base">📷</span>
-                                        </div>
+                                        <Camera className={`w-4 h-4 ${design.iconColor}`} />
                                         <div className="flex-1">
-                                          <p className={`text-xs font-semibold mb-0.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                                          <p className={`text-[10px] font-semibold mb-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                                               Thời Gian Chụp Ảnh
                                           </p>
-                                          <p className={`text-xs font-bold ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
-                                            ⏰ {new Date(endRecord.checkInTime).toLocaleString('vi-VN', { 
+                                          <p className={`text-[10px] font-bold flex items-center gap-0.5 ${design.text}`}>
+                                            <Clock className={`w-2.5 h-2.5 ${design.iconColor}`} />
+                                            {new Date(endRecord.checkInTime).toLocaleString('vi-VN', { 
                                               hour: '2-digit', 
                                               minute: '2-digit', 
                                               second: '2-digit',
@@ -7622,54 +7887,88 @@ export default function StudentAttendancePage() {
                                   ) : null;
                                 })() : (
                                   // Chưa điểm danh cuối buổi
-                                  <div className={`space-y-2 p-3 rounded-xl border ${
+                                  <div className={`space-y-1.5 p-2 rounded-lg border ${
                                     isDarkMode 
                                       ? 'bg-gray-800/50 border-gray-700' 
-                                      : 'bg-white/80 backdrop-blur-sm border-gray-200'
+                                      : 'bg-white border-gray-200'
                                   }`}>
-                                    <div className="flex items-center justify-between mb-2">
-                                      <div className="flex-1">
-                                        <p className={`text-xs font-bold flex items-center gap-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                                          <Moon className="w-3.5 h-3.5" />
-                                          Cuối buổi
-                                        </p>
-                                        {(() => {
-                                          const endWindow = getCheckInTimeWindow(slot, 'end');
-                                          return endWindow ? (
-                                            <div className="mt-0.5 space-y-0.5">
-                                              <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                <CheckCircle className="w-3 h-3" />
-                                                Đúng giờ: {endWindow.onTimeStart} - {endWindow.onTimeEnd}
-                                              </p>
-                                              <p className={`text-xs flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-                                                <Timer className="w-3 h-3" />
-                                                Trễ: {endWindow.lateStart} - {endWindow.lateEnd}
-                                              </p>
-                                            </div>
-                                          ) : null;
-                                        })()}
+                                      <div className="flex items-center justify-between mb-1.5">
+                                        <div className="flex-1">
+                                          <p className={`text-xs font-bold flex items-center gap-1 ${design.text}`}>
+                                            <Moon className={`w-3.5 h-3.5 ${design.iconColor}`} />
+                                            Cuối buổi
+                                          </p>
+                                          {(() => {
+                                            const endWindow = getCheckInTimeWindow(slot, 'end');
+                                            return endWindow ? (
+                                              <div className="mt-1 space-y-0.5">
+                                                <p className={`text-[10px] flex items-center gap-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                  <CheckCircle className={`w-2.5 h-2.5 ${design.iconColor}`} />
+                                                  Đúng giờ: {endWindow.onTimeStart} - {endWindow.onTimeEnd}
+                                                </p>
+                                                <p className={`text-[10px] flex items-center gap-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                                  <Timer className={`w-2.5 h-2.5 ${design.iconColor}`} />
+                                                  Trễ: {endWindow.lateStart} - {endWindow.lateEnd}
+                                                </p>
+                                              </div>
+                                            ) : null;
+                                          })()}
+                                        </div>
                                       </div>
-                                    </div>
-                                    
-                                    {/* Status Badge - Chưa điểm danh */}
-                                    <div className="flex flex-wrap gap-2 mb-3">
-                                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all duration-200 ${
+                                      
+                                      {/* Status Badge - Chưa điểm danh */}
+                                      <div className="flex flex-wrap gap-1.5 mb-2">
+                                      <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md font-semibold text-[10px] border transition-all duration-200 ${
                                         isDarkMode 
-                                          ? 'bg-gray-800/50 text-gray-300 border-gray-600' 
+                                          ? 'bg-gray-800/50 text-gray-300 border-gray-700' 
                                           : 'bg-gray-50 text-gray-700 border-gray-200'
                                       }`}>
-                                        <PauseCircle className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
+                                        <PauseCircle className={`w-3 h-3 ${design.iconColor}`} />
                                         <span className="font-bold">Chưa điểm danh</span>
                                       </div>
                                     </div>
                                     
+                                    {/* Check-in Button */}
+                                    {canCheckInEnd ? (
+                                      <button
+                                        onClick={() => handleSlotCheckIn(slot.name, 'end')}
+                                        disabled={isCheckingIn}
+                                        className={`w-full px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 mb-2 ${
+                                          isDarkMode 
+                                            ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                                        } ${isCheckingIn ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105 active:scale-95'}`}
+                                      >
+                                        {isCheckingIn ? (
+                                          <>
+                                            <Loader className="w-3.5 h-3.5 animate-spin" />
+                                            Đang xử lý...
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Camera className="w-3.5 h-3.5" />
+                                            Điểm danh cuối buổi
+                                          </>
+                                        )}
+                                      </button>
+                                    ) : (
+                                      <div className={`w-full px-3 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 mb-2 ${
+                                        isDarkMode 
+                                          ? 'bg-gray-800/50 text-gray-400 border border-gray-700' 
+                                          : 'bg-gray-50 text-gray-500 border border-gray-200'
+                                      }`}>
+                                        <Timer className={`w-3.5 h-3.5 ${design.iconColor}`} />
+                                        Chưa đến thời gian điểm danh
+                                      </div>
+                                    )}
+                                    
                                     {/* Empty photo placeholder */}
-                                    <div className={`w-full h-32 rounded-xl border-2 flex items-center justify-center ${
-                                      isDarkMode ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-100 border-gray-300'
+                                    <div className={`w-full h-24 rounded-lg border flex items-center justify-center ${
+                                      isDarkMode ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50'
                                     }`}>
                                       <div className="text-center">
-                                        <ImageIcon className={`w-8 h-8 mx-auto mb-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
-                                        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                        <ImageIcon className={`w-6 h-6 mx-auto mb-0.5 ${design.iconColor}`} />
+                                        <p className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                           Chưa có ảnh điểm danh
                                         </p>
                                       </div>
@@ -7794,7 +8093,7 @@ export default function StudentAttendancePage() {
                       doubleClickZoom={false}
                       dragging={true}
                       scrollWheelZoom={true}
-                      key={`map-${selectedDaySlot ? `${selectedDaySlot.day}-${selectedDaySlot.slot}` : 'default'}-${mapCenter[0]}-${mapCenter[1]}`}
+                      key={`map-${selectedDaySlot ? `${selectedDaySlot.day}-${selectedDaySlot.slot}` : selectedSlotName || 'default'}-${mapCenter[0]}-${mapCenter[1]}`}
                       whenReady={() => {
                         // Map is ready, this prevents errors with markers
                       }}
@@ -7828,23 +8127,43 @@ export default function StudentAttendancePage() {
                         }
                       } else {
                         // Add activity locations to bounds (single day)
-                        if (activity.locationData && 
-                            typeof activity.locationData.lat === 'number' && 
-                            typeof activity.locationData.lng === 'number' &&
-                            !isNaN(activity.locationData.lat) &&
-                            !isNaN(activity.locationData.lng)) {
-                          bounds.push([activity.locationData.lat, activity.locationData.lng]);
-                        }
-                        if (activity.multiTimeLocations) {
-                          activity.multiTimeLocations.forEach(mtl => {
-                            if (mtl?.location &&
-                                typeof mtl.location.lat === 'number' && 
-                                typeof mtl.location.lng === 'number' &&
-                                !isNaN(mtl.location.lat) &&
-                                !isNaN(mtl.location.lng)) {
-                              bounds.push([mtl.location.lat, mtl.location.lng]);
-                            }
-                          });
+                        // If a slot is selected, only show that slot's location
+                        if (selectedSlotName) {
+                          const slotLocationMap: { [key: string]: 'morning' | 'afternoon' | 'evening' } = {
+                            'Buổi Sáng': 'morning',
+                            'Buổi Chiều': 'afternoon',
+                            'Buổi Tối': 'evening'
+                          };
+                          const timeSlotKey = slotLocationMap[selectedSlotName];
+                          const slotLocation = activity.multiTimeLocations?.find(mtl => mtl.timeSlot === timeSlotKey);
+                          const location = slotLocation?.location || activity.locationData;
+                          if (location && 
+                              typeof location.lat === 'number' && 
+                              typeof location.lng === 'number' &&
+                              !isNaN(location.lat) &&
+                              !isNaN(location.lng)) {
+                            bounds.push([location.lat, location.lng]);
+                          }
+                        } else {
+                          // Show all locations if no slot is selected
+                          if (activity.locationData && 
+                              typeof activity.locationData.lat === 'number' && 
+                              typeof activity.locationData.lng === 'number' &&
+                              !isNaN(activity.locationData.lat) &&
+                              !isNaN(activity.locationData.lng)) {
+                            bounds.push([activity.locationData.lat, activity.locationData.lng]);
+                          }
+                          if (activity.multiTimeLocations) {
+                            activity.multiTimeLocations.forEach(mtl => {
+                              if (mtl?.location &&
+                                  typeof mtl.location.lat === 'number' && 
+                                  typeof mtl.location.lng === 'number' &&
+                                  !isNaN(mtl.location.lat) &&
+                                  !isNaN(mtl.location.lng)) {
+                                bounds.push([mtl.location.lat, mtl.location.lng]);
+                              }
+                            });
+                          }
                         }
                       }
                       
@@ -7933,13 +8252,89 @@ export default function StudentAttendancePage() {
                     })()}
 
                     {/* Activity Location Marker - For Single Day */}
-                    {activity.type === 'single_day' && activity.locationData && 
-                     typeof activity.locationData.lat === 'number' && 
-                     typeof activity.locationData.lng === 'number' &&
-                     !isNaN(activity.locationData.lat) &&
-                     !isNaN(activity.locationData.lng) && (
-                      <>
-                        <Marker 
+                    {activity.type === 'single_day' && (() => {
+                      // If a slot is selected, show only that slot's location
+                      if (selectedSlotName) {
+                        const slotLocationMap: { [key: string]: 'morning' | 'afternoon' | 'evening' } = {
+                          'Buổi Sáng': 'morning',
+                          'Buổi Chiều': 'afternoon',
+                          'Buổi Tối': 'evening'
+                        };
+                        const timeSlotKey = slotLocationMap[selectedSlotName];
+                        const slotLocation = activity.multiTimeLocations?.find(mtl => mtl.timeSlot === timeSlotKey);
+                        const location = slotLocation?.location || activity.locationData;
+                        if (location && 
+                            typeof location.lat === 'number' && 
+                            typeof location.lng === 'number' &&
+                            !isNaN(location.lat) &&
+                            !isNaN(location.lng)) {
+                          const locationData = location as LocationData;
+                          return (
+                            <>
+                              <Marker 
+                                position={[location.lat, location.lng]}
+                                icon={(() => {
+                                  if (typeof window !== 'undefined') {
+                                    const L = require('leaflet');
+                                    return L.divIcon({
+                                      className: 'activity-location-marker',
+                                      html: `<div style="
+                                        background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+                                        width: 56px;
+                                        height: 56px;
+                                        border-radius: 50%;
+                                        border: 5px solid white;
+                                        box-shadow: 0 6px 20px rgba(37, 99, 235, 0.6), 0 0 0 3px rgba(37, 99, 235, 0.3);
+                                        display: flex;
+                                        align-items: center;
+                                        justify-content: center;
+                                        font-size: 28px;
+                                        font-weight: bold;
+                                      ">📍</div>`,
+                                      iconSize: [56, 56],
+                                      iconAnchor: [28, 28]
+                                    });
+                                  }
+                                  return undefined;
+                                })()}
+                              >
+                                <Popup>
+                                  <div className="text-center">
+                                    <p className="font-bold text-sm">🏢 {activity.name}</p>
+                                    <p className="text-xs mt-1">{selectedSlotName}</p>
+                                    <p className="text-xs mt-1">{locationData.address || 'N/A'}</p>
+                                    <p className="text-xs mt-1">Bán kính: {locationData.radius || 200}m</p>
+                                  </div>
+                                </Popup>
+                              </Marker>
+                              {typeof locationData.radius === 'number' && !isNaN(locationData.radius) && locationData.radius > 0 && (
+                                <Circle
+                                  key={`circle-${selectedSlotName}-${location.lat}-${location.lng}`}
+                                  center={[location.lat, location.lng]}
+                                  radius={locationData.radius}
+                                  pathOptions={{
+                                    color: '#2563eb',
+                                    fillColor: '#3b82f6',
+                                    fillOpacity: 0.25,
+                                    weight: 4,
+                                    dashArray: '10, 5'
+                                  }}
+                                />
+                              )}
+                            </>
+                          );
+                        }
+                        return null;
+                      }
+                      // If no slot selected, show all locations (original behavior)
+                      if (activity.locationData && 
+                          typeof activity.locationData.lat === 'number' && 
+                          typeof activity.locationData.lng === 'number' &&
+                          !isNaN(activity.locationData.lat) &&
+                          !isNaN(activity.locationData.lng)) {
+                        return (
+                          <>
+                            <Marker 
                           position={[activity.locationData.lat, activity.locationData.lng]}
                           icon={(() => {
                             if (typeof window !== 'undefined') {
@@ -7988,8 +8383,11 @@ export default function StudentAttendancePage() {
                             }}
                           />
                         )}
-                      </>
-                    )}
+                          </>
+                        );
+                      }
+                      return null;
+                    })()}
 
                     {/* Multi-time locations - Enhanced Design */}
                     {activity?.multiTimeLocations && Array.isArray(activity.multiTimeLocations) && activity.multiTimeLocations.map((mtl, idx) => {
@@ -8466,7 +8864,7 @@ export default function StudentAttendancePage() {
                         // Validate pendingCheckIn data before proceeding
                         if (!pendingCheckIn || !pendingCheckIn.slotName || !pendingCheckIn.checkInType) {
                           console.error('Missing pendingCheckIn data:', pendingCheckIn);
-                          setError('Dữ liệu điểm danh không hợp lệ. Vui lòng thử lại.');
+                          toastr.error('Dữ liệu điểm danh không hợp lệ. Vui lòng thử lại.');
                           closeCamera();
                           delete (window as any).pendingCheckIn;
                           delete (window as any).photoCheckInTime;
@@ -8687,7 +9085,7 @@ export default function StudentAttendancePage() {
                 <button
                   onClick={async () => {
                     if (!lateReason.trim()) {
-                      setError(lateInfo.isEarly ? 'Vui lòng nhập lý do sớm' : 'Vui lòng nhập lý do trễ');
+                      toastr.error(lateInfo.isEarly ? 'Vui lòng nhập lý do sớm' : 'Vui lòng nhập lý do trễ');
                       return;
                     }
                     if (pendingCheckInData) {

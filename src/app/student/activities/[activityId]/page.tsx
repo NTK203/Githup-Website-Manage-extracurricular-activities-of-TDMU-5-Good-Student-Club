@@ -1006,10 +1006,14 @@ export default function ActivityDetailPage() {
       return;
     }
 
-    // Check if activity has ended - don't allow registration if it has
+    // Check if activity has ended or is ongoing - don't allow registration if it has
     const timeStatus = getActivityTimeStatus();
-    if (!isRegistered && timeStatus === 'after') {
-      alert("Hoạt động này đã kết thúc. Bạn không thể đăng ký tham gia.");
+    if (!isRegistered && (timeStatus === 'after' || timeStatus === 'during')) {
+      if (timeStatus === 'after') {
+        alert("Hoạt động này đã kết thúc. Bạn không thể đăng ký tham gia.");
+      } else {
+        alert("Hoạt động này đang diễn ra. Bạn không thể đăng ký tham gia.");
+      }
       return;
     }
 
@@ -1371,10 +1375,14 @@ export default function ActivityDetailPage() {
       return;
     }
 
-    // Check if activity has ended - don't allow registration if it has
+    // Check if activity has ended or is ongoing - don't allow registration if it has
     const timeStatus = getActivityTimeStatus();
-    if (!isRegistered && timeStatus === 'after') {
-      alert("Hoạt động này đã kết thúc. Bạn không thể đăng ký tham gia.");
+    if (!isRegistered && (timeStatus === 'after' || timeStatus === 'during')) {
+      if (timeStatus === 'after') {
+        alert("Hoạt động này đã kết thúc. Bạn không thể đăng ký tham gia.");
+      } else {
+        alert("Hoạt động này đang diễn ra. Bạn không thể đăng ký tham gia.");
+      }
       return;
     }
 
@@ -1730,10 +1738,14 @@ export default function ActivityDetailPage() {
       return;
     }
 
-    // Check if activity has ended - don't allow registration if it has
+    // Check if activity has ended or is ongoing - don't allow registration if it has
     const timeStatus = getActivityTimeStatus();
-    if (!isRegistered && timeStatus === 'after') {
-      alert("Hoạt động này đã kết thúc. Bạn không thể đăng ký tham gia.");
+    if (!isRegistered && (timeStatus === 'after' || timeStatus === 'during')) {
+      if (timeStatus === 'after') {
+        alert("Hoạt động này đã kết thúc. Bạn không thể đăng ký tham gia.");
+      } else {
+        alert("Hoạt động này đang diễn ra. Bạn không thể đăng ký tham gia.");
+      }
       return;
     }
 
@@ -2251,22 +2263,37 @@ export default function ActivityDetailPage() {
       <StudentNav key="student-nav" />
       <main className="flex-1 max-w-4xl mx-auto px-3 sm:px-4 py-3 sm:py-4 w-full">
         {/* Hero Section */}
-        <div className={`mb-2 rounded-lg overflow-hidden border ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
+        <div className={`mb-2 rounded-lg overflow-hidden border shadow-lg ${isDarkMode ? 'border-gray-700' : 'border-gray-300'}`}>
           {activity.imageUrl && (
-            <div className="relative h-40 sm:h-48 overflow-hidden">
+            <div className="relative h-48 sm:h-64 md:h-72 overflow-hidden group">
               <img
                 src={activity.imageUrl}
                 alt={activity.name}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                loading="eager"
+                fetchPriority="high"
+                decoding="async"
+                style={{
+                  imageRendering: 'crisp-edges',
+                  WebkitBackfaceVisibility: 'hidden',
+                  backfaceVisibility: 'hidden',
+                  transform: 'translateZ(0)',
+                  willChange: 'transform'
+                }}
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"></div>
+              {/* Enhanced gradient overlay for better text readability */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-black/20"></div>
+              {/* Subtle overlay pattern for depth */}
+              <div className="absolute inset-0 opacity-30" style={{
+                backgroundImage: 'radial-gradient(circle at 50% 50%, transparent 0%, rgba(0,0,0,0.3) 100%)'
+              }}></div>
               {renderStatusBadge()}
-              <div className="absolute bottom-0 left-0 right-0 p-3">
-                <h1 className={`text-lg sm:text-xl font-bold text-white mb-1 drop-shadow-lg`}>
+              <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-5 backdrop-blur-sm bg-gradient-to-t from-black/60 via-black/30 to-transparent">
+                <h1 className={`text-xl sm:text-2xl md:text-3xl font-bold text-white mb-2 drop-shadow-2xl leading-tight`}>
                   {activity.name}
                 </h1>
                 {activity.overview && (
-                  <p className={`text-xs text-white/95 line-clamp-2 drop-shadow-md`}>
+                  <p className={`text-sm sm:text-base text-white/95 line-clamp-2 drop-shadow-lg leading-relaxed`}>
                     {activity.overview}
                   </p>
                 )}
@@ -2356,8 +2383,8 @@ export default function ActivityDetailPage() {
                 <>
                   {!isRegistered && (() => {
                     const timeStatus = getActivityTimeStatus();
-                    // Don't show register button if activity has ended
-                    if (timeStatus === 'after') {
+                    // Don't show register button if activity has ended or is currently ongoing
+                    if (timeStatus === 'after' || timeStatus === 'during') {
                       return null;
                     }
                     
@@ -2962,7 +2989,7 @@ export default function ActivityDetailPage() {
 
                     return (
                       <div
-                        key={slotKey}
+                        key={`day-${dayData.day}-slot-${slotKey}`}
                         onClick={() => {
                           if (isActive) {
                             setSelectedDaySlot({ day: dayData.day, slot: slotKey as 'morning' | 'afternoon' | 'evening' });
@@ -3360,7 +3387,7 @@ export default function ActivityDetailPage() {
                 };
 
                 return (
-                  <div key={daySchedule.day} className={`p-2.5 rounded-lg border-2 ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                  <div key={`schedule-day-${daySchedule.day}-${daySchedule.date}`} className={`p-2.5 rounded-lg border-2 ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
                     {/* Day Header */}
                     <div className="flex items-start justify-between mb-2.5 pb-2 border-b ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}">
                       <div>
@@ -3382,7 +3409,7 @@ export default function ActivityDetailPage() {
                     {parsedSlots.length > 0 && (
                       <div className="mb-3 space-y-2">
                         {parsedSlots.map((slot, idx) => (
-                          <div key={idx} className={`p-2 rounded border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                          <div key={`day-${daySchedule.day}-slot-${slot.name}-${idx}`} className={`p-2 rounded border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
                             {/* Slot Header */}
                             <div className="flex items-center justify-between mb-2">
                               <div className="flex items-center gap-2">
@@ -3592,7 +3619,7 @@ export default function ActivityDetailPage() {
 
                 return (
                   <div
-                    key={slotName}
+                    key={`slot-${slotName}-${slot?.startTime || ''}-${slot?.endTime || ''}`}
                     onClick={() => {
                       if (isActive && hasLocation) {
                         if (activity.multiTimeLocations && activity.multiTimeLocations.length === 1) {
@@ -3934,7 +3961,7 @@ export default function ActivityDetailPage() {
                       </div>
                       
                       <div className="space-y-2">
-                        {group.map((mtl) => {
+                        {group.map((mtl, mtlIdx) => {
                           const timeSlotName = mtl.timeSlot === 'morning' ? 'Buổi Sáng' :
                                               mtl.timeSlot === 'afternoon' ? 'Buổi Chiều' :
                                               mtl.timeSlot === 'evening' ? 'Buổi Tối' : mtl.timeSlot;
@@ -3947,7 +3974,7 @@ export default function ActivityDetailPage() {
 
                           return (
                             <button
-                              key={mtl.id}
+                              key={`mtl-${mtl.id || mtl.timeSlot}-${mtl.timeSlot}-${mtlIdx}`}
                               onClick={() => {
                                 setSelectedTimeSlot(isSelected ? null : mtl.timeSlot);
                                 setTimeout(() => {
@@ -4093,7 +4120,7 @@ export default function ActivityDetailPage() {
 
                 return (
                   <button
-                    key={mtl.id}
+                    key={`mtl-single-${mtl.id || mtl.timeSlot}-${mtl.timeSlot}`}
                     onClick={() => {
                       // Nếu chỉ có 1 địa điểm, luôn hiển thị (không toggle)
                       if (activity.multiTimeLocations && activity.multiTimeLocations.length === 1) {
